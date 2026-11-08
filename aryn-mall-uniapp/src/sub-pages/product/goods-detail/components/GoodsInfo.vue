@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { GoodsSocialBubble } from '@/api/product/spu'
 import type { AppSeckillGoodsVO } from '@/api/promotion'
 import type { ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
@@ -6,10 +7,12 @@ import type { SpecRowView } from '@/utils/goods-purchase'
 import type { MemberPriceDisplay } from '@/utils/member-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 
-import { computed, getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import PriceText from '@/components/price-text/index.vue'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { formatStripAmount } from '@/utils/discount-price'
 import { resolveDeliveryRow } from '@/utils/goods-purchase'
@@ -45,6 +48,8 @@ interface Props {
    * 优先级算好，上层活动命中时传的是空展示，这里不用再重复判定优先级。
    */
   discountDisplay: DiscountPriceDisplay
+  /** 口碑气泡（详情接口随 goodsSpu.socialBubble 下发）；null=未达门槛，整颗不渲染 */
+  socialBubble?: GoodsSocialBubble | null
 }
 
 interface Emits {
@@ -55,12 +60,14 @@ interface Emits {
   (e: 'collect'): void
   (e: 'vipActivate'): void
   (e: 'share'): void
+  (e: 'gotoComment'): void
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const shipContextStore = useShipContextStore()
+const mallThemeStore = useMallThemeStore()
 const { t } = useI18n()
 
 /**
@@ -78,7 +85,6 @@ const wideNavOffsetStyle = { '--goods-nav-offset': `${statusBarHeight}px` }
 /** 轮播页码：参考商超详情页的 1/5 角标，用户能感知还有多少张图 */
 const currentImage = ref(0)
 const imageCount = computed(() => props.goodsSpu?.spuUrls?.length || 0)
-const isFreeShipping = computed(() => props.goodsSpu?.freightType === '0')
 
 /** 库存提示：售罄/低库存时的一行稀缺文案；充足或未知为空串（整行隐藏） */
 const stockHint = computed(() => {
@@ -92,6 +98,97 @@ const stockHint = computed(() => {
 
 function onSwiperChange(event: any) {
   currentImage.value = Number(event?.current) || 0
+}
+
+/**
+ * 口碑气泡：社证文案（服务端成文，与商品卡同源同门槛）+ 好评率，最多两条轮换。
+ *
+ * 自动动效总开关（mallThemeStore.autoMotionEnabled）约束两件事：
+ * - 弹出：开启 → 挂载 800ms 后弹出（一次性 CSS 动画）；关闭 → 首帧即静态显示，内容不丢；
+ * - 轮换：开启且两条文案齐备 → 4s 定时切换（diy-search-bar 同款 watch 自愈启停）；
+ *   只有一条文案时不开定时器。
+ */
+const bubbleMessages = computed(() =>
+  [props.socialBubble?.socialText, props.socialBubble?.praiseText].filter(Boolean) as string[],
+)
+const bubbleVisible = ref(!mallThemeStore.autoMotionEnabled)
+const bubbleIndex = ref(0)
+let bubbleShowTimer: ReturnType<typeof setTimeout> | null = null
+let bubbleRotateTimer: ReturnType<typeof setInterval> | null = null
+
+function scheduleBubbleShow() {
+  if (bubbleShowTimer) {
+    clearTimeout(bubbleShowTimer)
+    bubbleShowTimer = null
+  }
+  if (!mallThemeStore.autoMotionEnabled) {
+    bubbleVisible.value = true
+    return
+  }
+  bubbleShowTimer = setTimeout(() => {
+    bubbleVisible.value = true
+  }, 800)
+}
+
+function startRotation() {
+  stopRotation()
+  if (!mallThemeStore.autoMotionEnabled)
+    return
+  if (bubbleMessages.value.length <= 1)
+    return
+  bubbleRotateTimer = setInterval(rotateMessage, 4000)
+}
+
+/**
+ * 文案切换动画（三态类切换，小程序不支持 <transition>）：
+ * idle 常驻 → leaving 上移淡出 → 换字后 entering 下方无过渡就位 → 回 idle 滑入淡上。
+ */
+const bubbleTextState = ref<'idle' | 'leaving' | 'entering'>('idle')
+let bubbleSwapTimer: ReturnType<typeof setTimeout> | null = null
+
+function rotateMessage() {
+  if (bubbleMessages.value.length <= 1 || bubbleTextState.value !== 'idle')
+    return
+  bubbleTextState.value = 'leaving'
+  bubbleSwapTimer = setTimeout(() => {
+    bubbleIndex.value = (bubbleIndex.value + 1) % bubbleMessages.value.length
+    bubbleTextState.value = 'entering'
+    // 下一拍再释放回 idle：让 entering 的「无过渡跳变」先落定，随后才触发滑入过渡
+    bubbleSwapTimer = setTimeout(() => {
+      bubbleTextState.value = 'idle'
+    }, 50)
+  }, 200)
+}
+
+function stopRotation() {
+  if (bubbleRotateTimer) {
+    clearInterval(bubbleRotateTimer)
+    bubbleRotateTimer = null
+  }
+  if (bubbleSwapTimer) {
+    clearTimeout(bubbleSwapTimer)
+    bubbleSwapTimer = null
+  }
+  bubbleTextState.value = 'idle'
+}
+
+onMounted(() => {
+  scheduleBubbleShow()
+  startRotation()
+})
+// 主题拉取晚于挂载：开关异步到达后重新评估弹出与轮换（diy-search-bar 同款）
+watch([() => mallThemeStore.autoMotionEnabled, bubbleMessages], () => {
+  scheduleBubbleShow()
+  startRotation()
+})
+onBeforeUnmount(() => {
+  if (bubbleShowTimer)
+    clearTimeout(bubbleShowTimer)
+  stopRotation()
+})
+
+function onBubbleTap() {
+  emit('gotoComment')
 }
 
 /**
@@ -148,13 +245,6 @@ const savingAmount = computed(() => {
   return (strike - main).toFixed(2)
 })
 
-/** 副标题与商品名重复时整行隐藏：重复的灰字只会让首屏更空 */
-const showSubtitle = computed(() => {
-  const subtitle = String(props.goodsSpu?.subTitle || '').trim()
-  const name = String(props.goodsSpu?.name || '').trim()
-  return subtitle.length > 0 && subtitle !== name
-})
-
 /**
  * 商详首屏卖点：后台富文本录入、服务端白名单清洗后的 HTML 片段。
  * 允许逐商品配色（span 的 color 等），为空时整块不渲染。
@@ -162,6 +252,18 @@ const showSubtitle = computed(() => {
 const introductionHtml = computed(() =>
   String(props.goodsSpu?.introduction || '').trim(),
 )
+
+/**
+ * 副标题降级为「无卖点时的兜底短描述」，与卖点富文本不并排展示：
+ * 小象/盒马商详只有一个描述面（描述段落跟在属性标签后），而运营录入时
+ * 副标题往往就是卖点的前半句，并排必然重复。列表/购物车等卡片面仍照常
+ * 展示 subTitle 的一行卖点，不受本规则影响。
+ */
+const showSubtitle = computed(() => {
+  const subtitle = String(props.goodsSpu?.subTitle || '').trim()
+  const name = String(props.goodsSpu?.name || '').trim()
+  return subtitle.length > 0 && subtitle !== name && introductionHtml.value.length === 0
+})
 
 /**
  * 卖点的版式约束：只放开行内样式，段落边距清零。
@@ -276,6 +378,9 @@ onBeforeUnmount(stopSeckillCountdown)
  * 发货行：已绑定船舶上下文时订单将按内部配送（delivery_way=4）履约，
  * 展示「配送至 船舶」+ 靠港信息（与结算页同口径），而不是收货地址——
  * 船供订单不走收货地址，原先显示「配送至：某某小区」是误导。
+ * 普通场景仅收费商品（freight_type='1'）展示运费，「包邮」不再上商详
+ * （小象/盒马同口径，与商品卡删「包邮」chip 的决策对齐），可见性与
+ * 文案口径都在共享层，地址改选交给结算页。
  */
 const deliveryRow = computed(() => resolveDeliveryRow({
   hasVesselContext: shipContextStore.hasVesselContext,
@@ -289,16 +394,21 @@ const deliveryRow = computed(() => resolveDeliveryRow({
   addressText: formatAddressText(props.address),
 }))
 
-/** 配送行主文案：共享层负责口径判定，文案在这里按当前语言渲染 */
+/** 配送行主文案：共享层负责口径判定（visible），文案在这里按当前语言渲染 */
 const deliveryText = computed(() => {
   if (shipContextStore.hasVesselContext) {
     const vessel = (shipContextStore.vesselName ?? '').trim() || t('product.currentVessel')
     return t('product.deliveryToVessel', { vessel })
   }
-  return isFreeShipping.value
-    ? t('product.freeShipping')
-    : t('product.freightAmount', { amount: props.goodsSpu?.fixedFreightPrice ?? 0 })
+  return t('product.freightAmount', { amount: props.goodsSpu?.fixedFreightPrice ?? 0 })
 })
+
+/** 白卡内行的分隔线归属：只有后面还有可见行时才带底边框，末行不留悬空线 */
+function cellClass(hasFollower: boolean) {
+  return hasFollower
+    ? 'goods-cell goods-cell--border flex items-center py-3'
+    : 'goods-cell flex items-center py-3'
+}
 
 /** 配送行副文案：船舶场景沿用共享层拼好的港口/靠港时段（业务数据，语言无关） */
 const deliveryDetail = computed(() => {
@@ -376,246 +486,278 @@ defineExpose({
   <view id="scroll-pic" class="goods-info" :style="wideNavOffsetStyle">
     <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的左列图集；规则见文末宽屏段 -->
     <view class="goods-gallery">
-    <view class="goods-swiper">
-      <wd-swiper
-        height="750rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
-        @click="handleSwiper" @change="onSwiperChange"
-      />
-      <view v-if="imageCount > 1" class="goods-swiper__counter">
-        {{ currentImage + 1 }}/{{ imageCount }}
+      <view class="goods-swiper">
+        <wd-swiper
+          height="750rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
+          @click="handleSwiper" @change="onSwiperChange"
+        />
+        <view v-if="imageCount > 1" class="goods-swiper__counter">
+          {{ currentImage + 1 }}/{{ imageCount }}
+        </view>
+        <!-- 口碑气泡：社证/好评率服务端成文，点击跳评价区；压图浮层用固定深色（与页码角标同惯例） -->
+        <view
+          v-if="bubbleVisible && bubbleMessages.length"
+          class="goods-swiper__bubble"
+          :class="{ 'goods-swiper__bubble--enter': mallThemeStore.autoMotionEnabled }"
+          @tap="onBubbleTap"
+        >
+          <view v-if="socialBubble?.avatars?.length" class="goods-swiper__bubble-avatars">
+            <image
+              v-for="(url, index) in socialBubble.avatars.slice(0, 3)"
+              :key="index"
+              class="goods-swiper__bubble-avatar"
+              :src="url"
+              mode="aspectFill"
+            />
+          </view>
+          <text
+            class="goods-swiper__bubble-text"
+            :class="{
+              'goods-swiper__bubble-text--leaving': bubbleTextState === 'leaving',
+              'goods-swiper__bubble-text--entering': bubbleTextState === 'entering',
+            }"
+          >
+            {{ bubbleMessages[bubbleIndex] }}
+          </text>
+        </view>
       </view>
-    </view>
     </view>
     <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的右栏（价格条 → 优惠/规格/配送） -->
     <view class="goods-body">
-    <view
-      class="goods-price-bar relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
-    >
-      <view class="flex items-center justify-between pt-1">
-        <!-- 价格：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价；主价旁的划线价随主价口径切换 -->
-        <view class="flex-1">
-          <view class="flex flex-wrap items-center">
+      <view
+        class="goods-price-bar relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
+      >
+        <view class="flex items-center justify-between pt-1">
+          <!-- 价格：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价；主价旁的划线价随主价口径切换 -->
+          <view class="flex-1">
+            <view class="flex flex-wrap items-center">
+              <price-text
+                class="goods-price-main"
+                :value="mainPrice"
+                symbol="￥"
+              />
+              <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
+              <text v-if="memberDisplay.showMemberPrice" class="member-badge">
+                {{ t('product.memberPrice') }}
+              </text>
+              <text v-if="clearanceDisplay.showClearancePrice" class="clearance-badge">
+                {{ t('product.clearancePrice') }}
+              </text>
+              <!-- 新人价角标：白字底上用白色描边胶囊，不引入额外色块压住渐变主色 -->
+              <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
+                {{ t('product.newbiePrice') }}
+              </text>
+              <text v-if="discountDisplay.showDiscountPrice" class="discount-badge">
+                {{ discountDisplay.badgeText }}
+              </text>
+              <text v-if="savingAmount" class="saving-badge">
+                {{ t('product.saveAmount', { amount: savingAmount }) }}
+              </text>
+            </view>
             <wd-text
-              size="44rpx" prefix="￥" mode="price" color="white" bold
-              custom-class="goods-price-main"
-              :text="mainPrice"
+              v-if="strikePrice != null" color="white" custom-class="pl-5px goods-strike-price" size="28rpx" prefix="￥"
+              mode="price" :text="strikePrice" decoration="line-through"
             />
-            <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
-            <text v-if="memberDisplay.showMemberPrice" class="member-badge">
-              {{ t('product.memberPrice') }}
-            </text>
-            <text v-if="clearanceDisplay.showClearancePrice" class="clearance-badge">
-              {{ t('product.clearancePrice') }}
-            </text>
-            <!-- 新人价角标：白字底上用白色描边胶囊，不引入额外色块压住渐变主色 -->
-            <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
-              {{ t('product.newbiePrice') }}
-            </text>
-            <text v-if="discountDisplay.showDiscountPrice" class="discount-badge">
-              {{ discountDisplay.badgeText }}
-            </text>
-            <text v-if="savingAmount" class="saving-badge">
-              {{ t('product.saveAmount', { amount: savingAmount }) }}
-            </text>
           </view>
-          <wd-text
-            v-if="strikePrice != null" color="white" custom-class="pl-5px goods-strike-price" size="28rpx" prefix="￥"
-            mode="price" :text="strikePrice" decoration="line-through"
-          />
-        </view>
-        <!-- 收藏分享 -->
-        <view class="flex-shrink-0">
-          <view class="flex flex-row">
-            <view class="flex flex-col items-center" @click="handleCollect">
-              <text v-if="goodsSpu?.collectId" class="i-flowbite:heart-solid text-18px text-red-5 text-white!" />
-              <text v-else class="i-flowbite:heart-outline text-18px text-white!" />
-              <text class="text-12px text-white!">
-                {{ goodsSpu?.collectId ? t('product.favorited') : t('product.favorite') }}
-              </text>
-            </view>
-            <view class="flex flex-col items-center pl-10px" @click="handleShare">
-              <text class="i-flowbite:share-all-outline text-18px text-white!" />
-              <text class="text-12px text-white!">
-                {{ t('product.share') }}
-              </text>
+          <!-- 收藏分享 -->
+          <view class="flex-shrink-0">
+            <view class="flex flex-row">
+              <view class="flex flex-col items-center" @click="handleCollect">
+                <text v-if="goodsSpu?.collectId" class="i-flowbite:heart-solid text-18px text-red-5 text-white!" />
+                <text v-else class="i-flowbite:heart-outline text-18px text-white!" />
+                <text class="text-12px text-white!">
+                  {{ goodsSpu?.collectId ? t('product.favorited') : t('product.favorite') }}
+                </text>
+              </view>
+              <view class="flex flex-col items-center pl-10px" @click="handleShare">
+                <text class="i-flowbite:share-all-outline text-18px text-white!" />
+                <text class="text-12px text-white!">
+                  {{ t('product.share') }}
+                </text>
+              </view>
             </view>
           </view>
         </view>
       </view>
-    </view>
-    <!-- 秒杀条：有进行中的秒杀才展示；已抢完/已结束仅提示，不影响加购 -->
-    <view v-if="seckillInfo" class="seckill-strip">
-      <view class="seckill-tag">
-        {{ t('product.flashSale') }}
+      <!-- 秒杀条：有进行中的秒杀才展示；已抢完/已结束仅提示，不影响加购 -->
+      <view v-if="seckillInfo" class="seckill-strip">
+        <view class="seckill-tag">
+          {{ t('product.flashSale') }}
+        </view>
+        <view v-if="!seckillFinished" class="seckill-countdown">
+          {{ t('product.endsIn') }}
+          <text class="seckill-time">
+            {{ seckillCountdownText }}
+          </text>
+        </view>
+        <text v-else class="seckill-over">
+          {{ t('product.sessionEnded') }}
+        </text>
+        <view class="seckill-meta">
+          <text v-if="seckillInfo.limitPerUser">
+            {{ t('product.limitPerUser', { count: seckillInfo.limitPerUser }) }}
+          </text>
+          <text v-if="seckillRemaining > 0" class="seckill-remaining">
+            {{ t('product.stockLeft', { count: seckillRemaining }) }}
+          </text>
+          <text v-else class="seckill-remaining">
+            {{ t('product.soldOut') }}
+          </text>
+        </view>
       </view>
-      <view v-if="!seckillFinished" class="seckill-countdown">
-        {{ t('product.endsIn') }}
-        <text class="seckill-time">
-          {{ seckillCountdownText }}
-        </text>
-      </view>
-      <text v-else class="seckill-over">
-        {{ t('product.sessionEnded') }}
-      </text>
-      <view class="seckill-meta">
-        <text v-if="seckillInfo.limitPerUser">
-          {{ t('product.limitPerUser', { count: seckillInfo.limitPerUser }) }}
-        </text>
-        <text v-if="seckillRemaining > 0" class="seckill-remaining">
-          {{ t('product.stockLeft', { count: seckillRemaining }) }}
-        </text>
-        <text v-else class="seckill-remaining">
-          {{ t('product.soldOut') }}
-        </text>
-      </view>
-    </view>
-    <!--
+      <!--
       新人价条：只承载「为什么价格是这样」的信息，不做第二个活动入口。
       两种情况互斥：
         · 可享 → 限购提示（后端硬校验每人 1 件，提前说明避免结算才被拒）；
         · 确定不符合 → 说明原因，价格区已回落原价，否则用户会以为页面标错价。
       未登录时后端 eligible=null，display 按可享处理，不出现「你没有资格」这类误伤文案。
     -->
-    <view v-if="newbieLimitText || newbieDisplay.ineligibleText" class="newbie-strip">
-      <text v-if="newbieLimitText" class="newbie-strip-text">
-        {{ newbieLimitText }}
-      </text>
-      <text v-else class="newbie-strip-text is-muted">
-        {{ newbieDisplay.ineligibleText }}
-      </text>
-    </view>
+      <view v-if="newbieLimitText || newbieDisplay.ineligibleText" class="newbie-strip">
+        <text v-if="newbieLimitText" class="newbie-strip-text">
+          {{ newbieLimitText }}
+        </text>
+        <text v-else class="newbie-strip-text is-muted">
+          {{ newbieDisplay.ineligibleText }}
+        </text>
+      </view>
 
-    <!--
+      <!--
       会员价引导条：未达标/未登录时透出「会员专享 ¥x」，只做引导不做拦截。
       达标时主价已切会员价（价格区角标已说明），不重复渲染本行；
       价格倒挂等无可引导信息时 guideText 为 null，整行隐藏（不改变主价与划线口径）。
     -->
-    <view v-if="memberGuideText" class="member-strip">
-      <text class="member-strip-tag">
-        {{ t('product.member') }}
-      </text>
-      <text class="member-strip-text">
-        {{ memberGuideText }}
-      </text>
-      <text class="member-strip-meta">
-        {{ t('product.joinToEnjoy') }}
-      </text>
-    </view>
-
-    <!-- 限时折扣条：解释「为什么主价是折后价」，活动名让用户知道价从哪来 -->
-    <view v-if="discountDisplay.showDiscountPrice" class="discount-strip">
-      <text class="discount-strip-tag">
-        {{ t('product.limitedDiscount') }}
-      </text>
-      <text class="discount-strip-name">
-        {{ discountDisplay.activityName || t('product.activityItem') }}
-      </text>
-      <text class="discount-strip-meta">
-        {{ t('product.autoAppliedAtCheckout') }}
-      </text>
-    </view>
-    <view
-      class="goods-title-card relative rounded-xl bg-white dark:bg-[var(--wot-dark-background2)]"
-      :class="{ 'goods-title-card--striped': hasPriceStrip }"
-    >
-      <view class="goods-title-card__main">
-        <!--  商品标题 -->
-        <wd-text :lines="2" size="32rpx" color="inherit" bold custom-class="goods-title-text" :text="goodsSpu?.name" />
-        <!-- 副标题 -->
-        <view v-if="showSubtitle" class="goods-title-card__subtitle">
-          <wd-text :lines="2" size="24rpx" color="#8a8f99" custom-class="goods-subtitle-text" :text="goodsSpu?.subTitle" />
-        </view>
+      <view v-if="memberGuideText" class="member-strip">
+        <text class="member-strip-tag">
+          {{ t('product.member') }}
+        </text>
+        <text class="member-strip-text">
+          {{ memberGuideText }}
+        </text>
+        <text class="member-strip-meta">
+          {{ t('product.joinToEnjoy') }}
+        </text>
       </view>
-      <!--
+
+      <!-- 限时折扣条：解释「为什么主价是折后价」，活动名让用户知道价从哪来 -->
+      <view v-if="discountDisplay.showDiscountPrice" class="discount-strip">
+        <text class="discount-strip-tag">
+          {{ t('product.limitedDiscount') }}
+        </text>
+        <text class="discount-strip-name">
+          {{ discountDisplay.activityName || t('product.activityItem') }}
+        </text>
+        <text class="discount-strip-meta">
+          {{ t('product.autoAppliedAtCheckout') }}
+        </text>
+      </view>
+      <view
+        class="goods-title-card relative rounded-xl bg-white dark:bg-[var(--wot-dark-background2)]"
+        :class="{ 'goods-title-card--striped': hasPriceStrip }"
+      >
+        <view class="goods-title-card__main">
+          <!--  商品标题 -->
+          <wd-text :lines="2" size="36rpx" color="inherit" bold custom-class="goods-title-text" :text="goodsSpu?.name" />
+          <!-- 副标题 -->
+          <view v-if="showSubtitle" class="goods-title-card__subtitle">
+            <wd-text :lines="2" size="24rpx" color="#8a8f99" custom-class="goods-subtitle-text" :text="goodsSpu?.subTitle" />
+          </view>
+        </view>
+        <!--
         运营配置的属性标签（地标/冷藏/上榜…）：等宽铺满，放在标题之后、
         库存提示之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
         首屏与改动前完全一致。
       -->
-      <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
-      <!--
+        <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
+        <!--
         商详首屏卖点：运营可配的白名单富文本，支持逐商品配色，
         紧跟在属性卡之后；为空时整块不渲染（旧数据与未配置卖点一致）。
       -->
-      <view
-        v-if="introductionHtml"
-        class="goods-title-card__intro text-[#6b7280] dark:text-[var(--wot-dark-color3)]"
-      >
-        <mp-html :content="introductionHtml" :tag-style="introTagStyle" />
-      </view>
-      <!--
+        <view
+          v-if="introductionHtml"
+          class="goods-title-card__intro text-[#6b7280] dark:text-[var(--wot-dark-color3)]"
+        >
+          <mp-html :content="introductionHtml" :tag-style="introTagStyle" />
+        </view>
+        <!--
         库存口径：绝对库存/累计销量不外露（运营敏感数据，自营竞品也不展示），
         只在售罄或低库存时给一行稀缺提示；充足或未知时整行隐藏。
       -->
-      <view v-if="stockHint" class="goods-title-card__meta">
-        <text class="goods-title-card__meta-item">
-          {{ stockHint }}
-        </text>
+        <view v-if="stockHint" class="goods-title-card__meta">
+          <text class="goods-title-card__meta-item">
+            {{ stockHint }}
+          </text>
+        </view>
       </view>
-    </view>
-    <view class="goods-cells mx-3 my-2 rounded-xl bg-white p-3 dark:bg-[var(--wot-dark-background2)]">
-      <view class="overflow-hidden rounded-lg">
-        <view
-          v-if="couponList && couponList.length > 0"
-          class="goods-cell goods-cell--border flex items-center py-3"
-          hover-class="goods-cell--pressed"
-          @click="showCoupon"
-        >
-          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
-            {{ t('product.discounts') }}
-          </view>
-          <view class="goods-cell__value mx-5 flex-1 text-26rpx text-gray-600">
-            <view class="line-clamp-1 flex">
-              <view v-for="(item, index) in couponList.slice(0, 3)" :key="index" class="coupons_css">
-                {{ item.couponName }}
-                <view class="leftdot" />
-                <view class="rightdot" />
+      <!-- 优惠/规格/发货行共用一张白卡：三行都可能被隐藏（无券、单规格无规格值、包邮商品），
+         全隐时整卡不渲染；分隔线按「非末行才带底边框」动态归属，避免末行留悬空线 -->
+      <view
+        v-if="(couponList && couponList.length > 0) || specRow.visible || deliveryRow.visible"
+        class="goods-cells mx-3 my-2 rounded-xl p-3 bg-white dark:bg-[var(--wot-dark-background2)]"
+      >
+        <view class="overflow-hidden rounded-lg">
+          <view
+            v-if="couponList && couponList.length > 0"
+            :class="cellClass(specRow.visible || deliveryRow.visible)"
+            hover-class="goods-cell--pressed"
+            @click="showCoupon"
+          >
+            <view class="goods-cell__label w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+              {{ t('product.discounts') }}
+            </view>
+            <view class="goods-cell__value mx-5 flex-1 text-26rpx text-gray-600">
+              <view class="line-clamp-1 flex">
+                <view v-for="(item, index) in couponList.slice(0, 3)" :key="index" class="coupons_css">
+                  {{ item.couponName }}
+                  <view class="leftdot" />
+                  <view class="rightdot" />
+                </view>
               </view>
             </view>
+            <view class="flex-shrink-0 text-gray-400">
+              <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
+            </view>
           </view>
-          <view class="flex-shrink-0 text-gray-400">
-            <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
-          </view>
-        </view>
-        <!--
+          <!--
           规格行：多规格是「选择规格」入口；单规格显示真实规格值（没有规格值时整行隐藏，
           规格信息在商品名/船供箱规里），点击只调数量——弹层对单规格不渲染规格选择区。
         -->
-        <view
-          v-if="specRow.visible"
-          class="goods-cell goods-cell--border flex items-center py-3"
-          hover-class="goods-cell--pressed"
-          @click="openSkuPopup(2)"
-        >
-          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
-            {{ t('product.specs') }}
-          </view>
-          <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
-            {{ specRow.text }}
-          </view>
-          <view class="flex-shrink-0 text-gray-400">
-            <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
-          </view>
-        </view>
-        <view
-          class="goods-cell flex items-center py-3"
-          :hover-class="deliveryRow.tappable ? 'goods-cell--pressed' : 'none'"
-          @click="onDeliveryRowTap"
-        >
-          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
-            {{ t('product.delivery') }}
-          </view>
-          <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
-            {{ deliveryText }}
-            <view v-if="deliveryDetail" class="line-clamp-1 text-12px text-gray-400">
-              {{ deliveryDetail }}
+          <view
+            v-if="specRow.visible"
+            :class="cellClass(deliveryRow.visible)"
+            hover-class="goods-cell--pressed"
+            @click="openSkuPopup(2)"
+          >
+            <view class="goods-cell__label w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+              {{ t('product.specs') }}
+            </view>
+            <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
+              {{ specRow.text }}
+            </view>
+            <view class="flex-shrink-0 text-gray-400">
+              <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
             </view>
           </view>
-          <view v-if="deliveryRow.tappable" class="flex-shrink-0 text-gray-400">
-            <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
+          <view
+            v-if="deliveryRow.visible"
+            class="goods-cell flex items-center py-3"
+            :hover-class="deliveryRow.tappable ? 'goods-cell--pressed' : 'none'"
+            @click="onDeliveryRowTap"
+          >
+            <view class="goods-cell__label w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+              {{ t('product.delivery') }}
+            </view>
+            <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
+              {{ deliveryText }}
+              <view v-if="deliveryDetail" class="line-clamp-1 text-12px text-gray-400">
+                {{ deliveryDetail }}
+              </view>
+            </view>
+            <view v-if="deliveryRow.tappable" class="flex-shrink-0 text-gray-400">
+              <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
+            </view>
           </view>
         </view>
       </view>
-    </view>
     </view>
   </view>
 </template>
@@ -635,6 +777,85 @@ defineExpose({
     color: #fff;
     font-size: 22rpx;
     line-height: 1.5;
+  }
+
+  // 口碑气泡：悬浮在左上角（fixed），滚出图集区也不消失；top 让出自绘顶栏（状态栏 + 44px 栏高）。
+  // 注意：若祖先链出现 transform/filter 包含块，fixed 会退化成相对该祖先定位，验收时要滚动确认。
+  &__bubble {
+    position: fixed;
+    top: calc(var(--goods-nav-offset, var(--status-bar-height, 0px)) + 44px + 12rpx);
+    left: 20rpx;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    max-width: 62%;
+    padding: 8rpx 20rpx 8rpx 10rpx;
+    border-radius: 999rpx;
+    background: rgb(17 17 17 / 55%);
+    backdrop-filter: blur(8px);
+    color: #fff;
+  }
+
+  &__bubble-avatar {
+    width: 36rpx;
+    height: 36rpx;
+    border-radius: 50%;
+    border: 2rpx solid rgb(255 255 255 / 80%);
+  }
+
+  &__bubble-avatar + &__bubble-avatar {
+    margin-left: -12rpx;
+  }
+
+  &__bubble-text {
+    min-width: 0;
+    margin-left: 8rpx;
+    overflow: hidden;
+    font-size: 22rpx;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  // 切换动画三态（配 rotateMessage 的状态机）：上移淡出 → 下方无过渡就位 → 滑入淡上
+  &__bubble-text--leaving {
+    opacity: 0;
+    transform: translateY(-8rpx);
+  }
+
+  &__bubble-text--entering {
+    transition: none;
+    opacity: 0;
+    transform: translateY(8rpx);
+  }
+
+  &__bubble--enter {
+    animation: goods-bubble-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+// keyframes 必须在 <style> 块内（写在块外会被 SFC 静默丢弃）
+@keyframes goods-bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-10rpx) scale(0.85);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goods-swiper__bubble--enter {
+    animation: none;
+  }
+
+  // 切换动画一并退化为直接换字（内容不丢，只是无动效）
+  .goods-swiper__bubble-text {
+    transition: none;
   }
 }
 
@@ -766,6 +987,14 @@ defineExpose({
   font-size: 20rpx;
   font-weight: 600;
   line-height: 1.6;
+}
+
+// 主价：整数大、小数小（price-text 组件内用 em 跟随本字号）
+.goods-price-main {
+  color: #fff;
+  font-size: 44rpx;
+  font-weight: 700;
+  line-height: 1;
 }
 
 // 「省￥x」与新人价角标同一套白描边语言，避免在渐变区再引入第二个色块
@@ -1030,6 +1259,31 @@ defineExpose({
     font-size: 11px;
   }
 
+  /* 口碑气泡宽屏 px 变体：宽屏是平板双栏布局，悬浮改回图集卡内（fixed 会悬到整个视口），
+     图集已整体下移到顶栏之下（--goods-wide-nav-offset），气泡 top 不再让位顶栏 */
+  .goods-swiper__bubble {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    max-width: 46%;
+    padding: 2px 8px 2px 4px;
+  }
+
+  .goods-swiper__bubble-avatar {
+    width: 18px;
+    height: 18px;
+    border-width: 1px;
+  }
+
+  .goods-swiper__bubble-avatar + .goods-swiper__bubble-avatar {
+    margin-left: -6px;
+  }
+
+  .goods-swiper__bubble-text {
+    margin-left: 4px;
+    font-size: 11px;
+  }
+
   /* 右栏：价格条 → 活动条 → 标题卡 → 优惠/规格/配送，纵向 12px 节奏 */
   .goods-body {
     display: flex;
@@ -1170,7 +1424,7 @@ defineExpose({
   }
 
   .goods-title-card :deep(.goods-title-text) {
-    font-size: 14px !important;
+    font-size: 15px !important;
   }
 
   .goods-title-card :deep(.goods-subtitle-text) {

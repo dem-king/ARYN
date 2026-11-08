@@ -18,6 +18,7 @@ import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.order.support.ChainAiAssistant;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import static org.mockito.ArgumentMatchers.anyMap;
 import com.aryn.cloud.order.support.ChainOrderTextParser;
 import java.util.Map;
@@ -118,6 +119,17 @@ class SharedCartImportServiceTest {
 		// 姓名闸门默认放行：confirmImport 落库前会查操作者成员行的 display_name，
 		// 夹具统一模拟「发起人已填姓名」，未填姓名的拦截由专项用例显式覆盖
 		when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(namedOwnerMember());
+		// 生产确认走购物车行锁；测试沿用各用例的 selectOne 购物车桩，避免逐例重复
+		when(cartMapper.selectForUpdate(anyString(), anyString())).thenAnswer(invocation ->
+				cartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
+					.eq(SharedCart::getTenantId, invocation.getArgument(0))
+					.eq(SharedCart::getId, invocation.getArgument(1))));
+		// 生产确认走 FOR UPDATE 行锁；测试沿用各用例的 selectOne 任务桩，避免逐例重复
+		when(importMapper.selectForConfirm(anyString(), anyString(), anyString())).thenAnswer(invocation ->
+				importMapper.selectOne(Wrappers.lambdaQuery(SharedCartImport.class)
+					.eq(SharedCartImport::getTenantId, invocation.getArgument(0))
+					.eq(SharedCartImport::getCartId, invocation.getArgument(1))
+					.eq(SharedCartImport::getId, invocation.getArgument(2))));
 		ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", remoteReplenishImportMatchService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", mock(RemoteGoodsSkuService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));
@@ -272,8 +284,33 @@ class SharedCartImportServiceTest {
 
 		assertEquals(SharedCartImport.STATUS_IMPORTED, vo.getStatus());
 		assertEquals(2, vo.getImportedRows());
+		verify(importMapper).selectForConfirm(TENANT, CART_ID, IMPORT_ID);
 		verify(itemMapper, never()).insert(any(SharedCartItem.class));
 		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("并发并入依赖导入任务行锁：selectForConfirm 必须带 FOR UPDATE")
+	void confirmImportUsesTaskRowLock() throws Exception {
+		org.apache.ibatis.annotations.Select select = SharedCartImportMapper.class
+			.getMethod("selectForConfirm", String.class, String.class, String.class)
+			.getAnnotation(org.apache.ibatis.annotations.Select.class);
+
+		assertTrue(select != null, "确认并入入口必须使用带行锁的查询");
+		assertTrue(String.join(" ", select.value()).contains("FOR UPDATE"),
+				"并发并入必须在任务行上串行化，否则重复确认会把明细数量翻倍");
+	}
+
+	@Test
+	@DisplayName("同车不同导入并发并入依赖购物车行锁：selectForUpdate 必须带 FOR UPDATE")
+	void confirmImportLocksCartRowForCrossImportMerge() throws Exception {
+		org.apache.ibatis.annotations.Select select = SharedCartMapper.class
+			.getMethod("selectForUpdate", String.class, String.class)
+			.getAnnotation(org.apache.ibatis.annotations.Select.class);
+
+		assertTrue(select != null, "同车并入必须使用带行锁的购物车查询");
+		assertTrue(String.join(" ", select.value()).contains("FOR UPDATE"),
+				"任务行锁只串行化同一导入；同车不同导入并发并入必须锁购物车行，防明细丢失更新/撞唯一键");
 	}
 
 	@Test

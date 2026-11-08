@@ -154,6 +154,8 @@ export default {
       success: 'Payment Successful',
       confirming: 'Confirming Payment',
       confirmingDesc: 'If payment is complete, this page will update in a few seconds. You can also refresh or check the order later.',
+      closed: 'Payment closed',
+      closedDesc: 'The payment was closed. Please return to the order list and start a new payment.',
       refresh: 'Refresh',
       paymentNo: 'Payment No.',
       paymentMethod: 'Payment Method',

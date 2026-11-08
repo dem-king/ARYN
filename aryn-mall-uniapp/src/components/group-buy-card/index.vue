@@ -3,6 +3,7 @@ import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import { stripGroupBadgePrefix } from '@/utils/activity-name'
 
 const props = defineProps<{
@@ -145,12 +146,8 @@ function handleClick() {
       </view>
 
       <view class="gb-price">
-        <text class="gb-sym">
-          ¥
-        </text>
-        <text class="gb-val">
-          {{ priceText || '--' }}
-        </text>
+        <price-text v-if="priceText" class="gb-val" :value="props.activity.groupPrice" />
+        <text v-else class="gb-val">--</text>
         <text v-if="originalText" class="gb-orig">
           ¥{{ originalText }}
         </text>
@@ -271,13 +268,9 @@ function handleClick() {
   white-space: nowrap;
 }
 
-.gb-sym {
-  color: var(--wot-color-theme-primary, #ff2237);
-  font-size: 20rpx;
-  font-weight: 700;
-}
-
 .gb-val {
+  --price-symbol-size: 0.48em;
+
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 42rpx;
   font-weight: 800;

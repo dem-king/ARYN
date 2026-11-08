@@ -89,6 +89,50 @@ tab 页的底部让位（分类页高度、购物车结算条与占位、首页/
 - 未验证：**真机/开发者工具下的小程序自绘底栏**（本机只有 H5 浏览器）。H5 端曾临时渲染同一组件
   验证材质、选中态与 `switchTab`，页面底部让位是 `#ifdef MP-WEIXIN` 分支，需在开发者工具复核。
 
+### 追加：底部渐进模糊蒙层（2026-11-08）
+
+**问题**：胶囊是悬浮的，左右 20px 与下方 16px 的空隙会透出滚到栏后的内容，价签、按钮仍然「能看清」。
+
+**做法**：在胶囊下方铺一条**全宽渐进模糊蒙层**，三处实现逐值一致：
+
+- 几何：`position: fixed; left/right: 0; bottom: 0; height: 68px`（= 胶囊贴底 16 + 高 52，
+  渐变正好在胶囊上沿收干净，不盖到上方内容与购物车结算条）；
+- 材质：`blur(18px) saturate(160%)`（与胶囊同一套数值）+ 浅色蒙层 `rgba(255,255,255,.42)`
+  （深色 `rgba(18,18,18,.5)`）；
+- 渐进：`mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.6) 45%, transparent 100%)`
+  同时作用于背景与 `backdrop-filter`，模糊由下往上渐弱；`-WEBKIT-mask-image` /
+  `-WEBKIT-backdrop-filter` 大小写前缀兜底（autoprefixer 只清理小写过时前缀）；
+- 层级：`z-index: 890`——胶囊(998)之下、页面弹层(900+)之上，底部弹层滑出时不会被虚化；
+  `pointer-events: none` 不挡点击。
+
+| 平台 | 落点 |
+|------|------|
+| 微信小程序（常态） | `components/glass-tabbar/index.vue` 新增 `.glass-tabbar-veil`（与胶囊并列的根节点） |
+| 微信小程序（首帧） | `src/custom-tab-bar/index.wxml/.wxss` 同款 `.glass-tabbar-veil`，深色用 `--dark` 类 |
+| H5 | `App.vue` H5 条件编译段 `uni-tabbar::before`（挂在未定位的外层自定义元素上，避免被胶囊的 `overflow: hidden` 裁剪） |
+
+**非 tab 页的同类悬浮玻璃底栏一并接入（2026-11-08）**：同一类问题按「修一类」处理，
+两处逐值沿用上面的材质/掩码/贴底几何，只是层级跟着各自的底栏走：
+
+| 底栏 | 高度 | 蒙层层级 |
+|------|------|----------|
+| 商详底栏 `GoodsFooter.vue`（首页/客服/购物车/加入购物车） | 68px（胶囊贴底 16 + 52） | 8（底栏 9，领券弹层 10+ 仍在其上） |
+| 共享车选货清单条 `shared-cart/category.vue`（`.picker-bar`） | 76px（清单条实际高约 58px） | 8（清单条 9，页面弹层 999 仍在其上） |
+
+购物车页的结算条是**全宽贴边**固定条（无左右/底部空隙），内容不会从它周围透出，不铺蒙层。
+
+`tabbar.contract.test.ts` 新增「底部渐进模糊蒙层（两端同口径）」，逐条钉住几何/材质/掩码/层级，
+改一侧忘另一侧会红灯。
+
+**验证**：`pnpm type-check` 0 error；全量单测 161/162 文件、1836/1838 通过（仅
+`diy-zone-price.contract.test.ts` 两条既有失败，来自并行未提交的 `diy-newbie-floor` 改动）；
+`pnpm dev:mp-weixin` 产物确认 `-WEBKIT-backdrop-filter` / `-webkit-mask-image` 均在 wxss 中。
+H5（headless Chrome 390×844）实测 `uni-tabbar::before` 命中 height 68px / z-index 890 / mask；
+首页滚到商品价位段时胶囊下方价签与「+」按钮已成模糊色块、不可读。微信开发者工具模拟器截图确认
+小程序同位置价签被渐隐蒙层压淡（模拟器不渲染 `backdrop-filter`，真实模糊需真机复核）。
+商详页 H5 实测 `.goods-footer-veil` 命中 68px / z-index 8，底栏两侧与下方内容成模糊色块；
+共享车选货页与小程序真机未单独目检（同款样式 + 契约断言守门）。
+
 ### 追加：首次切换 tab 底栏闪烁——能做到与做不到（2026-10-29）
 
 **问题**：首次切到某个 tab 时，底部玻璃胶囊会短暂消失再出现。原因不是视觉样式，而是

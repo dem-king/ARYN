@@ -132,6 +132,7 @@ public class ShipActivityController {
 	@PostMapping
 	public Result<PromotionActivity> save(@RequestBody PromotionActivity activity) {
 		rejectManualMemberPrice(activity);
+		publishGovernanceService.normalizeLongTerm(activity);
 		publishGovernanceService.validateRules(activity);
 		activity.setId(null);
 		activity.setStatus(PromotionActivity.STATUS_DRAFT);
@@ -157,6 +158,11 @@ public class ShipActivityController {
 				throw new ArynBusinessException("已发布活动不可修改规则与适用范围，请暂停或新建版本");
 			}
 		}
+		// 修改入参可能不带活动类型（前端只回传可编辑字段），按库内类型补齐后再规范化长期有效
+		if (!StringUtils.hasText(activity.getActivityType())) {
+			activity.setActivityType(exists.getActivityType());
+		}
+		publishGovernanceService.normalizeLongTerm(activity);
 		if (StringUtils.hasText(activity.getRules())) {
 			publishGovernanceService.validateRules(activity);
 		}
@@ -208,6 +214,7 @@ public class ShipActivityController {
 			@RequestParam(required = false, defaultValue = "false") boolean force) {
 		// requireActivity 统一拦截系统托管活动与已下线的会员价活动
 		PromotionActivity activity = requireActivity(id);
+		publishGovernanceService.normalizeLongTerm(activity);
 		publishGovernanceService.validateRules(activity);
 		assertLadderPricesBelowSales(activity);
 		if (activity.getStartTime() == null || activity.getEndTime() == null

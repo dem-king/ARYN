@@ -96,6 +96,24 @@ function verifyManifest(snapshotAppRoot, normalized) {
   if (manifest['mp-weixin']?.appid !== normalized.wxAppId) {
     throw new ArtifactVerifyError(`manifest mp-weixin.appid 期望 ${normalized.wxAppId}，实际 ${manifest['mp-weixin']?.appid}`)
   }
+  if (normalized.aliAppId && manifest['mp-alipay']?.appid !== normalized.aliAppId) {
+    throw new ArtifactVerifyError(`manifest mp-alipay.appid 期望 ${normalized.aliAppId}，实际 ${manifest['mp-alipay']?.appid}`)
+  }
+}
+
+function verifyAlipayManifest(snapshotAppRoot, outputDir, normalized) {
+  const manifest = readJson(path.join(snapshotAppRoot, 'src', 'manifest.json'), '副本 manifest.json')
+  if (manifest.name !== normalized.name) {
+    throw new ArtifactVerifyError(`manifest name 期望 "${normalized.name}"，实际 "${manifest.name}"`)
+  }
+  if (normalized.aliAppId && manifest['mp-alipay']?.appid !== normalized.aliAppId) {
+    throw new ArtifactVerifyError(`manifest mp-alipay.appid 期望 ${normalized.aliAppId}，实际 ${manifest['mp-alipay']?.appid}`)
+  }
+  const miniProject = readJson(path.join(outputDir, 'mini.project.json'), 'mini.project.json')
+  const declaredAppId = miniProject.appId || miniProject.appid
+  if (normalized.aliAppId && declaredAppId && declaredAppId !== normalized.aliAppId) {
+    throw new ArtifactVerifyError(`mini.project.json appId 期望 ${normalized.aliAppId}，实际 ${declaredAppId}`)
+  }
 }
 
 function verifyAppJson(outputDir) {
@@ -140,9 +158,9 @@ function verifyThemeResources(outputDir) {
 function verifyIdentityEvidence(evidencePath, normalized) {
   const evidence = readJson(evidencePath, 'artifact-evidence.json')
   const n = evidence.normalized ?? {}
-  for (const key of ['key', 'tenantId', 'wxAppId', 'name', 'profile', 'deployment', 'apiBaseUrl', 'buildId']) {
-    if (String(n[key]) !== String(normalized[key])) {
-      throw new ArtifactVerifyError(`身份证据 ${key} 期望 "${normalized[key]}"，实际 "${n[key]}"`)
+  for (const key of ['key', 'tenantId', 'wxAppId', 'aliAppId', 'name', 'profile', 'deployment', 'apiBaseUrl', 'buildId']) {
+    if (String(n[key] ?? '') !== String(normalized[key] ?? '')) {
+      throw new ArtifactVerifyError(`身份证据 ${key} 期望 "${normalized[key] ?? ''}"，实际 "${n[key] ?? ''}"`)
     }
   }
   if (evidence.identityReachable !== true) {
@@ -153,6 +171,7 @@ function verifyIdentityEvidence(evidencePath, normalized) {
     VITE_TENANT_BUILD: 'true',
     VITE_TENANT_ID: normalized.tenantId,
     VITE_TENANT_WX_APPID: normalized.wxAppId,
+    VITE_TENANT_ALI_APPID: normalized.aliAppId || '',
     VITE_OPEN_BOOT: String(normalized.openBoot),
     VITE_API_BASE_URL: normalized.apiBaseUrl,
     VITE_ENV_NAME: normalized.profile,
@@ -201,6 +220,35 @@ export function verifyArtifact({ outputDir, snapshotAppRoot, normalized, evidenc
     deployment: normalized.deployment,
     appStats,
     packageSizes: packageAudit.sizes,
+    identityChunks: evidence.identityChunks ?? [],
+    fileCount: Object.keys(checksums).length,
+    totalBytes,
+  }
+  return { verification, checksums }
+}
+
+/**
+ * 支付宝小程序产物校验：不检查微信 project.config/the miniprogramRoot，
+ * 但同样校验禁止文件、路由产物、身份证据与支付宝 AppID 固化。
+ */
+export function verifyAlipayArtifact({ outputDir, snapshotAppRoot, normalized, evidencePath }) {
+  verifyNoForbiddenFiles(outputDir)
+  verifyAlipayManifest(snapshotAppRoot, outputDir, normalized)
+  const appStats = verifyAppJson(outputDir)
+  // mp-package-audit 按微信 require 图与微信主包上限设计，不能套用到支付宝产物；
+  // 支付宝侧仍由 app.json 路由产物、禁止文件与身份证据三项把关。
+  const evidence = verifyIdentityEvidence(evidencePath, normalized)
+  const checksums = checksumsFor(outputDir)
+  const totalBytes = Object.values(checksums).reduce((sum, item) => sum + item.size, 0)
+  const verification = {
+    ok: true,
+    platform: 'mp-alipay',
+    verifiedAt: new Date().toISOString(),
+    buildId: normalized.buildId,
+    key: normalized.key,
+    profile: normalized.profile,
+    deployment: normalized.deployment,
+    appStats,
     identityChunks: evidence.identityChunks ?? [],
     fileCount: Object.keys(checksums).length,
     totalBytes,

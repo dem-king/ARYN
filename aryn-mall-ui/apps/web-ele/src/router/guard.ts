@@ -7,6 +7,7 @@ import { startProgress, stopProgress } from '@vben/utils';
 
 import { accessRoutes, coreRouteNames } from '#/router/routes';
 import { useAuthStore } from '#/store';
+import { syncDeskTheme } from '#/utils/desk-theme';
 
 import { generateAccess } from './access';
 
@@ -37,6 +38,16 @@ function setupCommonGuard(router: Router) {
     if (preferences.transition.progress) {
       stopProgress();
     }
+
+    // 客服工作台的深色令牌（html.desk-theme）由路由唯一决定：
+    // 停在 /message/service 时挂上，离开就一定摘掉。
+    //
+    // 历史实现是工作台组件自己在 onActivated/onDeactivated 里挂/摘，遗漏了
+    // 「组件被卸载」这条路径（主窗口打开独立窗口后，嵌入工作台被 v-if 换成
+    // 占位态），导致 desk-theme 永久留在 <html> 上：之后几乎所有列表页都吃到
+    // 工作台深色令牌，出现「深色表头 + 深色分割线 + 浅色正文」的不可读表格。
+    // 改成路由驱动后，泄漏与任何组件生命周期钩子是否触发无关。
+    syncDeskTheme(to.path);
   });
 }
 

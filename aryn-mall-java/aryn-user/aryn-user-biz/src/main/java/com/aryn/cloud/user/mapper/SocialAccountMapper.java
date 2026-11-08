@@ -31,16 +31,17 @@ public interface SocialAccountMapper extends BaseMapper<SocialAccount> {
 
 	/**
 	 * 权威绑定查询：绕过租户过滤、绕过 Spring 查询缓存，每次登录/绑定前直查。
-	 * 返回 List 而非单条：同一 AppID 出现多条有效 WX_MA 配置时由 Resolver fail-closed 拒绝。
+	 * 返回 List 而非单条：同一 AppID+类型出现多条有效配置时由 Resolver fail-closed 拒绝。
 	 */
 	@InterceptorIgnore(tenantLine = "true")
-	java.util.List<SocialAccount> selectValidWxMaByAppId(@Param("appId") String appId);
+	java.util.List<SocialAccount> selectValidByAppIdAndType(@Param("appId") String appId,
+			@Param("type") String type);
 
 	/**
-	 * 后台维护用全局重复预检：同 AppID（WX_MA、有效）下排除自身后的条数。
+	 * 后台维护用全局重复预检：同 AppID（有效记录，不限类型）下排除自身后的条数。
 	 */
 	@InterceptorIgnore(tenantLine = "true")
-	long countValidWxMaByAppIdExcluding(@Param("appId") String appId, @Param("excludeId") String excludeId);
+	long countValidByAppIdExcluding(@Param("appId") String appId, @Param("excludeId") String excludeId);
 
 	SocialAccountVO selectSocialAccountById(@Param("id") String id);
 

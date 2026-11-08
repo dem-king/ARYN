@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import type { ListZonePrice } from '@/utils/zone-price'
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getRecommendPage } from '@/api/product/spu'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
+import { useResponsiveColumns } from '@/composables/useResponsiveColumns'
 import { useZonePrices } from '@/composables/useZonePrices'
-import { zonePriceBadgeText } from '@/utils/zone-price'
+import { imageAspectPadding } from '@/utils/image-ratio'
+import { splitIntoColumns } from '@/utils/masonry'
+import { socialProofIcon, splitSocialProofText, zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = defineProps<{
   /** 商详：当前商品，既作为分类上下文也默认排除 */
@@ -27,6 +31,10 @@ const emit = defineEmits<{
 const state = reactive<any>({
   list: [],
 })
+
+// 交替瀑布流：手机 2 列、宽屏 3 列；按索引交替入列，翻页追加不重排已有卡片
+const columns = useResponsiveColumns(600, 2, 3)
+const goodsColumns = computed(() => splitIntoColumns<any>(state.list, columns.value))
 
 const router = useRouter()
 const { t } = useI18n()
@@ -194,6 +202,11 @@ function cardPrice(item: any): ListZonePrice {
   return zone.cardPriceOf(item)
 }
 
+/** 社证数字强调：服务端成文拆「前缀+数字+后缀」，数字加粗（纯展示，口径仍在服务端） */
+function proofParts(item: any) {
+  return splitSocialProofText(cardPrice(item).socialProofText)
+}
+
 /** 金额展示：去掉无意义的末尾 0，避免浮点尾差 */
 function formatAmount(value: unknown): string {
   const amount = Number(value)
@@ -234,63 +247,108 @@ function handleAdded(spuId: string) {
         MP-WEIXIN 宽屏段提供挂载点（折叠态没有任何样式规则命中它们，规则只加在样式表末尾）。
         卡片仍保留全部 Uno 工具类：手机端版式一行都不改。
       -->
-      <view class="p-2 waterfall-body">
-        <view class="flex flex-wrap justify-between waterfall-grid">
-          <view v-for="(item, index) in state.list" :key="index" class="mb-20rpx box-border w-[calc(50%-10rpx)] rounded-xl bg-white shadow-sm dark:bg-[var(--wot-dark-background2)] waterfall-card" @click="toDetail(item.id)">
-            <image :src="item.spuUrls[0]" class="block h-160px w-full rounded-lg" />
-            <view class="p-10rpx">
-              <view class="px-10rpx">
-                <wd-text size="14px" :lines="2" :text="item.name" custom-class="waterfall-title" />
-                <view
-                  v-if="shouldShowSubtitle(item.name, item.subTitle)"
-                  class="goods-subtitle"
-                >
-                  {{ item.subTitle }}
-                </view>
+      <view class="waterfall-body p-2">
+        <view class="waterfall-grid">
+          <view
+            v-for="(column, columnIndex) in goodsColumns"
+            :key="columnIndex"
+            class="waterfall-column"
+          >
+            <view v-for="item in column" :key="item.id" class="waterfall-card mb-20rpx box-border rounded-xl shadow-sm bg-white dark:bg-[var(--wot-dark-background2)]" @click="toDetail(item.id)">
+              <view
+                class="waterfall-pic-box rounded-lg"
+                :style="{ paddingTop: imageAspectPadding(item.picWidth, item.picHeight) }"
+              >
+                <image :src="item.spuUrls[0]" class="waterfall-pic" mode="aspectFit" />
               </view>
-              <!--
-                价格与快捷加购同一行：推荐卡原先只有「点整卡跳商详」一个动作，
-                用户看到想买的商品必须先进详情页才能加购。加购按钮复用
-                `quick-cart-button`（单规格按起订量直加、多规格唤起 SKU 弹层、
-                未登录先跳登录，加购去向由全局 App.ku 的确认弹层统一处理），
-                其根节点已 `@tap.stop`，点加购不会同时触发外层卡片的跳商详。
-                售罄（stock <= 0）不渲染按钮，与装修商品流 `diy-goods-*` 同口径。
-              -->
-              <view class="flex items-end justify-between pt-10rpx">
-                <view class="min-w-0 flex flex-1 flex-wrap items-baseline overflow-hidden">
-                  <text
-                    v-if="cardPrice(item).badgeKind"
-                    class="zone-badge"
-                    :class="`zone-badge--${cardPrice(item).badgeKind}`"
+              <view class="p-10rpx">
+                <view class="px-10rpx">
+                  <wd-text size="14px" :lines="2" :text="item.name" custom-class="waterfall-title" />
+                  <view
+                    v-if="shouldShowSubtitle(item.name, item.subTitle)"
+                    class="goods-subtitle"
                   >
-                    {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
-                  </text>
-                  <wd-text mode="price" :text="cardPrice(item).mainPrice" prefix="￥" color="red" custom-class="waterfall-price" />
-                  <text v-if="cardPrice(item).strikePrice !== null" class="price-original">
-                    ￥{{ formatAmount(cardPrice(item).strikePrice) }}
-                  </text>
-                  <text v-if="cardPrice(item).guideText" class="price-guide">
-                    {{ cardPrice(item).guideText }}
-                  </text>
+                    {{ item.subTitle }}
+                  </view>
                 </view>
-                <view v-if="item.stock > 0" class="flex flex-shrink-0 pl-8rpx">
-                  <quick-cart-button
-                    :spu-id="item.id"
-                    :zone-prices="zone.skuZonePricesOf(item.id)"
-                    size="48rpx"
-                    @added="handleAdded"
-                  />
+                <!--
+                  价格与快捷加购同一行：推荐卡原先只有「点整卡跳商详」一个动作，
+                  用户看到想买的商品必须先进详情页才能加购。加购按钮复用
+                  `quick-cart-button`（单规格按起订量直加、多规格唤起 SKU 弹层、
+                  未登录先跳登录，加购去向由全局 App.ku 的确认弹层统一处理），
+                  其根节点已 `@tap.stop`，点加购不会同时触发外层卡片的跳商详。
+                  售罄（stock <= 0）不渲染按钮，与装修商品流 `diy-goods-*` 同口径。
+                -->
+                <!--
+                  营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行，
+                  新人=红橙渐变星芒（资格类 chip 不占价格行），社证=浅桃底数字加粗。
+                -->
+                <view
+                  v-if="cardPrice(item).badgeKind === 'newbie' || cardPrice(item).socialProofText"
+                  class="tag-row"
+                >
+                  <view v-if="cardPrice(item).badgeKind === 'newbie'" class="tag-chip tag-chip--newbie">
+                    <text class="tag-chip-spark" />
+                    <text class="tag-chip-text">
+                      {{ zonePriceBadgeText('newbie') }}
+                    </text>
+                  </view>
+                  <view v-if="cardPrice(item).socialProofText" class="tag-chip tag-chip--proof">
+                    <wd-icon :name="socialProofIcon(cardPrice(item).socialProofKind)" size="18rpx" />
+                    <text class="tag-chip-before">
+                      {{ proofParts(item).before }}
+                    </text>
+                    <text v-if="proofParts(item).number" class="tag-chip-num">
+                      {{ proofParts(item).number }}
+                    </text>
+                    <text class="tag-chip-after">
+                      {{ proofParts(item).after }}
+                    </text>
+                  </view>
+                </view>
+                <view class="flex items-end justify-between pt-10rpx">
+                  <view class="min-w-0 flex flex-1 flex-wrap items-baseline overflow-hidden">
+                    <text
+                      v-if="cardPrice(item).badgeKind && cardPrice(item).badgeKind !== 'newbie'"
+                      class="zone-badge"
+                      :class="`zone-badge--${cardPrice(item).badgeKind}`"
+                    >
+                      {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
+                    </text>
+                    <price-text class="waterfall-price" :value="cardPrice(item).mainPrice" symbol="￥" />
+                    <!-- 近N天最低价：主价旁描边小标（固定红系不随主题，见需求文档视觉规范） -->
+                    <text v-if="cardPrice(item).priceTagText" class="price-tag">
+                      <text class="price-tag-icon" />
+                      {{ cardPrice(item).priceTagText }}
+                    </text>
+                    <text v-if="cardPrice(item).strikePrice !== null" class="price-original">
+                      ￥{{ formatAmount(cardPrice(item).strikePrice) }}
+                    </text>
+                    <text v-if="cardPrice(item).guideText" class="price-guide">
+                      {{ cardPrice(item).guideText }}
+                    </text>
+                  </view>
+                  <view v-if="item.stock > 0" class="flex flex-shrink-0 pl-8rpx">
+                    <quick-cart-button
+                      :spu-id="item.id"
+                      :zone-prices="zone.skuZonePricesOf(item.id)"
+                      size="48rpx"
+                      @added="handleAdded"
+                    />
+                  </view>
                 </view>
               </view>
             </view>
           </view>
+          </view>
         </view>
-      </view>
     </z-paging>
   </view>
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
+
 .goods-subtitle {
   margin-top: 4rpx;
   overflow: hidden;
@@ -301,6 +359,13 @@ function handleAdded(spuId: string) {
   white-space: nowrap;
 }
 
+/* 主价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
+.waterfall-price {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
 .price-original {
   margin-left: 8rpx;
   font-size: 20rpx;
@@ -308,8 +373,35 @@ function handleAdded(spuId: string) {
   text-decoration: line-through;
 }
 
-/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红） */
+/* 近N天最低价贴纸：浅红实底+600 字重（固定红系不随主题，令牌见 goods-tag.scss） */
+.price-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2rpx;
+  flex-shrink: 0;
+  margin-left: 8rpx;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 8rpx;
+  border-radius: 6rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  white-space: nowrap;
+  @include goods-tag-low;
+}
+
+.price-tag-icon {
+  width: 16rpx;
+  height: 12rpx;
+  flex-shrink: 0;
+  @include goods-tag-low-icon;
+}
+
+/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红）；新人价带星芒图标 */
 .zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2rpx;
   margin-right: 8rpx;
   padding: 2rpx 8rpx;
   border-radius: 6rpx;
@@ -323,7 +415,12 @@ function handleAdded(spuId: string) {
   }
 
   &--clearance {
-    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+    @include goods-tag-clearance;
+  }
+
+  /* 秒杀价：主题红渐变实底白字——限时活动，视觉强于身份价 */
+  &--seckill {
+    background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   }
 }
 
@@ -334,6 +431,107 @@ function handleAdded(spuId: string) {
   color: #b45309;
   font-size: 20rpx;
   line-height: 1.4;
+}
+
+/*
+ * 营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行
+ * （2026-11-08 视觉增强 + 并排口径，令牌见 goods-tag.scss）。
+ * 【icon 尺寸硬约束】勿用 px 定小尺寸：9px 固定字号下线条糊成一团，
+ * 20rpx 与文字同高跟随缩放才可辨；icon 颜色随 currentColor 走暖橙。
+ */
+.tag-row {
+  /* 左右 10rpx 与商品名块（px-10rpx）左对齐 */
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4rpx;
+  overflow: hidden;
+  margin: 8rpx 10rpx 0;
+  min-width: 0;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 18rpx;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.tag-chip--newbie {
+  @include goods-tag-newbie;
+  gap: 2rpx;
+  padding: 2rpx 6rpx;
+  border-radius: 6rpx;
+}
+
+.tag-chip-spark {
+  width: 16rpx;
+  height: 16rpx;
+  flex: none;
+  @include goods-tag-newbie-icon;
+}
+
+.tag-chip-text {
+  white-space: nowrap;
+}
+
+/* 社证 chip 可收缩：与新人芯片并排时优先保留新人 chip，空间不足裁切社证 */
+.tag-chip--proof {
+  @include goods-tag-hot;
+  gap: 2rpx;
+  flex: 0 1 auto;
+  padding: 2rpx 8rpx;
+}
+
+.tag-chip-before {
+  flex: none;
+  white-space: nowrap;
+}
+
+.tag-chip-num {
+  @include goods-tag-hot-num;
+  white-space: nowrap;
+}
+
+.tag-chip-after {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 交替瀑布流：手机 2 列、宽屏 3 列（列数由 useResponsiveColumns 控制），卡片按内容高度错落 */
+.waterfall-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
+}
+
+.waterfall-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 图片区按主图真实宽高锁占位（后端回填，缺失按 1:1），加载前后卡片高度不变 */
+.waterfall-pic-box {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.waterfall-pic {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /**
@@ -348,8 +546,8 @@ function handleAdded(spuId: string) {
  * 宽度账（A8，700px 窗口）：外层左右各 12px 内边距 → 网格 676px；
  * 卡宽 =（676 − 2×24 列间距）/ 3 ≈ 209px，3 列并排恰好铺满、不换行也不溢出。
  *
- * 卡片图片 h-160px 本来就是 px（不随 rpx 放大），保持现状不改比例——改成 1:1 会同时
- * 动到手机端观感，与「折叠态零变化」冲突。
+ * 图片区已改为按主图真实宽高锁占位（缺失 1:1），宽屏下卡片宽度仍由 3 列均分，
+ * 图片高度随比例自适应，不再固定 h-160px。
  */
 /* #ifdef MP-WEIXIN */
 @media (min-width: 600px) {
@@ -361,17 +559,12 @@ function handleAdded(spuId: string) {
     padding: 12px;
   }
 
-  /* justify-between 同理是工具类：3 列定宽后要改回左对齐，否则最后一行的少量卡片会被拉开 */
+  /* 3 列由 useResponsiveColumns 控制，这里只放宽屏列间距 */
   .waterfall-goods .waterfall-grid {
     gap: var(--wide-gutter, 24px);
-    justify-content: flex-start;
   }
 
-  /* 卡宽原由模板工具类 w-[calc(50%-10rpx)] 控制，这里用「祖先 + 双类」把优先级提到更高，
-     不依赖 !important 即可压过工具类；宽度按「容器宽 − 两条列间距」三等分，
-     以后改列数只动这一个数字 */
   .waterfall-goods .waterfall-grid .waterfall-card {
-    width: calc((100% - 2 * var(--wide-gutter, 24px)) / 3);
     min-width: 0;
     margin-bottom: 12px;
     border-radius: var(--wide-radius, 12px);
@@ -404,6 +597,47 @@ function handleAdded(spuId: string) {
     padding: 1px 4px;
     border-radius: 3px;
     font-size: 10px;
+  }
+
+  .waterfall-goods .price-tag {
+    margin-left: 6px;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .waterfall-goods .price-tag-icon {
+    width: 8px;
+    height: 6px;
+  }
+
+  /* 营销标签行宽屏密度：rpx 展开态放大 ≈1.8 倍，改 px */
+  .waterfall-goods .tag-row {
+    gap: 6px;
+    margin: 4px 5px 0;
+  }
+
+  .waterfall-goods .tag-chip--newbie {
+    gap: 2px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  .waterfall-goods .tag-chip-spark {
+    width: 8px;
+    height: 8px;
+  }
+
+  .waterfall-goods .tag-chip--proof {
+    gap: 2px;
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+
+  .waterfall-goods .tag-chip--proof :deep(.wd-icon) {
+    font-size: 10px !important;
   }
 
   .waterfall-goods .price-guide {

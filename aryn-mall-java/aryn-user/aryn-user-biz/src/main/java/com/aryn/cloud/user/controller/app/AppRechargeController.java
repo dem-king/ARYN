@@ -2,6 +2,7 @@ package com.aryn.cloud.user.controller.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.aryn.cloud.common.core.constant.MallCommonConstants;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.dto.RechargePrepayDTO;
@@ -13,6 +14,7 @@ import com.aryn.cloud.user.service.IRechargeConfigService;
 import com.aryn.cloud.user.service.IRechargeOrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
@@ -64,8 +66,10 @@ public class AppRechargeController {
 
 	@Operation(summary = "发起充值支付")
 	@PostMapping("/prepay")
-	public Result<Map<String, Object>> prepay(@Validated @RequestBody RechargePrepayDTO prepayDTO) {
+	public Result<Map<String, Object>> prepay(HttpServletRequest request,
+			@Validated @RequestBody RechargePrepayDTO prepayDTO) {
 		String userId = SecurityUtils.getUser().getUserId();
+		prepayDTO.setClientPlatform(request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE));
 		return Result.success(rechargeOrderService.prepay(userId, prepayDTO));
 	}
 

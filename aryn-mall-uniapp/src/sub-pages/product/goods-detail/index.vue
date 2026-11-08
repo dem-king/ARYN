@@ -16,7 +16,7 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
-import { getById as getSpuById, getClearanceSkuPrices } from '@/api/product/spu'
+import { getClearanceSkuPrices, getById as getSpuById } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getGoodsSeckillInfo, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
@@ -623,6 +623,14 @@ function onCurrentPage(item: any, index: number) {
   })
   state.tabActive = index
 }
+
+// 口碑气泡点击：跳评价区（复用评价 tab 的锚点滚动；评价异步加载完成前 top 未量出则不跳）
+function gotoCommentFromBubble() {
+  const reviewsTab = tabList.value[1]
+  if (!reviewsTab?.top)
+    return
+  onCurrentPage(reviewsTab, 1)
+}
 onShareAppMessage(() => {
   const path = buildDistributionSharePath(
     `/sub-pages/product/goods-detail/index?id=${state.goodsSpu.id}`,
@@ -945,12 +953,14 @@ async function handleReceive(coupon: any) {
       :clearance-display="effectiveClearanceDisplay"
       :newbie-display="newbieDisplay"
       :discount-display="discountDisplay"
+      :social-bubble="state.goodsSpu?.socialBubble ?? null"
       @swiper="handleSwiper"
       @show-coupon="showCoupon"
       @open-sku-popup="handleBuyAction"
       @to-address="toAddress"
       @collect="handleCollect"
       @share="handleShare"
+      @goto-comment="gotoCommentFromBubble"
     />
     <!-- 商详装修区域（商品信息下方、评价上方）：内嵌内容，不渲染装修导航、不撑满 100vh -->
     <view v-if="decorationContent">

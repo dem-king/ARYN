@@ -9,6 +9,7 @@ import { loadGoodsRanking } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
 import { useZonePrices } from '@/composables/useZonePrices'
@@ -43,7 +44,8 @@ watch(
   items,
   (list) => {
     const ids = list.map(item => String((item as any)?.id || '').trim()).filter(Boolean)
-    if (!ids.length) return
+    if (!ids.length)
+      return
     void zone.loadForSpuIds(ids)
   },
   { immediate: true },
@@ -70,9 +72,8 @@ function cardBadgeText(item: any): string {
 }
 
 function cardBadgeClass(item: any): string {
-  return cardDisplay(item).badgeKind === 'member'
-    ? 'ranking-price-badge--member'
-    : 'ranking-price-badge--clearance'
+  // 类名直接按枚举派生（会员/捡漏/秒杀/新人各有颜色语义，与主卡同一套令牌）
+  return `ranking-price-badge--${cardDisplay(item).badgeKind || 'clearance'}`
 }
 
 function cardGuideText(item: any): string {
@@ -118,7 +119,7 @@ function openGoods(id: string) {
             >
               {{ cardBadgeText(item) }}
             </text>
-            ￥{{ cardMainPrice(item).toFixed(2) }}
+            <price-text :value="cardMainPrice(item)" symbol="￥" />
             <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
             <text
               v-if="cardStrikePrice(item) !== null"
@@ -138,6 +139,7 @@ function openGoods(id: string) {
 </template>
 
 <style scoped lang="scss">
+@import '@/styles/goods-tag.scss';
 .section-title { margin-bottom: 12rpx; color: #1f2329; font-size: 30rpx; font-weight: 600; }
 .ranking-list { display: flex; flex-direction: column; }
 .ranking-item { display: flex; min-height: 132rpx; align-items: center; gap: 16rpx; border-bottom: 1rpx solid #eef0f3; }
@@ -150,10 +152,12 @@ function openGoods(id: string) {
 .ranking-subtitle { margin-top: 4rpx; overflow: hidden; color: #909399; font-size: 21rpx; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-stats { margin-top: 8rpx; color: #909399; font-size: 21rpx; }
 .ranking-price { margin-top: 6rpx; color: var(--wot-color-theme-primary, #ff2237); font-size: 27rpx; font-weight: 600; }
-/* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢价格层级 */
+/* 专区价角标：会员价走浅金、捡漏价走固定红橙，小号标签不抢价格层级 */
 .ranking-price-badge { margin-right: 6rpx; padding: 0 6rpx; border-radius: 4rpx; font-size: 19rpx; font-weight: 600; line-height: 1.5; }
 .ranking-price-badge--member { border: 1rpx solid #ecd4a5; background: #fffaf0; color: #a06a1f; }
-.ranking-price-badge--clearance { background: var(--wot-color-theme-primary, #ff2237); color: #fff; }
+.ranking-price-badge--clearance { @include goods-tag-clearance; }
+.ranking-price-badge--seckill { background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%); color: #fff; }
+.ranking-price-badge--newbie { @include goods-tag-newbie; }
 /* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .ranking-price-original { margin-left: 8rpx; color: #999; font-size: 22rpx; font-weight: normal; text-decoration: line-through; }
 /* 会员价引导：未达标/未登录时的一行小字，不改变主价与划线口径 */

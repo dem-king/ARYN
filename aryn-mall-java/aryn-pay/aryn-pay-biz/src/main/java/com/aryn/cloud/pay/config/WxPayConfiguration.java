@@ -1,63 +1,55 @@
-/** 
-  * Copyright (c) 2025 天启雨数科技有限公司 
-  * All rights reserved. 
-  * <p> 
-  * 注意： 
-  * 本项目源代码由天启雨数科技有限公司原创开发，版权所有。 
- 
-  */
 package com.aryn.cloud.pay.config;
 
 import com.github.binarywang.wxpay.config.WxPayConfig;
 import com.github.binarywang.wxpay.service.WxPayService;
 import com.github.binarywang.wxpay.service.impl.WxPayServiceImpl;
-import com.aryn.cloud.common.core.util.SpringUtils;
-import com.aryn.cloud.pay.api.constants.PayConstants;
-import com.aryn.cloud.pay.api.vo.PayConfigVO;
-import com.aryn.cloud.pay.service.IPayConfigService;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.pay.api.enums.PayConfigMaterialPurposeEnum;
+import com.aryn.cloud.pay.service.PayMaterialParser;
+import com.aryn.cloud.pay.service.PayResolvedIdentity;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
+
+import java.security.cert.X509Certificate;
 
 /**
- * 微信支付自动配置
- *
- * @author 雨滴kian
- * @since 2022/3/14 15:24
+ * 微信支付 APIv3 公钥模式。SDK 只消费内存中的私钥/证书内容，不读取服务器路径。
  */
-@Configuration
+@Component
 @RequiredArgsConstructor
-@ConditionalOnClass(WxPayService.class)
 public class WxPayConfiguration {
 
-	/**
-	 * 构造微信支付服务对象.
-	 * @return 微信支付service
-	 */
-	public static WxPayService wxPayService(String terminalType) {
-		IPayConfigService payConfigService = SpringUtils.getBean(IPayConfigService.class);
+	private final PayMaterialParser materialParser;
 
-		PayConfigVO payConfig = payConfigService.getConfig(PayConstants.PAY_TYPE_1, terminalType);
-		if (null == payConfig) {
-			throw new IllegalArgumentException("未配置微信支付");
+	public WxPayService create(PayResolvedIdentity identity) {
+		byte[] privateKey = identity.material(PayConfigMaterialPurposeEnum.WX_MERCHANT_PRIVATE_KEY);
+		byte[] privateCert = identity.material(PayConfigMaterialPurposeEnum.WX_MERCHANT_CERT);
+		byte[] publicKey = identity.material(PayConfigMaterialPurposeEnum.WX_PUBLIC_KEY);
+		String apiV3Key = identity.materialText(PayConfigMaterialPurposeEnum.WX_API_V3_KEY);
+		if (privateKey == null || privateCert == null || publicKey == null || apiV3Key == null) {
+			throw new ArynBusinessException("微信支付材料不完整");
 		}
-		final WxPayServiceImpl wxPayService = new WxPayServiceImpl();
+		X509Certificate certificate = materialParser.parseCertificate(privateCert);
 		WxPayConfig wxPayConfig = new WxPayConfig();
-		wxPayConfig.setAppId(payConfig.getAppId());
-		wxPayConfig.setMchId(payConfig.getMchId());
-		wxPayConfig.setMchKey(payConfig.getMchKey());
-		wxPayConfig.setKeyPath(payConfig.getKeyPath());
-		wxPayConfig.setCertSerialNo(payConfig.getCertSerialNo());
-
-		// 以下是apiv3
-		wxPayConfig.setPrivateKeyPath(payConfig.getPrivateKeyPath());
-		wxPayConfig.setPrivateCertPath(payConfig.getPrivateCertPath());
-		wxPayConfig.setPublicKeyId(payConfig.getPublicKeyId());
-		wxPayConfig.setPublicKeyPath(payConfig.getPublicKeyPath());
-		wxPayConfig.setApiV3Key(payConfig.getApiv3Key());
+		wxPayConfig.setAppId(identity.getAppId());
+		wxPayConfig.setMchId(identity.getMchId());
+		wxPayConfig.setApiV3Key(apiV3Key);
+		wxPayConfig.setCertSerialNo(certificate.getSerialNumber().toString(16).toUpperCase());
+		wxPayConfig.setPrivateKeyContent(privateKey);
+		wxPayConfig.setPrivateCertContent(privateCert);
+		wxPayConfig.setPublicKeyId(identity.getWxPublicKeyId());
+		wxPayConfig.setPublicKeyContent(publicKey);
 		wxPayConfig.setFullPublicKeyModel(true);
+		WxPayServiceImpl wxPayService = new WxPayServiceImpl();
 		wxPayService.setConfig(wxPayConfig);
 		return wxPayService;
+	}
+
+	/**
+	 * 供检查/测试读取构造出的 SDK 配置，不暴露到接口层。
+	 */
+	public WxPayConfig buildConfig(PayResolvedIdentity identity) {
+		return (WxPayConfig) create(identity).getConfig();
 	}
 
 }

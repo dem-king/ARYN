@@ -1,3 +1,4 @@
+<view wx:if="{{!hidden}}" class="glass-tabbar-veil {{dark ? 'glass-tabbar-veil--dark' : ''}}" />
 <view wx:if="{{!hidden}}" class="glass-tabbar {{dark ? 'glass-tabbar--dark' : ''}}">
   <view
     wx:for="{{items}}"

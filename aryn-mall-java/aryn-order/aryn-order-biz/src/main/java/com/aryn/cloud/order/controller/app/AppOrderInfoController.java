@@ -87,8 +87,9 @@ public class AppOrderInfoController {
 
 	@Operation(summary = "预支付")
 	@PostMapping("/prepay")
-	public Result<Object> prepay(@Valid @RequestBody PrepayDTO prepayDTO) {
+	public Result<Object> prepay(HttpServletRequest request, @Valid @RequestBody PrepayDTO prepayDTO) {
 		prepayDTO.setUserId(SecurityUtils.getUser().getUserId());
+		prepayDTO.setClientPlatform(request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE));
 		return orderInfoService.prepay(prepayDTO);
 	}
 

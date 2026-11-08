@@ -2,32 +2,26 @@
 package com.aryn.cloud.pay.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import cn.hutool.core.util.ObjectUtil;
-import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.aryn.cloud.common.core.desensitization.KeyDesensitization;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.pay.api.dto.PayConfigRevisionCreateReqDTO;
 import com.aryn.cloud.pay.api.entity.PayConfig;
+import com.aryn.cloud.pay.api.vo.PayConfigCheckResultVO;
+import com.aryn.cloud.pay.api.vo.PayConfigMaterialUploadVO;
+import com.aryn.cloud.pay.api.vo.PayConfigRevisionVO;
+import com.aryn.cloud.pay.api.vo.PayConfigVO;
 import com.aryn.cloud.pay.service.IPayConfigService;
+import com.aryn.cloud.pay.service.PayConfigCheckService;
+import com.aryn.cloud.pay.service.PayConfigRevisionService;
+import com.aryn.cloud.pay.service.PayCredentialService;
+import com.aryn.cloud.pay.service.PayLegacyMigrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Locale;
-import java.util.Set;
-import java.util.UUID;
 
 /**
  * 支付配置
@@ -35,129 +29,143 @@ import java.util.UUID;
  * @author 雨滴kian
  * @since 2022/3/18 10:11
  */
-@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/payconfig")
 @Tag(description = "payconfig", name = "支付配置")
 public class PayConfigController {
 
-	private static final long MAX_CERT_FILE_SIZE = 1024 * 1024;
-
-	private static final Set<String> ALLOWED_CERT_EXTENSIONS = Set.of("pem", "crt", "cer", "p12");
-
 	private final IPayConfigService payConfigService;
 
-	private final KeyDesensitization keyDesensitization = new KeyDesensitization();
+	private final PayCredentialService credentialService;
 
-	@Value("${cert-dir:}")
-	private String certDir;
+	private final PayConfigRevisionService revisionService;
+
+	private final PayConfigCheckService checkService;
+
+	private final PayLegacyMigrationService legacyMigrationService;
 
 	@Operation(summary = "支付配置列表")
 	@SaCheckPermission("pay:payconfig:page")
 	@GetMapping("/page")
 	public Result page(Page page, PayConfig payConfig) {
-		return Result.success(payConfigService.page(page, Wrappers.lambdaQuery(payConfig)));
+		return Result.success(payConfigService.pageSafe(page, payConfig));
 	}
 
 	@Operation(summary = "支付配置查询")
 	@SaCheckPermission("pay:payconfig:get")
 	@GetMapping("/{id}")
-	public Result page(@PathVariable("id") String id) {
-		return Result.success(payConfigService.getById(id));
+	public Result detail(@PathVariable("id") String id) {
+		return Result.success(payConfigService.getDetail(id));
 	}
 
-	@Operation(summary = "支付配置新增")
+	@Operation(summary = "支付配置新增（仅路由，不含密钥）")
 	@SaCheckPermission("pay:payconfig:add")
+	@SysLog("新增支付配置")
 	@PostMapping
 	public Result add(@RequestBody @Valid PayConfig payConfig) {
-		clearManagedFields(payConfig);
-		return Result.success(payConfigService.saveConfig(payConfig));
+		boolean saved = payConfigService.saveConfig(payConfig);
+		return Result.success(saved ? payConfig.getId() : null);
 	}
 
-	@Operation(summary = "支付配置编辑")
+	@Operation(summary = "支付配置编辑（仅路由，不含密钥）")
 	@SaCheckPermission("pay:payconfig:edit")
+	@SysLog("编辑支付配置")
 	@PutMapping
 	public Result edit(@RequestBody PayConfig payConfig) {
-		if (StrUtil.isBlank(payConfig.getId())) {
-			return Result.fail("支付配置ID为空");
-		}
-		PayConfig target = payConfigService.getById(payConfig.getId());
-		if (ObjectUtil.isNull(target)) {
-			return Result.fail("支付不存在");
-		}
-		clearManagedFields(payConfig);
-
-		if (StringUtils.hasText(target.getApiv3Key())
-				&& keyDesensitization.serialize(target.getApiv3Key()).equals(payConfig.getApiv3Key())) {
-			payConfig.setApiv3Key(null);
-		}
-		if (StringUtils.hasText(target.getCertSerialNo())
-				&& keyDesensitization.serialize(target.getCertSerialNo()).equals(payConfig.getCertSerialNo())) {
-			payConfig.setCertSerialNo(null);
-		}
-		if (StringUtils.hasText(target.getMchKey())
-				&& keyDesensitization.serialize(target.getMchKey()).equals(payConfig.getMchKey())) {
-			payConfig.setMchKey(null);
-		}
 		return Result.success(payConfigService.updateConfig(payConfig));
 	}
 
 	@Operation(summary = "支付配置删除")
 	@SaCheckPermission("pay:payconfig:del")
+	@SysLog("删除支付配置")
 	@DeleteMapping("/{id}")
 	public Result del(@PathVariable("id") String id) {
-		return Result.success(payConfigService.removeById(id));
+		return Result.success(payConfigService.deleteConfig(id));
 	}
 
-	@Operation(summary = "上传证书")
+	@Operation(summary = "上传支付资料")
+	@SaCheckPermission("pay:payconfig:material")
+	@SysLog("上传支付资料")
+	@PostMapping("/{id}/materials")
+	public Result uploadMaterial(@PathVariable("id") String id, @RequestParam("purpose") String purpose,
+			@RequestParam("file") MultipartFile file) {
+		PayConfigMaterialUploadVO uploaded = credentialService.uploadMaterial(id, purpose, file);
+		return Result.success(uploaded);
+	}
+
+	@Operation(summary = "支付资料列表（不含私钥与密文）")
+	@SaCheckPermission("pay:payconfig:get")
+	@GetMapping("/{id}/materials")
+	public Result listMaterials(@PathVariable("id") String id) {
+		return Result.success(credentialService.listMaterials(id));
+	}
+
+	@Operation(summary = "创建支付身份版本（草稿）")
+	@SaCheckPermission("pay:payconfig:material")
+	@SysLog("创建支付身份版本")
+	@PostMapping("/{id}/revisions")
+	public Result createRevision(@PathVariable("id") String id,
+			@RequestBody @Valid PayConfigRevisionCreateReqDTO request) {
+		return Result.success(revisionService.createRevision(id, request));
+	}
+
+	@Operation(summary = "身份版本列表")
+	@SaCheckPermission("pay:payconfig:get")
+	@GetMapping("/{id}/revisions")
+	public Result listRevisions(@PathVariable("id") String id) {
+		return Result.success(revisionService.listRevisions(id));
+	}
+
+	@Operation(summary = "身份版本详情")
+	@SaCheckPermission("pay:payconfig:get")
+	@GetMapping("/{id}/revisions/{revisionId}")
+	public Result getRevision(@PathVariable("id") String id, @PathVariable("revisionId") String revisionId) {
+		return Result.success(revisionService.getRevision(id, revisionId));
+	}
+
+	@Operation(summary = "启用支付身份版本")
+	@SaCheckPermission("pay:payconfig:enable")
+	@SysLog("启用支付渠道")
+	@PostMapping("/{id}/revisions/{revisionId}/publish")
+	public Result publish(@PathVariable("id") String id, @PathVariable("revisionId") String revisionId,
+			@RequestParam(value = "expectedVersion", required = false) Integer expectedVersion) {
+		return Result.success(revisionService.publish(id, revisionId, expectedVersion));
+	}
+
+	@Operation(summary = "停用支付配置")
+	@SaCheckPermission("pay:payconfig:enable")
+	@SysLog("停用支付渠道")
+	@PostMapping("/{id}/disable")
+	public Result disable(@PathVariable("id") String id,
+			@RequestParam(value = "expectedVersion", required = false) Integer expectedVersion) {
+		revisionService.disable(id, expectedVersion);
+		return Result.success();
+	}
+
+	@Operation(summary = "本地资料检查（仅证明材料内部一致）")
+	@SaCheckPermission("pay:payconfig:check")
+	@SysLog("检查支付资料")
+	@PostMapping("/{id}/revisions/{revisionId}/check")
+	public Result check(@PathVariable("id") String id, @PathVariable("revisionId") String revisionId) {
+		PayConfigCheckResultVO result = checkService.check(id, revisionId);
+		return Result.success(result);
+	}
+
+	@Operation(summary = "旧明文配置迁移（可重入，冲突阻断）")
+	@SaCheckPermission("pay:payconfig:migrate")
+	@SysLog("迁移旧支付配置")
+	@PostMapping("/legacy/migrate")
+	public Result migrateLegacy() {
+		return Result.success(legacyMigrationService.migrate());
+	}
+
+	@Operation(summary = "旧证书上传入口已停用")
 	@SaCheckPermission("pay:payconfig:edit")
+	@Deprecated
 	@PostMapping("/cert/upload")
-	public Result uploadFile(MultipartFile file) throws IOException {
-		if (file == null || file.isEmpty()) {
-			return Result.fail("证书文件不能为空");
-		}
-		if (file.getSize() > MAX_CERT_FILE_SIZE) {
-			return Result.fail("证书文件不能超过1MB");
-		}
-		if (!StringUtils.hasText(certDir)) {
-			return Result.fail("证书目录未配置");
-		}
-		String extension = getExtension(file.getOriginalFilename());
-		if (!ALLOWED_CERT_EXTENSIONS.contains(extension)) {
-			return Result.fail("仅支持 pem、crt、cer、p12 证书文件");
-		}
-
-		Path certificateDirectory = Paths.get(certDir).toAbsolutePath().normalize();
-		Files.createDirectories(certificateDirectory);
-		Path target = certificateDirectory.resolve(UUID.randomUUID() + "." + extension).normalize();
-		if (!target.startsWith(certificateDirectory)) {
-			return Result.fail("证书文件路径非法");
-		}
-		try (InputStream inputStream = file.getInputStream()) {
-			Files.copy(inputStream, target);
-		}
-		return Result.success(target.toString());
-	}
-
-	private String getExtension(String filename) {
-		if (!StringUtils.hasText(filename)) {
-			return StrUtil.EMPTY;
-		}
-		int separator = filename.lastIndexOf('.');
-		if (separator < 0 || separator == filename.length() - 1) {
-			return StrUtil.EMPTY;
-		}
-		return filename.substring(separator + 1).toLowerCase(Locale.ROOT);
-	}
-
-	private void clearManagedFields(PayConfig payConfig) {
-		payConfig.setTenantId(null);
-		payConfig.setDelFlag(null);
-		payConfig.setCreateBy(null);
-		payConfig.setCreateTime(null);
-		payConfig.setUpdateBy(null);
-		payConfig.setUpdateTime(null);
+	public Result uploadFile(MultipartFile file) {
+		return Result.fail("该入口已停用：支付资料必须通过 /payconfig/{id}/materials 加密上传，不允许服务器路径");
 	}
 
 }

@@ -153,6 +153,10 @@ class OrderInfoCodPaymentTest {
 
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);
+		ReflectionTestUtils.setField(service, "payCancelGateService",
+				mock(com.aryn.cloud.order.service.PayCancelGateService.class));
+		ReflectionTestUtils.setField(service, "orderPaySubmitGateService",
+				mock(com.aryn.cloud.order.service.OrderPaySubmitGateService.class));
 	}
 
 	private CreateOrderDTO codOrderDto() {

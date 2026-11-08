@@ -58,6 +58,9 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 
 	private final UserInfoMapper userInfoMapper;
 
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.aryn.cloud.user.service.RechargeCancelGateService rechargeCancelGateService;
+
 	@DubboReference
 	private RemotePayService remotePayService;
 
@@ -146,6 +149,7 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 		createOrderReqDTO.setQuitUrl(prepayDTO.getQuitUrl());
 		createOrderReqDTO.setReturnUrl(prepayDTO.getReturnUrl());
 		createOrderReqDTO.setUserId(order.getUserId());
+		createOrderReqDTO.setClientPlatform(prepayDTO.getClientPlatform());
 		JSONObject extraParams = new JSONObject();
 		extraParams.put(PayConstants.EXTRA_PARAMS_PAY_TYPE, prepayDTO.getPaymentType());
 		extraParams.put("mqNotifyUrl", RocketMqConstants.PAY_NOTIFY_TOPIC);
@@ -234,9 +238,10 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 		if (!"0".equals(order.getPayStatus())) {
 			throw new ArynBusinessException("只能取消待支付订单");
 		}
-
-		order.setPayStatus("2");
-		this.updateById(order);
+		rechargeCancelGateService.assertCancellable(orderNo);
+		if (baseMapper.markCanceledIfPending(order.getId()) == 0) {
+			throw new ArynBusinessException("充值订单状态已变化，无法取消");
+		}
 	}
 
 }

@@ -10,10 +10,13 @@ import {
 } from '@/components/diy/retail-data'
 import { mergePagedItems } from '@/components/diy/retail-paged-list'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useZonePrices } from '@/composables/useZonePrices'
+import { imageAspectPadding } from '@/utils/image-ratio'
+import { splitIntoColumns } from '@/utils/masonry'
 import { stockHintText } from '@/utils/stock-display'
 import { zonePriceBadgeText } from '@/utils/zone-price'
 
@@ -34,6 +37,11 @@ const goodsList = ref<any[]>([])
 const pagingRef = ref()
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
 
+// 交替瀑布流：按索引奇偶入列；相比 column-count 的列平衡，翻页追加不会让已有卡片跳列
+const goodsColumns = computed(() =>
+  splitIntoColumns(goodsList.value, Number(componentProps.value.columns) === 3 ? 3 : 2),
+)
+
 // 每页大小：后台若配置了 count 则作为每页条数，否则默认 10
 const pageSize = computed(() => Math.max(1, Number(componentProps.value.count) || 10))
 
@@ -49,7 +57,8 @@ const zone = useZonePrices()
 /** 本轮本页商品补专区价：不 await，避免价格接口阻塞瀑布流渲染 */
 function loadZonePrices(items: any[]) {
   const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
-  if (!ids.length) return
+  if (!ids.length)
+    return
   void zone.loadForSpuIds(ids)
 }
 
@@ -74,9 +83,8 @@ function cardBadgeText(item: any): string {
 }
 
 function cardBadgeClass(item: any): string {
-  return cardDisplay(item).badgeKind === 'member'
-    ? 'waterfall-price-badge--member'
-    : 'waterfall-price-badge--clearance'
+  // 类名直接按枚举派生（会员/捡漏/秒杀/新人各有颜色语义，与主卡同一套令牌）
+  return `waterfall-price-badge--${cardDisplay(item).badgeKind || 'clearance'}`
 }
 
 function cardGuideText(item: any): string {
@@ -154,69 +162,82 @@ function cardTags(item: any): string[] {
         loading-more-default-text=""
         @query="queryList"
       >
-        <view class="waterfall-columns" :style="{ columnCount: componentProps.columns || 2 }">
+        <view class="waterfall-columns">
           <view
-            v-for="item in goodsList"
-            :key="item.id"
-            class="waterfall-card"
-            @click="openGoods(item.id)"
+            v-for="(column, columnIndex) in goodsColumns"
+            :key="columnIndex"
+            class="waterfall-column"
           >
-            <image class="waterfall-pic" :src="item.imageUrl" mode="widthFix" lazy-load />
-            <view class="waterfall-name">
-              {{ item.name }}
-            </view>
-            <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="waterfall-subtitle">
-              {{ item.subTitle }}
-            </view>
-            <!-- 信息 chip：仅规格（库存绝对数不外露，低库存另起一行） -->
-            <view v-if="cardTags(item).length > 0" class="waterfall-tags">
-              <text
-                v-for="tag in cardTags(item)"
-                :key="tag"
-                class="waterfall-tag"
+            <view
+              v-for="item in column"
+              :key="item.id"
+              class="waterfall-card"
+              @click="openGoods(item.id)"
+            >
+              <view
+                class="waterfall-pic-box"
+                :style="{ paddingTop: imageAspectPadding(item.picWidth, item.picHeight) }"
               >
-                {{ tag }}
-              </text>
-            </view>
-            <view class="waterfall-meta">
-              <view class="waterfall-meta-text">
-                <view class="waterfall-price-line">
-                  <text
-                    v-if="componentProps.showPrice !== false"
-                    class="waterfall-price"
-                  >
-                    <!-- 角标：会员价 / 捡漏价；主价与划线均由共享专区价口径给出 -->
-                    <text
-                      v-if="cardBadgeText(item)"
-                      class="waterfall-price-badge"
-                      :class="cardBadgeClass(item)"
-                    >{{ cardBadgeText(item) }}</text>
-                    ¥{{ cardMainPrice(item).toFixed(2) }}
-                  </text>
-                  <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
-                  <text
-                    v-if="cardStrikePrice(item) !== null"
-                    class="waterfall-price-original"
-                  >
-                    ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
-                  </text>
-                </view>
-                <!-- 未达标/未登录的会员价引导：只透出「会员专享 ¥X」，主价不动 -->
-                <text v-if="cardGuideText(item)" class="waterfall-member-guide">
-                  {{ cardGuideText(item) }}
-                </text>
-                <text v-if="stockHintText(item.stock)" class="waterfall-sales">
-                  {{ stockHintText(item.stock) }}
+                <image class="waterfall-pic" :src="item.imageUrl" mode="aspectFit" lazy-load />
+              </view>
+              <view class="waterfall-name">
+                {{ item.name }}
+              </view>
+              <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="waterfall-subtitle">
+                {{ item.subTitle }}
+              </view>
+              <!-- 信息 chip：仅规格（库存绝对数不外露，低库存另起一行） -->
+              <view v-if="cardTags(item).length > 0" class="waterfall-tags">
+                <text
+                  v-for="tag in cardTags(item)"
+                  :key="tag"
+                  class="waterfall-tag"
+                >
+                  {{ tag }}
                 </text>
               </view>
-              <!-- 快捷加购（单规格直加，多规格弹层）；专区价透传给弹层保证「卡片价 = 弹层价」 -->
-              <view class="waterfall-actions">
-                <quick-cart-button
-                  v-if="item.stock > 0"
-                  :spu-id="item.id"
-                  size="40rpx"
-                  :zone-prices="zone.skuZonePricesOf(item.id)"
-                />
+              <view class="waterfall-meta">
+                <view class="waterfall-meta-text">
+                  <view class="waterfall-price-line">
+                    <text
+                      v-if="componentProps.showPrice !== false"
+                      class="waterfall-price"
+                    >
+                      <!-- 角标：会员价 / 捡漏价；主价与划线均由共享专区价口径给出 -->
+                      <text
+                        v-if="cardBadgeText(item)"
+                        class="waterfall-price-badge"
+                        :class="cardBadgeClass(item)"
+                      >
+                        {{ cardBadgeText(item) }}
+                      </text>
+                      <price-text :value="cardMainPrice(item)" />
+                    </text>
+                    <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
+                    <text
+                      v-if="cardStrikePrice(item) !== null"
+                      class="waterfall-price-original"
+                    >
+                      ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
+                    </text>
+                  </view>
+                  <!-- 未达标/未登录的会员价引导：只透出「会员专享 ¥X」，主价不动 -->
+                  <text v-if="cardGuideText(item)" class="waterfall-member-guide">
+                    {{ cardGuideText(item) }}
+                  </text>
+                  <text v-if="stockHintText(item.stock)" class="waterfall-sales">
+                    {{ stockHintText(item.stock) }}
+                  </text>
+                </view>
+                <!-- 快捷加购（单规格直加，多规格弹层）；专区价透传给弹层保证「卡片价 = 弹层价」 -->
+                <view class="waterfall-actions">
+                  <quick-cart-button
+                    v-if="item.stock > 0"
+                    :spu-id="item.id"
+                    size="40rpx"
+                    :zone-prices="zone.skuZonePricesOf(item.id)"
+                  />
+                </view>
               </view>
             </view>
           </view>
@@ -232,6 +253,7 @@ function cardTags(item: any): string[] {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 /* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
    内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
 .waterfall-inner {
@@ -244,21 +266,41 @@ function cardTags(item: any): string[] {
   font-weight: 600;
 }
 
+/* 交替瀑布流：两列/三列各自堆叠，卡片按内容高度错落 */
 .waterfall-columns {
-  column-gap: 16rpx;
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.waterfall-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16rpx;
+  min-width: 0;
 }
 
 .waterfall-card {
   display: block;
-  margin-bottom: 16rpx;
   overflow: hidden;
   background: #fff;
   border-radius: 12rpx;
-  break-inside: avoid;
+}
+
+/* 图片区按主图真实宽高锁高（后端回填，缺失按 1:1），加载前后卡片高度不变 */
+.waterfall-pic-box {
+  position: relative;
+  width: 100%;
+  background: #fff;
 }
 
 .waterfall-pic {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
+  height: 100%;
 }
 
 .waterfall-name {
@@ -330,7 +372,7 @@ function cardTags(item: any): string[] {
   font-weight: 600;
 }
 
-/* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢价格层级 */
+/* 专区价角标：会员价走浅金、捡漏价走固定红橙，小号标签不抢价格层级 */
 .waterfall-price-badge {
   margin-right: 4rpx;
   padding: 0 6rpx;
@@ -347,8 +389,16 @@ function cardTags(item: any): string[] {
 }
 
 .waterfall-price-badge--clearance {
-  background: var(--wot-color-theme-primary, #ff2237);
+  @include goods-tag-clearance;
+}
+
+.waterfall-price-badge--seckill {
+  background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   color: #fff;
+}
+
+.waterfall-price-badge--newbie {
+  @include goods-tag-newbie;
 }
 
 /* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */

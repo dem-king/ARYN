@@ -268,8 +268,8 @@ describe('shopping cart limited-discount price contract', () => {
 
   it('renders the discount price as main price with badge and strike-through base price', () => {
     const cart = source(CART_PAGE)
-    // 行主价必须走与合计同源的 cartUnitPrice，不能各写一遍三目
-    expect(cart).toContain(':text="cartUnitPrice(goods)"')
+    // 行主价必须走与合计同源的 cartUnitPrice，不能各写一遍三目（price-text 只负责排版拆分）
+    expect(cart).toContain(':value="cartUnitPrice(goods)"')
     // 命中折扣时展示力度角标，文案由共享层 formatDiscountValue 口径生成
     expect(cart).toContain('discountDisplayOf(goods).showDiscountPrice')
     expect(cart).toContain('discountDisplayOf(goods).badgeText')

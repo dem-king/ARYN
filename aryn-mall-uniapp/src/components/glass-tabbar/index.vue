@@ -134,6 +134,8 @@ function selectTab(item: GlassTabItem) {
 </script>
 
 <template>
+  <!-- 底部渐进模糊：胶囊是悬浮的，两侧与下方会透出滚动内容，用渐隐蒙层兜住 -->
+  <view class="glass-tabbar-veil" />
   <view class="glass-tabbar">
     <view
       v-for="item in GLASS_TAB_ITEMS"
@@ -162,6 +164,33 @@ function selectTab(item: GlassTabItem) {
 </template>
 
 <style lang="scss" scoped>
+/**
+ * 底部渐进模糊蒙层：滚到栏下的内容会被逐渐虚化，胶囊两侧与下方不再「能看清」。
+ *
+ * 高度取 68px（胶囊贴底 16 + 高 52），渐变正好在胶囊上沿收干净，不盖到上方的
+ * 内容；层级放在胶囊(998)之下、页面弹层(900+)之上——弹层从底部滑出时保持清晰。
+ * 掩码同时作用于背景与 backdrop-filter，模糊强度从上沿的 0 渐强到底部的满值。
+ */
+.glass-tabbar-veil {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 68px;
+  z-index: 890;
+  pointer-events: none;
+  background-color: rgba(255, 255, 255, 0.42);
+  /* 与胶囊同一套材质数值，渐隐后仍是同一族玻璃 */
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  -WEBKIT-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
+.wot-theme-dark .glass-tabbar-veil {
+  background-color: rgba(18, 18, 18, 0.5);
+}
+
 .glass-tabbar {
   position: fixed;
   /* 悬浮胶囊：居中、左右留边、底部离屏一条，圆角与浮起阴影由本层承担 */

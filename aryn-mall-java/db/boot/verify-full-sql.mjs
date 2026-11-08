@@ -216,6 +216,27 @@ const required = [
   'ADD COLUMN `icon_url`',
   'ADD COLUMN `badge_height`',
   'ADD COLUMN `border_radius`',
+  // 支付安全配置底座（2026-11-06）：身份版本 / 加密材料 / 交易身份冻结 / 独立启用检查权限
+  'CREATE TABLE IF NOT EXISTS `pay_config_revision`',
+  'CREATE TABLE IF NOT EXISTS `pay_config_material`',
+  'ADD COLUMN `active_revision_id`',
+  'ADD COLUMN `config_revision_id`',
+  'uk_pay_config_revision_identity',
+  "'pay:payconfig:material'",
+  "'pay:payconfig:enable'",
+  "'pay:payconfig:check'",
+  '2140000000000000301',
+  // 支付交易闭环（2026-11-06 P1）：生命周期列、事件 outbox、来源段
+  'ADD COLUMN `trade_status`',
+  'CREATE TABLE IF NOT EXISTS `pay_event_outbox`',
+  'uk_pay_event_outbox_event',
+  "210payment_closure_incremental.sql",
+  'ADD COLUMN `pay_submitting`',
+  // 支付宝小程序身份模式（2026-11-06 P2）：三方账号/三方用户/支付身份版本
+  'ADD COLUMN `identity_mode`',
+  'ADD COLUMN `platform_type`',
+  'ADD COLUMN `buyer_identity_mode`',
+  "212alipay_mini_identity_incremental.sql",
 ];
 
 for (const token of required) {
@@ -273,6 +294,10 @@ const sourceFiles = [
   '205goods_category_badge_config.sql',
   '206goods_category_badge_menu.sql',
   '208goods_category_badge_style.sql',
+  '209pay_credential_vault_incremental.sql',
+  '210payment_closure_incremental.sql',
+  '211order_pay_submit_gate_incremental.sql',
+  '212alipay_mini_identity_incremental.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);
@@ -338,6 +363,10 @@ for (const [bootFile, cloudFile, label] of [
   ['205goods_category_badge_config.sql', '210goods_category_badge_config.sql', '类目角标数据模型'],
   ['206goods_category_badge_menu.sql', '211goods_category_badge_menu.sql', '类目角标菜单权限'],
   ['208goods_category_badge_style.sql', '213goods_category_badge_style.sql', '类目角标样式扩展'],
+  ['209pay_credential_vault_incremental.sql', '214pay_credential_vault_incremental.sql', '支付安全配置底座'],
+  ['210payment_closure_incremental.sql', '216payment_closure_incremental.sql', '支付交易闭环'],
+  ['211order_pay_submit_gate_incremental.sql', '218order_pay_submit_gate_incremental.sql', '订单支付提交门禁'],
+  ['212alipay_mini_identity_incremental.sql', '219alipay_mini_identity_incremental.sql', '支付宝小程序身份模式'],
 ]) {
   const bootContent = semantic(readFileSync(join(root, bootFile), 'utf8'));
   const cloudPath = join(root, '..', 'cloud', cloudFile);

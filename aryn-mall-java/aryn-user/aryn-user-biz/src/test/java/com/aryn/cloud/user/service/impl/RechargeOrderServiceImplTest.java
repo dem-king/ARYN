@@ -67,6 +67,8 @@ class RechargeOrderServiceImplTest {
 		// @DubboReference 字段不走构造器，测试里反射注入
 		ReflectionTestUtils.setField(rechargeOrderService, "remotePayService", remotePayService);
 		ReflectionTestUtils.setField(rechargeOrderService, "remoteOrderConfigService", remoteOrderConfigService);
+		ReflectionTestUtils.setField(rechargeOrderService, "rechargeCancelGateService",
+				new com.aryn.cloud.user.service.RechargeCancelGateService(remotePayService));
 
 		activeConfig = new RechargeConfig();
 		activeConfig.setId("config001");
@@ -306,12 +308,17 @@ class RechargeOrderServiceImplTest {
 		order.setPayStatus("0"); // 待支付
 
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
+		when(remotePayService.closeAndCheckPayOrder("orderNo001")).thenReturn(
+				com.aryn.cloud.pay.api.dto.PayCloseResult.of(
+						com.aryn.cloud.pay.api.dto.PayCloseResult.STATUS_NOT_INITIATED, null, "none"));
+
+		when(rechargeOrderMapper.markCanceledIfPending("order001")).thenReturn(1);
 
 		// when
 		rechargeOrderService.cancelOrder("orderNo001");
 
 		// then
-		verify(rechargeOrderMapper).updateById(argThat((RechargeOrder o) -> "2".equals(o.getPayStatus())));
+		verify(rechargeOrderMapper).markCanceledIfPending("order001");
 	}
 
 	@Test
@@ -325,6 +332,40 @@ class RechargeOrderServiceImplTest {
 				rechargeOrderService.cancelOrder("nonexistent"));
 
 		assertEquals("订单不存在", exception.getMsg());
+	}
+
+	@Test
+	@DisplayName("取消订单 - 支付已确认时不能取消")
+	void cancelOrder_paidGateBlocks() {
+		RechargeOrder order = new RechargeOrder();
+		order.setOrderNo("orderNo001");
+		order.setPayStatus("0");
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
+		when(remotePayService.closeAndCheckPayOrder("orderNo001")).thenReturn(
+				com.aryn.cloud.pay.api.dto.PayCloseResult.of(
+						com.aryn.cloud.pay.api.dto.PayCloseResult.STATUS_PAID, "SUCCESS", "paid"));
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> rechargeOrderService.cancelOrder("orderNo001"));
+		assertEquals("充值订单已支付，不能取消", exception.getMsg());
+		verify(rechargeOrderMapper, never()).updateById(any(RechargeOrder.class));
+	}
+
+	@Test
+	@DisplayName("取消订单 - 支付结果不明时不能取消")
+	void cancelOrder_unknownGateBlocks() {
+		RechargeOrder order = new RechargeOrder();
+		order.setOrderNo("orderNo001");
+		order.setPayStatus("0");
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
+		when(remotePayService.closeAndCheckPayOrder("orderNo001")).thenReturn(
+				com.aryn.cloud.pay.api.dto.PayCloseResult.of(
+						com.aryn.cloud.pay.api.dto.PayCloseResult.STATUS_UNKNOWN, "USERPAYING", "unknown"));
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> rechargeOrderService.cancelOrder("orderNo001"));
+		assertEquals("支付结果确认中，暂不能取消充值订单", exception.getMsg());
+		verify(rechargeOrderMapper, never()).updateById(any(RechargeOrder.class));
 	}
 
 	@Test

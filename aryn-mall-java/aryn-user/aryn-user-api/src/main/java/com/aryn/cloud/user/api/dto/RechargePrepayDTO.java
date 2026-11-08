@@ -37,4 +37,10 @@ public class RechargePrepayDTO implements Serializable {
 	@Schema(description = "用户付款中途退出返回商户网站的地址")
 	private String quitUrl;
 
+	/**
+	 * 服务端从 platform-type 请求头写入，仅用于支付平台一致性校验。
+	 */
+	@Schema(description = "客户端平台：WX_MA/ALI_MINI")
+	private String clientPlatform;
+
 }

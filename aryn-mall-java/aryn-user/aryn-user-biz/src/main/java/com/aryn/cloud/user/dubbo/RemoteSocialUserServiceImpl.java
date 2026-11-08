@@ -5,8 +5,13 @@ import cn.binarywang.wx.miniapp.bean.WxMaJscode2SessionResult;
 import cn.binarywang.wx.miniapp.bean.WxMaPhoneNumberInfo;
 import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aryn.cloud.common.core.enums.MiniAppIdentityModeEnum;
+import com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.pay.api.dto.AlipayAuthCodeExchangeReqDTO;
+import com.aryn.cloud.pay.api.dto.AlipayMiniIdentityDTO;
+import com.aryn.cloud.pay.api.remote.RemoteAlipayAuthService;
 import com.aryn.cloud.user.api.dto.SocialUserBindDTO;
 import com.aryn.cloud.user.api.dto.SocialUserUnbindDTO;
 import com.aryn.cloud.user.api.dto.UserLoginReqDTO;
@@ -20,6 +25,7 @@ import com.aryn.cloud.user.service.ISocialUserService;
 import com.aryn.cloud.user.service.MiniAppBindingResolver;
 import lombok.RequiredArgsConstructor;
 import me.chanjar.weixin.common.error.WxErrorException;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -37,12 +43,19 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 
 	private final MiniAppBindingResolver miniAppBindingResolver;
 
+	@DubboReference
+	private RemoteAlipayAuthService remoteAlipayAuthService;
+
 	@Override
 	public SocialUser socialLogin(UserLoginReqDTO userLoginReqDTO) {
+		if (OpenPlatformTypeEnum.ALI_MINI.getCode().equals(userLoginReqDTO.getPlatformType())) {
+			throw new ArynBusinessException(403, "支付宝小程序不能使用微信登录接口");
+		}
 		// 微信消费前权威重查 AppID↔租户绑定并刷新本实例缓存；消费该次解析得到的配置快照，
 		// 不信任进程内旧缓存（可能已被其它实例/直接 SQL 修改淘汰）。
 		SocialAccount socialAccount = miniAppBindingResolver.requireBinding(
-				userLoginReqDTO.getAppId(), userLoginReqDTO.getRequestTenantId());
+				userLoginReqDTO.getAppId(), userLoginReqDTO.getRequestTenantId(),
+				OpenPlatformTypeEnum.WX_MA.getCode());
 		ArynTenantContextHolder.setTenantId(socialAccount.getTenantId());
 		final WxMaService wxService = WxMiniAppConfiguration.createMaService(socialAccount);
 		try {
@@ -59,6 +72,8 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 			socialUser.setUnionid(session.getUnionid());
 			socialUser.setAppId(socialAccount.getAppId());
 			socialUser.setSocialAccountId(socialAccount.getId());
+			socialUser.setPlatformType(OpenPlatformTypeEnum.WX_MA.getCode());
+			socialUser.setIdentityMode(MiniAppIdentityModeEnum.OPEN_ID.getCode());
 			// 通过返回值把租户带回认证服务，避免 Boot 模式 Dubbo injvm 清理线程上下文后丢失租户。
 			socialUser.setTenantId(socialAccount.getTenantId());
 			socialUserService.saveOrUpdate(socialUser);
@@ -67,6 +82,61 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 		catch (WxErrorException e) {
 			throw new ArynBusinessException(e.getMessage());
 		}
+	}
+
+	@Override
+	public SocialUser aliMiniLogin(UserLoginReqDTO userLoginReqDTO) {
+		if (!OpenPlatformTypeEnum.ALI_MINI.getCode().equals(userLoginReqDTO.getPlatformType())) {
+			throw new ArynBusinessException(403, "该接口仅支持支付宝小程序");
+		}
+		if (!StringUtils.hasText(userLoginReqDTO.getAuthCode())) {
+			throw new ArynBusinessException(403, "缺少支付宝授权码");
+		}
+		SocialAccount socialAccount = miniAppBindingResolver.requireBinding(
+				userLoginReqDTO.getAppId(), userLoginReqDTO.getRequestTenantId(),
+				OpenPlatformTypeEnum.ALI_MINI.getCode());
+		MiniAppIdentityModeEnum identityMode = MiniAppIdentityModeEnum.fromCode(socialAccount.getIdentityMode());
+		if (identityMode == null) {
+			throw new ArynBusinessException(403, "支付宝小程序身份模式未配置");
+		}
+		ArynTenantContextHolder.setTenantId(socialAccount.getTenantId());
+		AlipayAuthCodeExchangeReqDTO exchange = new AlipayAuthCodeExchangeReqDTO();
+		exchange.setTenantId(socialAccount.getTenantId());
+		exchange.setAppId(socialAccount.getAppId());
+		exchange.setAuthCode(userLoginReqDTO.getAuthCode().trim());
+		exchange.setIdentityMode(identityMode.getCode());
+		AlipayMiniIdentityDTO identity;
+		try {
+			identity = remoteAlipayAuthService.exchangeAuthCode(exchange);
+		}
+		catch (ArynBusinessException exception) {
+			throw exception;
+		}
+		catch (RuntimeException exception) {
+			throw new ArynBusinessException(403, "支付宝授权码校验失败");
+		}
+		if (identity == null || !socialAccount.getTenantId().equals(identity.getTenantId())
+				|| !socialAccount.getAppId().equals(identity.getAppId())
+				|| !identityMode.getCode().equals(identity.getIdentityMode())
+				|| !StringUtils.hasText(identity.getIdentity())) {
+			throw new ArynBusinessException(403, "支付宝小程序身份与租户配置不一致");
+		}
+		SocialUser socialUser = socialUserService.getOne(Wrappers.<SocialUser>lambdaQuery()
+			.eq(SocialUser::getAppId, socialAccount.getAppId())
+			.eq(SocialUser::getOpenId, identity.getIdentity())
+			.eq(SocialUser::getIdentityMode, identityMode.getCode())
+			.last("LIMIT 1"));
+		if (ObjectUtil.isNull(socialUser)) {
+			socialUser = new SocialUser();
+			socialUser.setOpenId(identity.getIdentity());
+		}
+		socialUser.setAppId(socialAccount.getAppId());
+		socialUser.setSocialAccountId(socialAccount.getId());
+		socialUser.setPlatformType(OpenPlatformTypeEnum.ALI_MINI.getCode());
+		socialUser.setIdentityMode(identityMode.getCode());
+		socialUser.setTenantId(socialAccount.getTenantId());
+		socialUserService.saveOrUpdate(socialUser);
+		return socialUser;
 	}
 
 	@Override
@@ -126,9 +196,13 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 
 	@Override
 	public String getPhoneNumberInfo(UserLoginReqDTO request) {
+		if (OpenPlatformTypeEnum.ALI_MINI.getCode().equals(request.getPlatformType())) {
+			throw new ArynBusinessException(403, "支付宝小程序不支持微信手机号解密");
+		}
 		// 手机号解密同样走权威快照：先验证 AppID↔租户绑定，再构造 SDK
 		SocialAccount socialAccount = miniAppBindingResolver.requireBinding(
-				request.getAppId(), request.getRequestTenantId());
+				request.getAppId(), request.getRequestTenantId(),
+				OpenPlatformTypeEnum.WX_MA.getCode());
 		final WxMaService wxService = WxMiniAppConfiguration.createMaService(socialAccount);
 		// 解密
 		WxMaPhoneNumberInfo phoneNoInfo = null;
@@ -152,6 +226,7 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 			ArynTenantContextHolder.setTenantId(tenantId);
 			SocialUser socialUser = socialUserService.getOne(Wrappers.<SocialUser>lambdaQuery()
 				.eq(SocialUser::getMallUserId, mallUserId)
+				.eq(SocialUser::getPlatformType, OpenPlatformTypeEnum.WX_MA.getCode())
 				.isNotNull(SocialUser::getOpenId)
 				.ne(SocialUser::getOpenId, "")
 				.orderByDesc(SocialUser::getUpdateTime)

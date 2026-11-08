@@ -94,7 +94,7 @@ logging:
     com.aryn.cloud.user.mapper: INFO
     com.aryn.cloud.distribution.mapper: DEBUG
     com.aryn.cloud.order.mapper: DEBUG
-    com.aryn.cloud.pay.mapper: DEBUG
+    com.aryn.cloud.pay.mapper: INFO
     com.aryn.cloud.product.mapper: DEBUG
     com.aryn.cloud.promotion.mapper: DEBUG
     com.aryn.cloud.message.mapper: DEBUG
@@ -230,6 +230,7 @@ hx:
       - goods_specs_value
       - goods_spu
       - goods_price_history
+      - goods_sku_price_daily
       - goods_zone_tag_batch
       - goods_zone_tag_batch_item
       - product_order_pay_record
@@ -278,9 +279,12 @@ hx:
       - discount_goods
       - discount_stock_lock
       - pay_config
+      - pay_config_revision
+      - pay_config_material
       - pay_trade_order
       - pay_notify_record
       - pay_refund_order
+      - pay_event_outbox
       - order_info
       - order_item
       - order_delivery
@@ -289,6 +293,7 @@ hx:
       - order_config
       - dashboard_target
       - stat_daily_user_order
+      - stat_daily_spu_sales
       - shopping_cart
       - message_notice
       - message_recipient
@@ -322,6 +327,8 @@ hx:
       - shared_cart_item
       - shared_cart_import
       - shared_cart_import_row
+      - replenish_direct_import
+      - replenish_direct_import_row
       - fulfillment_wave
       - fulfillment_pick_item
       - fulfillment_exception
@@ -387,6 +394,27 @@ sms:
     trust-forwarded-headers: false
 
 aryn:
+  # 支付材料主密钥只允许通过部署环境变量/Secret 注入，禁止写入代码、SQL、Nacos 明文或日志。
+  pay:
+    credential:
+      master-key: ${ARYN_PAY_CREDENTIAL_MASTER_KEY:}
+      key-id: ${ARYN_PAY_CREDENTIAL_KEY_ID:primary}
+      # 历史密钥轮换：keyId=Base64,keyId=Base64
+      previous-keys: ${ARYN_PAY_CREDENTIAL_PREVIOUS_KEYS:}
+      max-material-bytes: ${ARYN_PAY_CREDENTIAL_MAX_BYTES:262144}
+    callback:
+      allow-http: ${ARYN_PAY_CALLBACK_ALLOW_HTTP:false}
+      allow-private: ${ARYN_PAY_CALLBACK_ALLOW_PRIVATE:false}
+    allowed-return-hosts: ${ARYN_PAY_ALLOWED_RETURN_HOSTS:}
+    client-ip:
+      trusted-proxy: ${ARYN_PAY_TRUSTED_PROXY:false}
+    outbox:
+      relay-interval-ms: ${ARYN_PAY_OUTBOX_RELAY_INTERVAL_MS:5000}
+      batch-size: ${ARYN_PAY_OUTBOX_BATCH_SIZE:100}
+      max-attempts: ${ARYN_PAY_OUTBOX_MAX_ATTEMPTS:20}
+    alipay:
+      gateway-prod: ${ARYN_PAY_ALIPAY_GATEWAY_PROD:https://openapi.alipay.com/gateway.do}
+      gateway-sandbox: ${ARYN_PAY_ALIPAY_GATEWAY_SANDBOX:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
   # IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
   ip:
     enabled: ${ARYN_IP_ENABLED:true}
@@ -435,3 +463,12 @@ promotion:
     enabled: ${PROMOTION_STACK_POLICY_ENABLED:true}
     min-payable-enabled: ${PROMOTION_MIN_PAYABLE_ENABLED:true}
     min-payable-amount: ${PROMOTION_MIN_PAYABLE_AMOUNT:0.01}
+
+# 商品卡社证展示门槛（演示库临时低门槛：本地近30天仅 6 个买家，默认 1000/30 一条都不显示；
+# 生产/演示上线前调回 1000/30 或删除本段走代码默认值）
+goods-card:
+  social-proof:
+    min-buyer-cnt: ${GOODS_CARD_MIN_BUYER_CNT:1}
+    min-repurchase-rate: ${GOODS_CARD_MIN_REPURCHASE_RATE:1}
+    # 好评率门槛（商详口碑气泡消费）：演示库最多 6 条评价，代码默认 10 同样一条都不显示
+    min-appraise-cnt: ${GOODS_CARD_MIN_APPRAISE_CNT:1}

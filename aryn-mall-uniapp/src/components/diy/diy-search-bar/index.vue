@@ -197,6 +197,15 @@ const material = computed(() =>
 const materialized = computed(() => props.pinned && materialScrollTop.value > 0)
 
 /**
+ * 融入磨砂头部：只有头部材质真的铺出来时才撤掉输入条自己的玻璃。
+ * scrollEffect 不是 fade 的页面没有材质层（surfaceOpacity=0），此时保留玻璃胶囊，
+ * 否则图标与文案会直接飘在滚动内容上。
+ */
+const blended = computed(
+  () => materialized.value && material.value.surfaceOpacity > 0,
+)
+
+/**
  * 材质开关（0/1）。静置必须为 0：此时解析结果给的是「起始外观」（baseOpacity=1），
  * 直接铺出来会把导航起始底色糊到首屏搜索框区域，破坏设计稿观感；开始滚动后
  * 与导航栏同帧切到 1，两层材质一步到位。
@@ -322,7 +331,8 @@ function stopRotation() {
     <view class="search-bar-row">
       <view
         class="search-bar-inner"
-        :style="{ backgroundColor: bgColor, borderRadius }"
+        :class="{ 'search-bar-inner--blended': blended }"
+        :style="{ backgroundColor: blended ? 'transparent' : bgColor, borderRadius }"
         @click="handleSearch"
       >
         <wd-icon name="search" size="16px" color="#999" />
@@ -438,14 +448,6 @@ function stopRotation() {
       top: auto;
       height: 1px;
     }
-  }
-
-  /*
-   * 材质出现后，配置的白色输入条会融进磨砂白头部：补一圈 1px 细边保住轮廓。
-   * 深色输入条上这圈边近乎不可见，不需要按颜色分支。
-   */
-  &--materialized .search-bar-inner {
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
   }
 }
 </style>

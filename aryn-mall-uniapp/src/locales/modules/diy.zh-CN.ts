@@ -105,6 +105,7 @@ export default {
       fallbackGoodsName: '新人专享商品',
       limitToast: '新人专享价每人限购 {limit} 件',
       selectSpecsToast: '请选择规格',
+      viewAll: '查看全部',
     },
 
     // 今日补给单楼层（diy-replenish-card）

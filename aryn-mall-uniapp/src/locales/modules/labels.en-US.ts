@@ -13,6 +13,8 @@ export default {
     fixedPrice: 'Fixed Price',
     memberPriceBadge: 'Member Price',
     memberGuidePrefix: 'Member Exclusive',
+    newbiePriceBadge: 'First-order price',
+    seckillPriceBadge: 'Flash Sale',
     newbieAlreadyPaid: 'New User Price is for first orders only. You have already placed an order.',
     newbieRegisterWithin: 'New User Price is only for users registered within {days} days',
     newbieRegisterOnly: 'New User Price is only for newly registered users',
@@ -52,6 +54,7 @@ export default {
     payTimeoutHours: '{count} hr',
     notice: 'Notice',
     cancelPayment: 'Cancel payment',
+    payUnavailable: 'This payment method is not available on this terminal',
 
     // Search suggestions / cart results
     history: 'History',

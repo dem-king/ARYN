@@ -14,6 +14,17 @@ public interface RemoteSocialUserService {
 	 */
 	SocialUser socialLogin(UserLoginReqDTO userLoginReqDTO);
 
+	/**
+	 * 支付宝小程序登录：用 my.getAuthCode 授权码换取买家身份并落库。
+	 *
+	 * <p>身份模式必须由 social_account 显式配置，且与支付身份版本一致；
+	 * 不接受、不猜测、不复用微信 openid。
+	 *
+	 * @param userLoginReqDTO appId、requestTenantId、authCode、platformType=ALI_MINI
+	 * @return 已绑定当前租户的三方用户
+	 */
+	SocialUser aliMiniLogin(UserLoginReqDTO userLoginReqDTO);
+
 	boolean bindUserId(SocialUserBindDTO dto);
 
 	boolean unbindUserId(SocialUserUnbindDTO dto);

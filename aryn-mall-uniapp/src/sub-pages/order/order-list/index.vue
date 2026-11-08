@@ -3,6 +3,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/order/orderInfo'
+import PriceText from '@/components/price-text/index.vue'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { useDict } from '@/sub-pages/utils/dict'
@@ -402,9 +403,11 @@ onUnload(() => {
                   </view>
                 </view>
                 <view class="ol-item__price-wrap">
-                  <text class="ol-item__price">
-                    <text class="ol-item__currency">¥</text>{{ formatAmount(item.paymentPrice ?? item.salesPrice) }}
-                  </text>
+                  <price-text
+                    class="ol-item__price"
+                    :value="item.paymentPrice ?? item.salesPrice"
+                    symbol="¥"
+                  />
                   <text class="ol-item__qty">×{{ item.buyQuantity }}</text>
                 </view>
               </view>
@@ -670,11 +673,6 @@ $hairline: var(--app-border);
   font-weight: 600;
   line-height: 36rpx;
   color: $ink;
-}
-
-.ol-item__currency {
-  font-size: 22rpx;
-  font-weight: 500;
 }
 
 .ol-item__qty {

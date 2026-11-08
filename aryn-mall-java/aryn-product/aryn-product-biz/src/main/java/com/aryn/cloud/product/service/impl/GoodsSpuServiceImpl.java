@@ -14,10 +14,14 @@ import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
+import com.aryn.cloud.product.service.IGoodsSocialBubbleService;
 import com.aryn.cloud.product.service.support.GoodsZoneTagRuleValidator;
 import com.aryn.cloud.product.support.GoodsAttrTagNormalizer;
 import com.aryn.cloud.product.support.GoodsIntroductionSanitizer;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialService;
+import com.aryn.cloud.upms.api.vo.RemoteImageSizeVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -33,6 +37,7 @@ import java.util.*;
  * @author 雨滴kian
  * @since 2022/2/22 15:27
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> implements IGoodsSpuService {
@@ -71,6 +76,8 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	private final GoodsPriceHistoryService goodsPriceHistoryService;
 
+	private final IGoodsSocialBubbleService goodsSocialBubbleService;
+
 	/**
 	 * 专区默认折扣：表单保存出清商品时与批量打标同口径校验。
 	 *
@@ -78,6 +85,10 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	 */
 	@org.apache.dubbo.config.annotation.DubboReference
 	private com.aryn.cloud.promotion.api.remote.RemoteMallZoneSettingService remoteMallZoneSettingService;
+
+	/** 主图宽高解析（upms 读本地文件/受信域名，结果有缓存）；非 final + @DubboReference 同上一字段 */
+	@org.apache.dubbo.config.annotation.DubboReference
+	private RemoteMaterialService remoteMaterialService;
 
 	@Override
 	public IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu, String zoneType) {
@@ -397,6 +408,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		// C 端出参脱敏：成本价/会员定价规则是内部经营数据，不下发（详见 GoodsCostPriceMasker）
 		if (Objects.nonNull(result)) {
 			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
+			fillPicSizes(result.getRecords());
 		}
 		return result;
 	}
@@ -573,6 +585,8 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		// C 端出参脱敏：成本价是内部经营数据，不下发
 		if (Objects.nonNull(result)) {
 			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
+			// 推荐卡同样按主图宽高锁占位比例，避免瀑布流图片加载时跳动
+			fillPicSizes(result.getRecords());
 		}
 		return result;
 	}
@@ -620,36 +634,42 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Override
 	public GoodsSpu getApiSpuById(String id) {
 		GoodsSpu goodsSpu = baseMapper.selectApiSpuById(id);
-		if (Objects.nonNull(goodsSpu)) {
-			ArynUser hxUser = SecurityUtils.getUser();
-			if (Objects.nonNull(hxUser) && StringUtils.hasText(hxUser.getUserId())) {
-				GoodsCollect goodsCollect = goodsCollectMapper.selectOne(Wrappers.<GoodsCollect>lambdaQuery()
-					.eq(GoodsCollect::getSpuId, id)
-					.eq(GoodsCollect::getUserId, hxUser.getUserId()));
-				if (Objects.nonNull(goodsCollect)) {
-					goodsSpu.setCollectId(goodsCollect.getId());
-				}
-				// 保存浏览记录：同一商品只保留最近一次，重复浏览刷新时间而不是新增
-				GoodsFootprint goodsFootprint = goodsFootprintMapper.selectOne(Wrappers.<GoodsFootprint>lambdaQuery()
-					.eq(GoodsFootprint::getUserId, hxUser.getUserId())
-					.eq(GoodsFootprint::getSpuId, id)
-					.orderByDesc(GoodsFootprint::getCreateTime)
-					.last("LIMIT 1"));
-				if (Objects.nonNull(goodsFootprint)) {
-					goodsFootprint.setCreateTime(LocalDateTime.now());
-					goodsFootprintMapper.updateById(goodsFootprint);
-				}
-				else {
-					goodsFootprint = new GoodsFootprint();
-					goodsFootprint.setSpuId(id);
-					goodsFootprint.setUserId(hxUser.getUserId());
-					goodsFootprintMapper.insert(goodsFootprint);
-				}
+		// 商品不存在/已下架：返回 null 而不是在脱敏处 NPE 500（与 IQuickCartService
+		// 「商品不存在或已下架返回 null」同口径）；Controller 包装成 code=0/data=null，
+		// C 端商详页据此弹「商品已下架」并退回，而不是卡在空态。
+		if (Objects.isNull(goodsSpu)) {
+			return null;
+		}
+		ArynUser hxUser = SecurityUtils.getUser();
+		if (Objects.nonNull(hxUser) && StringUtils.hasText(hxUser.getUserId())) {
+			GoodsCollect goodsCollect = goodsCollectMapper.selectOne(Wrappers.<GoodsCollect>lambdaQuery()
+				.eq(GoodsCollect::getSpuId, id)
+				.eq(GoodsCollect::getUserId, hxUser.getUserId()));
+			if (Objects.nonNull(goodsCollect)) {
+				goodsSpu.setCollectId(goodsCollect.getId());
 			}
-
+			// 保存浏览记录：同一商品只保留最近一次，重复浏览刷新时间而不是新增
+			GoodsFootprint goodsFootprint = goodsFootprintMapper.selectOne(Wrappers.<GoodsFootprint>lambdaQuery()
+				.eq(GoodsFootprint::getUserId, hxUser.getUserId())
+				.eq(GoodsFootprint::getSpuId, id)
+				.orderByDesc(GoodsFootprint::getCreateTime)
+				.last("LIMIT 1"));
+			if (Objects.nonNull(goodsFootprint)) {
+				goodsFootprint.setCreateTime(LocalDateTime.now());
+				goodsFootprintMapper.updateById(goodsFootprint);
+			}
+			else {
+				goodsFootprint = new GoodsFootprint();
+				goodsFootprint.setSpuId(id);
+				goodsFootprint.setUserId(hxUser.getUserId());
+				goodsFootprintMapper.insert(goodsFootprint);
+			}
 		}
 		// C 端出参脱敏：SPU 与嵌套 SKU 的成本价不下发（详见 GoodsCostPriceMasker）
-		return GoodsCostPriceMasker.maskSpu(goodsSpu);
+		GoodsSpu masked = GoodsCostPriceMasker.maskSpu(goodsSpu);
+		// 口碑气泡增强展示：内部自行逐路降级，全部不可得返回 null（气泡不渲染）
+		masked.setSocialBubble(goodsSocialBubbleService.build(id));
+		return masked;
 	}
 
 	/**
@@ -663,7 +683,51 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			.in(GoodsSpu::getId, ids)
 			.eq(GoodsSpu::getStatus, "1"));
 		goodsSpuList.forEach(GoodsCostPriceMasker::maskSpu);
+		fillPicSizes(goodsSpuList);
 		return goodsSpuList;
+	}
+
+	@Override
+	public void fillPicSizes(List<GoodsSpu> records) {
+		if (CollectionUtils.isEmpty(records)) {
+			return;
+		}
+		Map<String, List<GoodsSpu>> byUrl = new LinkedHashMap<>();
+		for (GoodsSpu spu : records) {
+			String url = firstImageUrl(spu);
+			if (StringUtils.hasText(url)) {
+				byUrl.computeIfAbsent(url, key -> new ArrayList<>()).add(spu);
+			}
+		}
+		if (byUrl.isEmpty()) {
+			return;
+		}
+		try {
+			Map<String, RemoteImageSizeVO> sizes = remoteMaterialService
+				.resolveImageSizes(new ArrayList<>(byUrl.keySet()));
+			if (sizes == null || sizes.isEmpty()) {
+				return;
+			}
+			byUrl.forEach((url, spus) -> {
+				RemoteImageSizeVO size = sizes.get(url);
+				if (size == null || size.getWidth() == null || size.getHeight() == null) {
+					return;
+				}
+				spus.forEach(spu -> {
+					spu.setPicWidth(size.getWidth());
+					spu.setPicHeight(size.getHeight());
+				});
+			});
+		}
+		catch (Exception exception) {
+			// 主图尺寸只影响卡片占位，解析失败不能影响列表返回（前端 1:1 兜底）
+			log.warn("商品卡主图尺寸解析失败，按 1:1 兜底 size={}", records.size(), exception);
+		}
+	}
+
+	private String firstImageUrl(GoodsSpu spu) {
+		String[] urls = spu.getSpuUrls();
+		return urls == null || urls.length == 0 ? null : urls[0];
 	}
 
 	@Override

@@ -5,6 +5,30 @@
  * 但几何、材质、字号必须与 Vue 版一致，否则交接瞬间会看到底栏跳一下。
  * 改任意一侧时同步另一侧，契约测试会比对关键数值。
  */
+/**
+ * 底部渐进模糊蒙层（与 Vue 版 glass-tabbar-veil 逐值一致）。
+ * 高度 68px = 胶囊贴底 16 + 高 52；层级在胶囊之下、页面弹层之上。
+ */
+.glass-tabbar-veil {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 68px;
+  z-index: 890;
+  pointer-events: none;
+  background-color: rgba(255, 255, 255, 0.42);
+  /* iOS 18 以下只认带前缀的写法；本文件不经过 autoprefixer，保留前缀 */
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
+.glass-tabbar-veil--dark {
+  background-color: rgba(18, 18, 18, 0.5);
+}
+
 .glass-tabbar {
   position: fixed;
   /* 悬浮胶囊：居中、左右留边、底部离屏一条，圆角与浮起阴影由本层承担 */

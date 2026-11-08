@@ -3,6 +3,7 @@ package com.aryn.cloud.user.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CommonConstants;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.mapper.UserAddressMapper;
 import com.aryn.cloud.user.service.IUserAddressService;
@@ -21,18 +22,25 @@ public class UserAddressServiceImpl extends ServiceImpl<UserAddressMapper, UserA
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public boolean saveOrUpdateForUser(UserAddress address, String userId) {
+	public UserAddress saveOrUpdateForUser(UserAddress address, String userId) {
 		address.setUserId(userId);
 		if (CommonConstants.YES.equals(address.getIsDefault())) {
 			this.clearDefault(userId);
 		}
 		if (!StringUtils.hasText(address.getId())) {
-			return this.save(address);
+			if (!this.save(address)) {
+				throw new ArynBusinessException("收货地址保存失败");
+			}
+			// MP save 后实体已回填生成的 id，调用方可直接用实体回传展示/结算
+			return address;
 		}
 		// 更新条件保留 userId，禁止借 id 改写他人地址
-		return this.update(address, Wrappers.<UserAddress>lambdaUpdate()
+		if (!this.update(address, Wrappers.<UserAddress>lambdaUpdate()
 				.eq(UserAddress::getId, address.getId())
-				.eq(UserAddress::getUserId, userId));
+				.eq(UserAddress::getUserId, userId))) {
+			throw new ArynBusinessException("收货地址不存在或无权修改");
+		}
+		return address;
 	}
 
 	/**

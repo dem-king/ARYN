@@ -3,15 +3,19 @@ package com.aryn.cloud.pay.dubbo;
 
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
+import com.aryn.cloud.pay.api.dto.PayCloseResult;
 import com.aryn.cloud.pay.api.dto.PaySettlementResult;
 import com.aryn.cloud.pay.api.remote.RemotePayService;
+import com.aryn.cloud.pay.api.vo.PayCapabilityVO;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.pay.handler.PayOrderHandler;
 import com.aryn.cloud.pay.service.IPayNotifyRecordService;
+import com.aryn.cloud.pay.service.PayCapabilityService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,10 +31,17 @@ public class RemotePayServiceImpl implements RemotePayService {
 
 	private final IPayNotifyRecordService payNotifyRecordService;
 
+	private final PayCapabilityService payCapabilityService;
+
 	@Override
 	public Object createOrder(CreateOrderReqDTO createOrderReqDTO) {
 		if (createOrderReqDTO == null) {
 			throw new ArynBusinessException("支付请求不能为空");
+		}
+		com.aryn.cloud.pay.api.enums.PayTradeTypeEnum tradeType = com.aryn.cloud.pay.api.enums.PayTradeTypeEnum
+			.fromCode(createOrderReqDTO.getTradeType());
+		if (tradeType == null || !tradeType.isImplemented()) {
+			throw new ArynBusinessException("不支持的支付方式");
 		}
 		PayOrderHandler handler = payOrderHandlerMap.get(createOrderReqDTO.getTradeType());
 		if (handler == null) {
@@ -43,6 +54,16 @@ public class RemotePayServiceImpl implements RemotePayService {
 	public PaySettlementResult queryAndSettlePayOrder(String outTradeNo) {
 		// 消费方租户由 Dubbo 过滤器透传（boot 模式为同线程 injvm），这里显式取出交给服务层
 		return payNotifyRecordService.queryAndSettlePayOrder(ArynTenantContextHolder.getTenantId(), outTradeNo);
+	}
+
+	@Override
+	public List<PayCapabilityVO> queryPayCapabilities(String terminalType) {
+		return payCapabilityService.query(terminalType);
+	}
+
+	@Override
+	public PayCloseResult closeAndCheckPayOrder(String outTradeNo) {
+		return payNotifyRecordService.closeAndCheckPayOrder(outTradeNo);
 	}
 
 }

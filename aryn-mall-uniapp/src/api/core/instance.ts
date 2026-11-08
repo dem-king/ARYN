@@ -98,11 +98,25 @@ export const alovaInstance = createAlova({
 
     // Add platform-specific headers
     // #ifdef MP
+    // #ifndef MP-ALIPAY
     method.config.headers['app-id'] = uni.getAccountInfoSync().miniProgram.appId
+    // #endif
     // #endif
 
     // #ifdef MP-WEIXIN
     method.config.headers['platform-type'] = 'WX_MA' // 客户端微信小程序
+    // #endif
+
+    // #ifdef MP-ALIPAY
+    // 支付宝小程序没有 uni.getAccountInfoSync 的等价保证：租户构建优先用注入的
+    // ALI_APPID，默认开发回退 my.getAppIdSync；两者都拿不到时不猜 AppID。
+    const alipayAppId = import.meta.env.VITE_TENANT_ALI_APPID
+      || ((globalThis as any).my?.getAppIdSync?.()?.appId as string | undefined)
+      || ''
+    if (alipayAppId) {
+      method.config.headers['app-id'] = alipayAppId
+    }
+    method.config.headers['platform-type'] = 'ALI_MINI' // 客户端支付宝小程序
     // #endif
 
     // #ifdef APP-PLUS

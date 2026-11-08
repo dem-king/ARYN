@@ -186,8 +186,8 @@ function goSharedCartDetail() {
 </script>
 
 <template>
-  <view class="picker-page">
-    <hr-navbar :title="t('sharedCart.category.navTitle')" />
+  <view class="picker-page" :class="{ 'picker-page--sheet-open': sheetVisible }">
+    <hr-navbar :title="t('sharedCart.category.navTitle')" :bordered="!sheetVisible" />
 
     <!-- 共享车上下文：随时确认在给哪条船选货，避免选完才发现投错车 -->
     <view class="picker-context">
@@ -325,6 +325,8 @@ function goSharedCartDetail() {
     </view>
 
     <!-- 底部悬浮玻璃清单条：选完直接交回清单，商品流从条下穿过 -->
+    <!-- 底部渐进模糊：清单条两侧与下方会透出商品流，用渐隐蒙层兜住 -->
+    <view class="picker-bar-veil" />
     <view class="picker-bar">
       <view class="picker-bar__info">
         <view class="picker-bar__count">
@@ -369,6 +371,14 @@ function goSharedCartDetail() {
    * （商品详情/SKU）都按这个变量抬高，让最后 actionable 的内容停在玻璃上沿之上。
    */
   --page-glass-bar-clearance: 84px;
+}
+
+/**
+ * 「全部分类」浮层(999)展开时把导航栏提到遮罩之上：与分类 tab 页同口径，
+ * 导航栏保持点亮，面板顶边与导航栏同色拼成一张连续表面，不被遮罩压暗。
+ */
+.picker-page--sheet-open :deep(.wd-navbar) {
+  z-index: 1000;
 }
 
 /* 共享车上下文：沿用选货页的蓝卡语言，与普通分类页的白底区分 */
@@ -642,6 +652,30 @@ function goSharedCartDetail() {
     font-size: 26rpx;
     color: var(--theme-color-primary, var(--wot-color-theme-primary));
   }
+}
+
+/**
+ * 底部渐进模糊蒙层：与 glass-tabbar / GoodsFooter 同一套材质与掩码。
+ * 清单条比标准胶囊高（rpx 内边距 + 38px 按钮 ≈ 58px），贴底 16px，
+ * 蒙层取 76px 让渐变在条上沿收干净；层级 8 在清单条(9)之下、页面弹层(999)之上。
+ */
+.picker-bar-veil {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 76px;
+  z-index: 8;
+  pointer-events: none;
+  background-color: rgba(255, 255, 255, 0.42);
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  -WEBKIT-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
+.wot-theme-dark .picker-bar-veil {
+  background-color: rgba(18, 18, 18, 0.5);
 }
 
 /**

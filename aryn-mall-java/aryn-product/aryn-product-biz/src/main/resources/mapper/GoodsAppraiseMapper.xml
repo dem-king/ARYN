@@ -87,4 +87,28 @@
         <!-- 管理端/「我的评价」均按最新在前；分页插件会自动剥离 ORDER BY 生成 count SQL -->
         ORDER BY goods_appraise.create_time DESC, goods_appraise.id DESC
     </select>
+
+    <!--
+      商详口碑气泡买家头像：与 maskAnonymous 同口径排除匿名（is_anonymous=1）与
+      系统默认评价（appraise_type=1），头像快照去重后按最新在前截取。
+      DISTINCT 与 ORDER BY create_time 在 MySQL 下互斥（排序列不在 SELECT 列表），
+      故用 GROUP BY + MAX(create_time) 表达「按该头像最近一次出现的时间排序」。
+    -->
+    <select id="selectRecentBuyerAvatars" resultType="java.lang.String">
+        SELECT avatar_url
+        FROM goods_appraise AS goods_appraise
+        <where>
+            AND goods_appraise.del_flag = '0'
+            AND goods_appraise.appraise_type = 0
+            AND IFNULL(goods_appraise.is_anonymous, 0) != 1
+            AND goods_appraise.avatar_url IS NOT NULL
+            AND goods_appraise.avatar_url != ''
+            <if test="spuId != null and spuId != ''">
+                AND goods_appraise.spu_id = #{spuId}
+            </if>
+        </where>
+        GROUP BY goods_appraise.avatar_url
+        ORDER BY MAX(goods_appraise.create_time) DESC
+        LIMIT #{limit}
+    </select>
 </mapper>

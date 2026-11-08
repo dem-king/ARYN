@@ -60,4 +60,26 @@ describe('goods tabs bargain card contract', () => {
     expect(component).toContain('zone.memberDisplayOf(')
     expect(component).toContain('zone.clearanceDisplayOf(')
   })
+
+  it('renders every clearance badge through the shared identity token', () => {
+    // 捡漏价标签曾在各卡面各自落色（纯红文字/主题红实底/固定红橙渐变三种画法），
+    // 同一商品换页就换标签样式；身份色值统一收敛到 goods-tag.scss 的
+    // goods-tag-clearance，各卡只保留自己的字号/内边距/圆角。
+    const surfaces = [
+      'src/components/diy/diy-goods-tabs/index.vue',
+      'src/components/diy/diy-goods/index.vue',
+      'src/components/diy/diy-goods-waterfall/index.vue',
+      'src/components/diy/diy-goods-group/index.vue',
+      'src/components/diy/diy-goods-ranking/index.vue',
+      'src/components/diy/diy-goods-recommend/index.vue',
+      'src/components/diy/diy-goods-scroll/index.vue',
+      'src/components/goods-list-panel/index.vue',
+      'src/components/waterfall-goods/index.vue',
+      'src/components/goods-detail-sheet/index.vue',
+      'src/sub-pages/user/collect/index.vue',
+      'src/sub-pages/user/footprint/index.vue',
+    ]
+    for (const file of surfaces)
+      expect(source(file), file).toContain('@include goods-tag-clearance')
+  })
 })

@@ -16,6 +16,16 @@ export default {
       daysClock: '{days}天 {clock}',
       days: '{days}天',
     },
+    newbie: {
+      title: '新人专享',
+      goodsCount: '共 {count} 件新人价商品',
+      ruleHint: '新人价每人每款限购',
+      longTerm: '长期有效',
+      perksNoRegister: '新人专享价 · 每人每款限{limit}件',
+      emptyTitle: '暂无新人专享活动',
+      emptyDesc: '活动上新后会在这里展示，先去逛逛吧',
+      footNote: '新人价资格与限购以结算页为准',
+    },
     discount: {
       title: '限时折扣',
       countdownEnd: '距结束',

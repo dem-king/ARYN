@@ -4,8 +4,10 @@ package com.aryn.cloud.product.controller.app;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.vo.AppGoodsRankVO;
+import com.aryn.cloud.product.api.vo.GoodsCardTagVO;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
+import com.aryn.cloud.product.service.IGoodsCardTagService;
 import com.aryn.cloud.product.service.IGoodsRankService;
 import com.aryn.cloud.product.service.IGoodsZoneTagService;
 import com.aryn.cloud.product.service.IQuickCartService;
@@ -43,6 +45,8 @@ public class AppGoodsSpuController {
 
 	private final IQuickCartService quickCartService;
 
+	private final IGoodsCardTagService goodsCardTagService;
+
 	private final IGoodsRankService goodsRankService;
 
 	private final IGoodsZoneTagService goodsZoneTagService;
@@ -61,7 +65,12 @@ public class AppGoodsSpuController {
 		// 出清专区必须走专区服务：开关、时间分层最终价与 sortMode 只在那边生效，
 		// 直接走通用分页会让卡片价与确认页/结算价不一致。
 		if (Boolean.TRUE.equals(clearanceItem) || "clearance".equals(zoneSort)) {
-			return Result.success(goodsZoneTagService.clearancePage(page, goodsSpu, memberItem));
+			IPage<GoodsSpu> result = goodsZoneTagService.clearancePage(page, goodsSpu, memberItem);
+			// 走专区服务绕开了通用分页的补图尺寸，这里单独补齐，卡片占位口径保持一致
+			if (result != null) {
+				goodsSpuService.fillPicSizes(result.getRecords());
+			}
+			return Result.success(result);
 		}
 		// 会员专区关闭后，主列表入口也不再展示会员标签商品（价格接口同样已关闭）
 		if ((Boolean.TRUE.equals(memberItem) || "member_price".equals(zoneSort))
@@ -110,6 +119,14 @@ public class AppGoodsSpuController {
 	@GetMapping("/quick-cart/{id}")
 	public Result<QuickCartInfoVO> quickCart(@PathVariable String id) {
 		return Result.success(quickCartService.getQuickCartInfo(id));
+	}
+
+	@Operation(summary = "商品卡营销标签（新人价/秒杀价，SPU 级聚合）")
+	@GetMapping("/card-tags")
+	public Result<List<GoodsCardTagVO>> cardTags(@RequestParam("spuIds") List<String> spuIds) {
+		// 可选登录（不 skipToken）：登录用户按新人资格判定，未登录按潜在新人口径；
+		// 任何失败服务层降级空列表，商品卡照常渲染
+		return Result.success(goodsCardTagService.cardTags(spuIds));
 	}
 
 	@Operation(summary = "通过ids查询商品")

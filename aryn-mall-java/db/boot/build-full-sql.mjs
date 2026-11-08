@@ -172,6 +172,16 @@ const sections = [
   ['类目角标配置化菜单权限', '206goods_category_badge_menu.sql'],
   ['分销结算定时任务注册（待结算佣金/转交奖励释放）', '207distribution_settle_job.sql'],
   ['类目角标样式扩展（图片角标/高度/圆角）', '208goods_category_badge_style.sql'],
+  ['支付安全配置底座（加密材料/身份版本）', '209pay_credential_vault_incremental.sql'],
+  ['支付交易闭环（生命周期/事件 outbox）', '210payment_closure_incremental.sql'],
+  ['订单支付提交门禁', '211order_pay_submit_gate_incremental.sql'],
+  ['支付宝小程序身份模式', '212alipay_mini_identity_incremental.sql'],
+  ['清单直下单导入（不挂共享购物车）', '213replenish_direct_import_incremental.sql'],
+  ['SPU 社证统计 T+1 快照（月下单人数/回头客/回购率底表）', '214spu_sales_stat_incremental.sql'],
+  ['SPU 社证统计定时任务注册', '215spu_sales_stat_job.sql'],
+  ['SKU 每日价格快照（近N天最低价判定底表）', '216goods_sku_price_daily_incremental.sql'],
+  ['SKU 价格快照定时任务注册', '217sku_price_daily_snapshot_job.sql'],
+  ['商品名称规格化回填（974 段前 302 个种子商品追加规格后缀）', '218spu_name_spec_backfill_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -265,6 +275,18 @@ DROP TABLE IF EXISTS \`distribution_coupon_pack_item\`;
 DROP TABLE IF EXISTS \`distribution_coupon_exchange\`;
 -- 类目角标配置化（205goods_category_badge_config.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS \`goods_category_badge\`;
+-- 支付安全配置底座（209pay_credential_vault_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`pay_config_revision\`;
+DROP TABLE IF EXISTS \`pay_config_material\`;
+-- 支付交易闭环（210payment_closure_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`pay_event_outbox\`;
+-- 清单直下单导入（213replenish_direct_import_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`replenish_direct_import\`;
+DROP TABLE IF EXISTS \`replenish_direct_import_row\`;
+-- SPU 社证统计（214spu_sales_stat_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`stat_daily_spu_sales\`;
+-- SKU 每日价格快照（216goods_sku_price_daily_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`goods_sku_price_daily\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

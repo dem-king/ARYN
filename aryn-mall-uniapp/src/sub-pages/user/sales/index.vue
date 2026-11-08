@@ -276,7 +276,7 @@ onPageScroll(handlePageScroll)
       </view>
 
       <view v-else-if="isSales === false" class="state-card">
-        <text class="i-carbon:user-x state-icon" />
+        <text class="i-carbon:user-minus state-icon" />
         <view class="state-title">
           {{ t('sales.workbench.nonSalesTitle') }}
         </view>
@@ -346,7 +346,7 @@ onPageScroll(handlePageScroll)
               @longpress="saveQrcode"
             />
             <view v-else class="qrcode-placeholder">
-              <text class="i-carbon:qrcode qrcode-placeholder__icon" />
+              <text class="i-carbon:qr-code qrcode-placeholder__icon" />
               <view class="qrcode-placeholder__text">
                 {{ qrcodeLoading ? t('sales.workbench.qrcodeLoading') : t('sales.workbench.qrcodeUnavailable') }}
               </view>

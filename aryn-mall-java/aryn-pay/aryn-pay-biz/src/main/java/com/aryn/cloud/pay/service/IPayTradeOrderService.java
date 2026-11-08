@@ -3,6 +3,7 @@ package com.aryn.cloud.pay.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
+import com.aryn.cloud.pay.api.enums.PayPrepayGateResult;
 
 /**
  * 支付订单
@@ -11,5 +12,15 @@ import com.aryn.cloud.pay.api.entity.PayTradeOrder;
  * @date 2022/6/16
  */
 public interface IPayTradeOrderService extends IService<PayTradeOrder> {
+
+	PayPrepayGateResult beginPrepay(PayTradeOrder order);
+
+	void markPending(PayTradeOrder order);
+
+	void markUnknown(PayTradeOrder order, String errCode, String errMsg);
+
+	void markClosing(PayTradeOrder order);
+
+	boolean markClosed(PayTradeOrder order);
 
 }

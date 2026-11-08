@@ -61,15 +61,19 @@ public final class ReplenishMatchRules {
 	}
 
 	/**
-	 * 规格规范化：去空白、全角括号/乘号转半角、统一小写。只用于**比较**，不用于展示。
+	 * 规格规范化：去空白、全角字符/乘号转半角、统一小写。只用于**比较**，不用于展示。
 	 */
 	public static String normalizeSpec(String spec) {
 		if (spec == null) {
 			return "";
 		}
-		String text = spec.trim().toLowerCase();
+		String text = java.text.Normalizer.normalize(spec, java.text.Normalizer.Form.NFKC)
+			.trim()
+			.toLowerCase();
 		text = text.replace('（', '(').replace('）', ')')
-			.replace('＊', '*').replace('×', '*');
+			.replace('＊', '*').replace('×', '*')
+			// 「500mlx24」与「500ml*24」同一包装写法；只替换数字之间的 x，避免误伤 XL 等文本
+			.replaceAll("(?<=\\d)[xX](?=\\d)", "*");
 		return text.replaceAll("[\\s\\u3000]+", "");
 	}
 
@@ -81,9 +85,36 @@ public final class ReplenishMatchRules {
 		return name.trim().toLowerCase().replaceAll("[\\s\\u3000]+", "");
 	}
 
+	/** 规格里的「数字 + 可选单位」片段：500ml、24瓶、2.5kg、10 包 */
+	private static final Pattern SPEC_QUANTITY = Pattern.compile(
+			"(\\d+(?:\\.\\d+)?)\\s*(ml|毫升|kg|千克|公斤|mg|毫克|g|克|l|升|cm|厘米|mm|毫米|m|米|斤|两|瓶|罐|盒|包|袋|支|听|条|枚|粒|片|张|卷|套|组|份)?",
+			Pattern.CASE_INSENSITIVE);
+
+	/** 包装描述词：只补充「瓶装/箱装/家庭装」等包装说明，不构成规格差异 */
+	private static final Pattern SPEC_PACKAGING = Pattern.compile("(瓶|罐|盒|包|袋|支|听|条|枚|粒|片|张|卷|套|组|份|箱|桶|装)+");
+
+	/** 包装描述短语：整体剥离后才允许「一侧无额外文本」等价 */
+	private static final Pattern SPEC_PACKAGING_PHRASE = Pattern.compile(
+			"(家庭装|整箱装?|礼盒装?|组合装|独立包装|大包装|小包装|简装|精装|散装)");
+
+	/** 规格分隔符：比较时忽略，只保留语义文本 */
+	private static final Pattern SPEC_SEPARATOR = Pattern.compile("[/\\\\*,，、·\\-—_;；\\s]+");
+
 	/**
-	 * 规格文本是否等价：任一侧为空视为**无法比较**（返回 true，不报规格变更），
-	 * 因为线下清单常常不填规格；只有两边都有值且互相不包含时才判定变更。
+	 * 规格文本是否等价。
+	 *
+	 * <p>任一侧为空视为**无法比较**（返回 true，不报规格变更），因为线下清单常常
+	 * 不填规格。两边都有值时不再用「互相包含」放行——子串关系会把 500ml 与
+	 * 1500ml、1kg 与 11kg 误判为同一规格，用户可能在无人工确认的情况下买错规格。
+	 *
+	 * <p>比较口径：
+	 * <ol>
+	 *   <li>先做格式归一（全角/大小写/空白/乘号）；</li>
+	 *   <li>抽出所有「数字 + 单位」片段（含包装数量，如 24瓶），逐项比较。
+	 *       数字或单位有任一真实差异即不等价；</li>
+	 *   <li>剩下的语义文本只允许包装描述补充（瓶/罐/盒/装等）与包含关系，
+	 *       且仅当数字片段一致时才成立。</li>
+	 * </ol>
 	 */
 	public static boolean specEquivalent(String excelSpec, String skuSpec) {
 		String left = normalizeSpec(excelSpec);
@@ -91,7 +122,75 @@ public final class ReplenishMatchRules {
 		if (left.isEmpty() || right.isEmpty()) {
 			return true;
 		}
-		return left.equals(right) || left.contains(right) || right.contains(left);
+		if (left.equals(right)) {
+			return true;
+		}
+		List<String> leftQuantities = specQuantities(left);
+		List<String> rightQuantities = specQuantities(right);
+		if (!leftQuantities.equals(rightQuantities)) {
+			return false;
+		}
+		// 数字片段一致（或两边都没有数字）时才比较语义文本；
+		// 一侧有数字、另一侧没有，说明规格表达不同，交给人工确认。
+		if (leftQuantities.isEmpty() != rightQuantities.isEmpty()) {
+			return false;
+		}
+		String leftLiteral = specLiteral(left);
+		String rightLiteral = specLiteral(right);
+		if (leftLiteral.equals(rightLiteral)) {
+			return true;
+		}
+		// 一侧剥完只剩空串、另一侧还有语义文本（如「无糖」），说明规格表达有额外
+		// 差异，不能因为数字相同就放行；只有纯包装描述会在 specLiteral 中被剥空。
+		if (leftLiteral.isEmpty() || rightLiteral.isEmpty()) {
+			return false;
+		}
+		return leftLiteral.contains(rightLiteral) || rightLiteral.contains(leftLiteral);
+	}
+
+	/** 提取并排序「数字+单位」片段：单位统一别名、数字去掉无意义小数位 */
+	private static List<String> specQuantities(String normalizedSpec) {
+		List<String> quantities = new ArrayList<>();
+		Matcher matcher = SPEC_QUANTITY.matcher(normalizedSpec);
+		while (matcher.find()) {
+			quantities.add(normalizeNumber(matcher.group(1)) + normalizeUnit(matcher.group(2)));
+		}
+		quantities.sort(String::compareTo);
+		return quantities;
+	}
+
+	/** 去掉数字片段与包装描述后剩余的语义文本（分隔符不计） */
+	private static String specLiteral(String normalizedSpec) {
+		String literal = SPEC_QUANTITY.matcher(normalizedSpec).replaceAll("");
+		literal = SPEC_SEPARATOR.matcher(literal).replaceAll("");
+		literal = SPEC_PACKAGING_PHRASE.matcher(literal).replaceAll("");
+		return SPEC_PACKAGING.matcher(literal).replaceAll("");
+	}
+
+	private static String normalizeNumber(String value) {
+		try {
+			return new BigDecimal(value).stripTrailingZeros().toPlainString();
+		}
+		catch (NumberFormatException exception) {
+			return value;
+		}
+	}
+
+	private static String normalizeUnit(String unit) {
+		if (unit == null || unit.isBlank()) {
+			return "";
+		}
+		return switch (unit.toLowerCase()) {
+			case "毫升" -> "ml";
+			case "升" -> "l";
+			case "千克", "公斤" -> "kg";
+			case "毫克" -> "mg";
+			case "克" -> "g";
+			case "厘米" -> "cm";
+			case "毫米" -> "mm";
+			case "米" -> "m";
+			default -> unit.toLowerCase();
+		};
 	}
 
 	/**

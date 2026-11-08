@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { delAddress, getPage, saveOrUpdateAddress } from '@/api/user/address'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
@@ -84,6 +84,9 @@ function toForm(id = '') {
     name: 'address-form',
     params: {
       id,
+      // 选择模式（结算页选地址）透传给表单：保存成功后直接回传新地址并
+      // 连退两级回结算页，省去「回列表再点一次选中」
+      ...(isChoosing.value ? { placeChooseFlag: 'true' } : {}),
     },
   })
 }
@@ -217,8 +220,12 @@ async function removeAddress(item: AddressItem) {
         <view class="ad-empty__badge">
           <text class="i-carbon:location ad-empty__icon" />
         </view>
-        <text class="ad-empty__title">{{ t('accountSettings.address.empty') }}</text>
-        <text class="ad-empty__hint">{{ t('accountSettings.address.emptyHint') }}</text>
+        <text class="ad-empty__title">
+          {{ t('accountSettings.address.empty') }}
+        </text>
+        <text class="ad-empty__hint">
+          {{ t('accountSettings.address.emptyHint') }}
+        </text>
         <view class="ad-empty__btn" hover-class="ad-empty__btn--pressed" @click="toForm('')">
           {{ t('accountSettings.address.addNew') }}
         </view>
@@ -240,8 +247,12 @@ async function removeAddress(item: AddressItem) {
       >
         <view class="ad-card__main">
           <view class="ad-card__head">
-            <text class="ad-card__name">{{ item.recipientName }}</text>
-            <text class="ad-card__phone">{{ item.telephone }}</text>
+            <text class="ad-card__name">
+              {{ item.recipientName }}
+            </text>
+            <text class="ad-card__phone">
+              {{ item.telephone }}
+            </text>
             <view v-if="item.isDefault === '1'" class="ad-card__badge" :style="{ backgroundColor: softBrand }">
               {{ t('accountSettings.address.defaultTag') }}
             </view>

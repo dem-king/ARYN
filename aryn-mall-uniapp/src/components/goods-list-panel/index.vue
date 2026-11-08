@@ -21,10 +21,14 @@ import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/product/spu'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
+import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { useResponsiveColumns } from '@/composables/useResponsiveColumns'
 import { useZonePrices } from '@/composables/useZonePrices'
+import { imageAspectPadding } from '@/utils/image-ratio'
+import { splitIntoColumns } from '@/utils/masonry'
 import { STOCK_LOW_THRESHOLD } from '@/utils/stock-display'
-import { zonePriceBadgeText } from '@/utils/zone-price'
+import { socialProofIcon, splitSocialProofText, zonePriceBadgeText } from '@/utils/zone-price'
 
 interface Props {
   /** 一级类目 ID，为空表示不限 */
@@ -39,13 +43,6 @@ interface Props {
   showSort?: boolean
   /** 栅格 / 列表两种卡片布局 */
   grid?: boolean
-  /**
-   * 是否在排序条右侧显示「双列 / 单列」切换按钮。
-   *
-   * 默认关闭：商品列表页已有独立的布局开关，重复展示会让用户面对两个入口；
-   * 分类页没有那一行头部，由本按钮就地切换。
-   */
-  showLayoutToggle?: boolean
   /**
    * 点击商品时在**本面板区域内**从底部弹出详情弹层（参考小象超市：弹层与遮罩
    * 只盖住商品流，宿主页面的分类栏等保持可点），而非跳转整页详情。
@@ -75,7 +72,6 @@ const props = withDefaults(defineProps<Props>(), {
   brandId: '',
   showSort: true,
   grid: true,
-  showLayoutToggle: false,
   detailSheet: false,
   clearFilter: undefined,
   sharedCart: null,
@@ -84,7 +80,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'added', spuId: string): void
-  (e: 'update:grid', value: boolean): void
   /** 列表滚动事件原样上抛：宿主页据此驱动顶栏磨砂材质（分类页头部覆盖层） */
   (e: 'scroll', event: { detail?: { scrollTop?: number } }): void
 }>()
@@ -95,11 +90,6 @@ function handleAdded(spuId: string) {
 
 function handleScroll(event: { detail?: { scrollTop?: number } }) {
   emit('scroll', event)
-}
-
-/** 双列 / 单列切换：布局只影响卡片样式，不触发重新查询 */
-function toggleLayout() {
-  emit('update:grid', !props.grid)
 }
 
 const router = useRouter()
@@ -244,6 +234,11 @@ function cardPrice(item: any): ListZonePrice {
   return zone.cardPriceOf(item)
 }
 
+/** 社证数字强调：服务端成文拆「前缀+数字+后缀」，数字加粗（纯展示，口径仍在服务端） */
+function proofParts(item: any) {
+  return splitSocialProofText(cardPrice(item).socialProofText)
+}
+
 /** 金额展示：去掉无意义的末尾 0，同时避免浮点尾差 */
 function formatAmount(value: unknown): string {
   const amount = Number(value)
@@ -262,6 +257,17 @@ function toDetail(id: string) {
 }
 
 const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : 'goods-card goods-card--row'))
+
+// 交替瀑布流：手机 2 列、宽屏 3 列；列表模式单列，卡片自身是整行信息卡
+const responsiveColumns = useResponsiveColumns(600, 2, 3)
+const goodsColumns = computed(() =>
+  splitIntoColumns(goodsList.value, props.grid ? responsiveColumns.value : 1),
+)
+
+/** 图片区按主图真实宽高锁高（后端回填，缺失按 1:1），加载前后卡片高度不变 */
+function imageBoxStyle(item: any) {
+  return { paddingTop: imageAspectPadding(item?.picWidth, item?.picHeight) }
+}
 </script>
 
 <template>
@@ -320,94 +326,126 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
         >
           {{ t('catalog.sortNew') }}
         </view>
-        <!-- 布局切换：图标沿用商品列表页的 app / server 口径，仅分类页开启 -->
-        <view
-          v-if="showLayoutToggle"
-          class="sort-layout-toggle"
-          hover-class="sort-layout-toggle--pressed"
-          :hover-stay-time="120"
-          @click="toggleLayout"
-        >
-          <wd-icon :name="grid ? 'app' : 'server'" size="36rpx" color="#666" />
-        </view>
       </view>
 
       <view class="goods-list" :class="grid ? 'goods-list--grid' : 'goods-list--row'">
         <view
-          v-for="(item, index) in goodsList"
-          :key="item.id"
-          :class="cardClass"
-          :style="{ animationDelay: `${Math.min(index, 8) * 36}ms` }"
-          hover-class="goods-card--pressed"
-          :hover-stay-time="120"
-          @click="toDetail(item.id)"
+          v-for="(column, columnIndex) in goodsColumns"
+          :key="columnIndex"
+          :class="grid ? 'goods-column' : 'goods-column--row'"
         >
-          <!--
-            图片区锁 1:1 方框 + aspectFit 完整展示（与首页商品分组同一口径）。
-
-            商品图源比例混杂（实测 800×533 横图 / 533×800 竖图 / 1:1 方图）：
-            定高 + aspectFill 会裁掉边缘，看起来「图不完整」；
-            高度随原图比例浮动（widthFix）又会让栅格同一行的矮卡下方空出页面底色，
-            看起来像「商品之间多了一块留白」。方框 contain 两者兼得。
-          -->
-          <view class="goods-pic-box" :class="grid ? 'goods-pic-box--grid' : 'goods-pic-box--row'">
-            <image class="goods-pic" :src="item.spuUrls?.[0]" mode="aspectFit" lazy-load />
-            <!-- 共享选货页：已加购的商品留一个角标，长列表里避免同款重复加 -->
-            <view v-if="addedSpuIds.includes(item.id)" class="goods-added-flag">
-              {{ t('catalog.added') }}
+          <view
+            v-for="(item, index) in column"
+            :key="item.id"
+            :class="cardClass"
+            :style="{ animationDelay: `${Math.min(index, 8) * 36}ms` }"
+            hover-class="goods-card--pressed"
+            :hover-stay-time="120"
+            @click="toDetail(item.id)"
+          >
+            <!--
+              图片区按主图真实宽高锁定占位（后端回填，缺失按 1:1）+ aspectFit 完整展示。
+              商品图源比例混杂（实测 800×533 横图 / 533×800 竖图 / 1:1 方图）：
+              定高 + aspectFill 会裁掉边缘；widthFix 无占位会让列表加载中跳动。
+              按宽高锁比例 contain，两者兼得，卡片按内容高度自然错落。
+            -->
+            <view
+              class="goods-pic-box"
+              :class="grid ? 'goods-pic-box--grid' : 'goods-pic-box--row'"
+              :style="grid ? imageBoxStyle(item) : undefined"
+            >
+              <image class="goods-pic" :src="item.spuUrls?.[0]" mode="aspectFit" lazy-load />
+              <!-- 共享选货页：已加购的商品留一个角标，长列表里避免同款重复加 -->
+              <view v-if="addedSpuIds.includes(item.id)" class="goods-added-flag">
+                {{ t('catalog.added') }}
+              </view>
             </view>
-          </view>
-          <view class="goods-meta" :class="grid ? '' : 'goods-meta--row'">
-            <view class="goods-name">
-              {{ item.name }}
-            </view>
-            <!-- 商品介绍：后台「商品子标题」字段，与首页楼层/商详同一数据源 -->
-            <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="goods-desc">
-              {{ item.subTitle }}
-            </view>
-            <!-- 信息 chip：规格 / 低库存（字段缺失时不渲染） -->
-            <view v-if="cardTags(item).length > 0" class="goods-tags">
-              <text v-for="tag in cardTags(item)" :key="tag" class="goods-tag">
-                {{ tag }}
-              </text>
-            </view>
-            <view class="goods-bottom">
-              <!--
-                价格区：主价 = 会员价/捡漏价/普通售价（共享层判定），划线价 =
-                对应成交价的划线基准，角标只在命中身份价时出现；未达标/未登录时
-                在价格下方给「会员专享 ¥x」引导，不切主价。
-              -->
-              <view class="goods-price">
-                <text
-                  v-if="cardPrice(item).badgeKind"
-                  class="goods-price-badge"
-                  :class="`goods-price-badge--${cardPrice(item).badgeKind}`"
-                >
-                  {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
-                </text>
-                <view class="goods-price-main">
-                  <text class="goods-price-symbol">
-                    ¥
-                  </text>
-                  <text class="goods-price-value">
-                    {{ formatAmount(cardPrice(item).mainPrice) }}
-                  </text>
-                </view>
-                <text v-if="cardPrice(item).strikePrice !== null" class="goods-price-original">
-                  ¥{{ formatAmount(cardPrice(item).strikePrice) }}
-                </text>
-                <text v-if="cardPrice(item).guideText" class="goods-price-guide">
-                  {{ cardPrice(item).guideText }}
+            <view class="goods-meta" :class="grid ? '' : 'goods-meta--row'">
+              <view class="goods-name">
+                {{ item.name }}
+              </view>
+              <!-- 商品介绍：后台「商品子标题」字段，与首页楼层/商详同一数据源 -->
+              <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="goods-desc">
+                {{ item.subTitle }}
+              </view>
+              <!-- 信息 chip：规格 / 低库存（字段缺失时不渲染） -->
+              <view v-if="cardTags(item).length > 0" class="goods-tags">
+                <text v-for="tag in cardTags(item)" :key="tag" class="goods-tag">
+                  {{ tag }}
                 </text>
               </view>
-              <view class="goods-actions">
-                <quick-cart-button
-                  :spu-id="item.id"
-                  :shared-cart="sharedCart"
-                  :zone-prices="zone.skuZonePricesOf(item.id)"
-                  size="56rpx"
-                  @added="handleAdded"
-                />
+              <!--
+                营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不换行，
+                新人=红橙渐变星芒（资格类 chip 不占价格行），社证=浅桃底数字加粗；
+                空间不足时截断社证文案，chips 不折行。
+              -->
+              <view
+                v-if="cardPrice(item).badgeKind === 'newbie' || cardPrice(item).socialProofText"
+                class="goods-tag-row"
+              >
+                <view v-if="cardPrice(item).badgeKind === 'newbie'" class="goods-tag-chip goods-tag-chip--newbie">
+                  <text class="goods-tag-chip-spark" />
+                  <text class="goods-tag-chip-text">
+                    {{ zonePriceBadgeText('newbie') }}
+                  </text>
+                </view>
+                <view v-if="cardPrice(item).socialProofText" class="goods-tag-chip goods-tag-chip--proof">
+                  <wd-icon :name="socialProofIcon(cardPrice(item).socialProofKind)" size="18rpx" />
+                  <text class="goods-tag-chip-before">
+                    {{ proofParts(item).before }}
+                  </text>
+                  <text v-if="proofParts(item).number" class="goods-tag-chip-num">
+                    {{ proofParts(item).number }}
+                  </text>
+                  <text class="goods-tag-chip-after">
+                    {{ proofParts(item).after }}
+                  </text>
+                </view>
+              </view>
+              <view class="goods-bottom">
+                <!--
+                  价格区：主价 = 会员价/新人价/捡漏价/普通售价（共享层判定），划线价 =
+                  对应成交价的划线基准；秒杀/会员/捡漏为价格行 badge，新人首单价在标签行并排。
+                  未达标/未登录时在价格下方给「会员专享 ¥x」引导，不切主价。
+                -->
+                <view class="goods-price">
+                  <!-- 身份价角标：秒杀/会员/捡漏留在价格行；新人首单价已上移标签行 -->
+                  <text
+                    v-if="cardPrice(item).badgeKind && cardPrice(item).badgeKind !== 'newbie'"
+                    class="goods-price-badge"
+                    :class="`goods-price-badge--${cardPrice(item).badgeKind}`"
+                  >
+                    {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
+                  </text>
+                  <price-text
+                    class="goods-price-main"
+                    :value="cardPrice(item).mainPrice"
+                    format="trim"
+                  />
+                  <!--
+                    近N天最低价：主价旁红底贴纸（降价触底图标+服务端成文）。
+                    固定红系不随主题（参考品标签色是固定品牌红，见需求文档视觉规范）。
+                  -->
+                  <text v-if="cardPrice(item).priceTagText" class="goods-price-tag">
+                    <text class="goods-price-tag-icon" />
+                    {{ cardPrice(item).priceTagText }}
+                  </text>
+                  <text v-if="cardPrice(item).strikePrice !== null" class="goods-price-original">
+                    ¥{{ formatAmount(cardPrice(item).strikePrice) }}
+                  </text>
+                  <text v-if="cardPrice(item).guideText" class="goods-price-guide">
+                    {{ cardPrice(item).guideText }}
+                  </text>
+                </view>
+                <view class="goods-actions">
+                  <quick-cart-button
+                    :spu-id="item.id"
+                    :shared-cart="sharedCart"
+                    :zone-prices="zone.skuZonePricesOf(item.id)"
+                    size="56rpx"
+                    @added="handleAdded"
+                  />
+                </view>
               </view>
             </view>
           </view>
@@ -448,6 +486,8 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
+
 .goods-list-panel {
   height: 100%;
 }
@@ -518,24 +558,6 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       font-weight: 600;
     }
   }
-
-  /* 固定宽度、不参与 flex 均分：四项排序文案不能被压到换行 */
-  .sort-layout-toggle {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 56rpx;
-    height: 56rpx;
-    margin-left: 2rpx;
-    border-radius: 12rpx;
-    transition: background-color 160ms ease, transform 160ms ease;
-  }
-
-  .sort-layout-toggle--pressed {
-    background: var(--app-card-2);
-    transform: scale(0.94);
-  }
 }
 
 .goods-list {
@@ -552,16 +574,21 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 }
 
 /**
- * 两列走 grid 轨道均分，不要写成 flex-wrap + 卡宽 `calc(50% - gap/2)`。
- *
- * 后者算出来正好等于容器宽度的 100%、零余量；小程序把 rpx 换算成整数 px 时
- * 多出的零头会让 flex-wrap 判定「放不下」，表现成每行只剩一张卡、右侧半屏空白。
- * grid 先扣 gap 再分轨道宽度，不存在这个临界问题。
+ * 栅格走交替瀑布流：两列/三列各自堆叠，卡片按内容高度错落，不做同排等高。
+ * 手机 2 列、宽屏（≥600px）3 列由 useResponsiveColumns 控制，翻页追加不重排已有卡片。
  */
 .goods-list--grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  align-items: flex-start;
   gap: 16rpx;
+}
+
+.goods-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16rpx;
+  min-width: 0;
 }
 
 .goods-card {
@@ -583,7 +610,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     box-shadow: 0 2rpx 8rpx rgba(22, 34, 51, 0.06);
   }
 
-  /* 图片锁方，标题只预留一行、底部信息贴底，保证同一行两张卡的价格/加购对齐 */
+  /* 图片区高度按主图比例锁定，卡片按内容高度排列，不再强制同排等高 */
   .goods-pic-box {
     flex: none;
   }
@@ -627,12 +654,17 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
 .goods-card--row {
   display: flex;
-  padding: 16rpx;
+  padding: 20rpx 16rpx;
   border-bottom: 1rpx solid var(--app-border);
   transition: background-color 160ms ease;
 
   &:active {
     background: var(--app-card-2);
+  }
+
+  /* 行卡的内边距已由卡片自身提供，信息区只保留与图片的间距 */
+  .goods-meta {
+    padding: 0 0 0 16rpx;
   }
 }
 
@@ -649,14 +681,15 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   background: var(--app-card);
 }
 
+/* 商品图占位高度由内联 padding-top 按主图真实比例锁定（缺失按 1:1） */
 .goods-pic-box--grid {
-  padding-top: 100%;
+  width: 100%;
 }
 
 .goods-pic-box--row {
   flex: none;
-  width: 240rpx;
-  height: 240rpx;
+  width: 200rpx;
+  height: 200rpx;
   border-radius: 12rpx;
   overflow: hidden;
 }
@@ -762,21 +795,16 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   color: var(--wot-color-theme-primary, #ff2237);
   font-weight: 600;
 
+  /* 主价：整数大、小数小、符号降一档（price-text 组件内用 em 跟随本字号） */
   .goods-price-main {
-    display: flex;
-    align-items: baseline;
-  }
-
-  .goods-price-symbol {
-    font-size: 22rpx;
-  }
-
-  .goods-price-value {
     font-size: 32rpx;
   }
 
-  /* 身份价角标：小号色块文字，不抢主价视觉重心 */
+  /* 身份价角标：小号色块文字，不抢主价视觉重心；新人首单价在标签行，不在价格行 */
   .goods-price-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2rpx;
     flex: none;
     align-self: center;
     padding: 2rpx 8rpx;
@@ -791,8 +819,36 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     }
 
     &--clearance {
-      background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+      @include goods-tag-clearance;
     }
+
+    /* 秒杀价：主题红渐变实底白字——限时活动，视觉强于身份价 */
+    &--seckill {
+      background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
+    }
+  }
+
+  /* 近N天最低价贴纸：浅红实底+600 字重（固定红系不随主题，令牌见 goods-tag.scss） */
+  .goods-price-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2rpx;
+    flex-shrink: 0;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 0 8rpx;
+    border-radius: 6rpx;
+    font-size: 20rpx;
+    line-height: 28rpx;
+    white-space: nowrap;
+    @include goods-tag-low;
+  }
+
+  .goods-price-tag-icon {
+    width: 16rpx;
+    height: 12rpx;
+    flex-shrink: 0;
+    @include goods-tag-low-icon;
   }
 
   /* 未达标引导：独占一行、弱化颜色，避免与划线价挤在一起 */
@@ -810,6 +866,78 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     font-weight: 400;
     text-decoration: line-through;
   }
+}
+
+/*
+ * 营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行
+ * （2026-11-08 视觉增强 + 并排口径，令牌见 goods-tag.scss）。
+ * 【位置硬约束】本行在模板里位于 .goods-meta 下、不在 .goods-price 内，
+ * 这组规则绝不能嵌进 .goods-price——嵌进去会编译成后代选择器永远命中不了。
+ * 【icon 尺寸硬约束】勿用 px 定小尺寸：9px 固定字号下线条糊成一团，
+ * 20rpx 与文字同高跟随缩放才可辨；icon 颜色随 currentColor 走暖橙。
+ */
+.goods-tag-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4rpx;
+  overflow: hidden;
+  margin-top: 8rpx;
+  min-width: 0;
+}
+
+.goods-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 18rpx;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.goods-tag-chip--newbie {
+  @include goods-tag-newbie;
+  gap: 2rpx;
+  padding: 2rpx 6rpx;
+  border-radius: 6rpx;
+}
+
+.goods-tag-chip-spark {
+  width: 16rpx;
+  height: 16rpx;
+  flex: none;
+  @include goods-tag-newbie-icon;
+}
+
+.goods-tag-chip-text {
+  white-space: nowrap;
+}
+
+/* 社证 chip 可收缩：与新人芯片并排时优先保留新人 chip，空间不足裁切社证 */
+.goods-tag-chip--proof {
+  @include goods-tag-hot;
+  gap: 2rpx;
+  flex: 0 1 auto;
+  padding: 2rpx 8rpx;
+}
+
+.goods-tag-chip-before {
+  flex: none;
+  white-space: nowrap;
+}
+
+.goods-tag-chip-num {
+  @include goods-tag-hot-num;
+  white-space: nowrap;
+}
+
+.goods-tag-chip-after {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -852,10 +980,8 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     padding-bottom: var(--page-glass-bar-clearance, 0px);
   }
 
-  /* 2→3 列。仍用 grid 轨道均分而不是 flex + calc 卡宽：小程序端 flex-wrap 对小数宽度
-     的临界判断很敏感，grid 先扣 gap 再分轨道不存在「每行只剩一张卡」的问题 */
+  /* 列数由 useResponsiveColumns 控制（宽屏 3 列），这里只收紧宽屏列间距 */
   .goods-list--grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
   }
 
@@ -904,11 +1030,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
   /* 价格区：保持「.goods-price 后代」的既有嵌套关系，同权规则宽屏段在后即覆盖原 rpx 值 */
   .goods-price {
-    .goods-price-symbol {
-      font-size: 11px;
-    }
-
-    .goods-price-value {
+    .goods-price-main {
       font-size: var(--wide-price-font, 15px);
     }
 
@@ -927,6 +1049,47 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     }
   }
 
+  /* 营销标签宽屏密度：rpx 在展开态放大 ≈1.8 倍，chip/贴纸/图标统一改 px */
+  .goods-tag-row {
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .goods-tag-chip--newbie {
+    gap: 2px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  .goods-tag-chip-spark {
+    width: 8px;
+    height: 8px;
+  }
+
+  .goods-tag-chip--proof {
+    gap: 2px;
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+
+  /* wd-icon size 是内联字号，只能 !important 压回（同排序条切换按钮口径） */
+  .goods-tag-chip--proof :deep(.wd-icon) {
+    font-size: 10px !important;
+  }
+
+  .goods-price-tag {
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .goods-price-tag-icon {
+    width: 8px;
+    height: 6px;
+  }
+
   /* 排序条：88rpx 展开态 ≈82px 过粗，收到 44px（最小热区）+ 13px。
      wd-sort-button 内部是固定 14px 字号 / 48px 行高（wot 用 px，不随 rpx 放大），
      用官方 CSS 变量对齐，避免同一行里「推荐/新品」13px 与「销量/价格」14px 混排 */
@@ -935,19 +1098,6 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     font-size: 13px;
     --wot-sort-button-fs: 13px;
     --wot-sort-button-height: 44px;
-  }
-
-  .sort-bar .sort-layout-toggle {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-  }
-
-  /* 模板里 wd-icon 的 size="36rpx" 是内联字号：展开态放大到 ≈33.6px 塞不进 28px 的切换按钮，
-     内联样式只能 !important 压回 18px（36rpx 在 390px 窗口 ≈18.7px，视觉等同原样）。
-     选择器只下探到切换按钮内部，避免把排序按钮里的升降箭头图标一起放大 */
-  .sort-layout-toggle :deep(.wd-icon) {
-    font-size: 18px !important;
   }
 
   /* 空态：内边距/字号改 px（wd-status-tip 的 image-size 是模板内联 rpx，不在本段处理） */
@@ -964,6 +1114,11 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   .goods-card--row {
     padding: 12px;
     border-bottom: 1px solid var(--app-border);
+  }
+
+  /* 行卡信息区只保留图右间距（基础段用的是 rpx，展开态会放大，这里改 px） */
+  .goods-card--row .goods-meta {
+    padding: 0 0 0 12px;
   }
 
   .goods-pic-box--row {

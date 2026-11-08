@@ -93,7 +93,7 @@ async function main() {
 function cleanEnv() {
   const env = { ...process.env }
   const removed = []
-  const tenantKeys = ['VITE_TENANT_BUILD', 'VITE_TENANT_KEY', 'VITE_TENANT_ID', 'VITE_TENANT_WX_APPID', 'VITE_TENANT_NAME', 'VITE_BUILD_ID']
+  const tenantKeys = ['VITE_TENANT_BUILD', 'VITE_TENANT_KEY', 'VITE_TENANT_ID', 'VITE_TENANT_WX_APPID', 'VITE_TENANT_ALI_APPID', 'VITE_TENANT_NAME', 'VITE_BUILD_ID']
   for (const key of tenantKeys) {
     if (key in env) {
       delete env[key]

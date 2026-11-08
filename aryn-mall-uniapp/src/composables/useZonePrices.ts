@@ -3,6 +3,8 @@
  *
  * 会员价按用户身份下发、出清价对所有用户一致，二者都不在商品列表接口里：
  * 列表卡片渲染后必须按本页 SPU 批量补一次价（各一次请求），失败静默回落原价。
+ * 商品卡营销标签（新人价/秒杀价，`card-tags` 端点）同属「列表后批量补」管线：
+ * 新人价按登录身份判定资格、秒杀价全局一致，SPU 级聚合一次拉全。
  *
  * 设计要点：
  * - **模块级缓存**：多个楼层/多个 Tab/翻页会重复请求同一批 SPU，按 spuId 缓存 60s，
@@ -15,24 +17,25 @@
  * - **失败静默**：价格标注属增强展示，接口异常绝不影响商品流渲染。
  */
 
+import type { GoodsCardTagItem } from '@/api/product/spu'
 import type { AppMemberSkuPriceVO } from '@/api/promotion'
 import type { ListMemberPriceDisplay } from '@/components/diy/retail-types'
 import type { AppClearancePriceItem, ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { ListZonePrice } from '@/utils/zone-price'
 
 import { ref } from 'vue'
+import { getCardTags, getClearanceSpuPrices } from '@/api/product/spu'
 import { getMemberSpuPrices } from '@/api/promotion'
-import { getClearanceSpuPrices } from '@/api/product/spu'
-import {
-  emptyListMemberPriceDisplay,
-  memberPriceItemsBySpuId,
-  resolveListMemberPrice,
-} from '@/utils/member-price'
 import {
   clearanceItemsBySpuId,
   emptyClearancePriceDisplay,
   resolveListClearanceDisplay,
 } from '@/utils/clearance-price'
+import {
+  emptyListMemberPriceDisplay,
+  memberPriceItemsBySpuId,
+  resolveListMemberPrice,
+} from '@/utils/member-price'
 import { resolveListZonePrice } from '@/utils/zone-price'
 
 /** 列表价格缓存时长：会员价/出清价都是运营配置，一分钟内足够新鲜，短于用户浏览一屏的时间 */
@@ -40,6 +43,9 @@ const CACHE_TTL_MS = 60_000
 
 /** 后端 `/app/member/prices?spuIds=` 单次上限 50（超出静默忽略），前端主动分片 */
 const MEMBER_SPU_CHUNK = 50
+
+/** `/app/goodsspu/card-tags?spuIds=` 单次上限 200（服务端再截断），前端留余量分片 */
+const CARD_TAG_CHUNK = 100
 
 interface CacheEntry {
   items: AppMemberSkuPriceVO[]
@@ -51,8 +57,19 @@ interface ClearanceCacheEntry {
   fetchedAt: number
 }
 
+/** 卡面营销标签（SPU 聚合后两个可享价 + 社证成文与类型 + 价格声明；null=未命中/未达门槛） */
+interface CardTagCacheEntry {
+  fetchedAt: number
+  newbiePrice: number | null
+  seckillPrice: number | null
+  socialProofText: string | null
+  socialProofKind: string | null
+  priceTagText: string | null
+}
+
 const memberCache = new Map<string, CacheEntry>()
 const clearanceCache = new Map<string, ClearanceCacheEntry>()
+const cardTagCache = new Map<string, CardTagCacheEntry>()
 /** 最近一次会员价响应里的资格与折扣率（同一用户全局一致） */
 let memberEligible: boolean | null = null
 let memberDiscountRate: number | null = null
@@ -63,9 +80,11 @@ const revision = ref(0)
 /** 正在请求中的 SPU（合并同一页多组件并发补价，避免重复请求） */
 const pendingMember = new Set<string>()
 const pendingClearance = new Set<string>()
+const pendingCardTag = new Set<string>()
 /** 进行中的请求 Promise：同一批 SPU 的并发调用共享结果 */
 let memberInflight: Promise<void> | null = null
 let clearanceInflight: Promise<void> | null = null
+let cardTagInflight: Promise<void> | null = null
 
 /**
  * 缓存所属的登录态指纹（当前 token 串）。
@@ -190,6 +209,63 @@ async function fetchClearancePrices(ids: string[]): Promise<void> {
   }
 }
 
+/** card-tags 响应聚合成 SPU 级标签（价签同 SPU 多行取低；社证取首个非空成文） */
+function cardTagEntryFrom(items: GoodsCardTagItem[], now: number): CardTagCacheEntry {
+  let newbiePrice: number | null = null
+  let seckillPrice: number | null = null
+  let socialProofText: string | null = null
+  let socialProofKind: string | null = null
+  let priceTagText: string | null = null
+  for (const item of items) {
+    const newbie = Number(item?.newbiePrice)
+    if (Number.isFinite(newbie) && newbie > 0 && (newbiePrice === null || newbie < newbiePrice))
+      newbiePrice = newbie
+    const seckill = Number(item?.seckillPrice)
+    if (Number.isFinite(seckill) && seckill > 0 && (seckillPrice === null || seckill < seckillPrice))
+      seckillPrice = seckill
+    const proof = typeof item?.socialProofText === 'string' ? item.socialProofText.trim() : ''
+    if (!socialProofText && proof) {
+      socialProofText = proof
+      socialProofKind = typeof item?.socialProofKind === 'string' && item.socialProofKind
+        ? item.socialProofKind
+        : null
+    }
+    const tag = typeof item?.priceTagText === 'string' ? item.priceTagText.trim() : ''
+    if (!priceTagText && tag)
+      priceTagText = tag
+  }
+  return { fetchedAt: now, newbiePrice, seckillPrice, socialProofKind, socialProofText, priceTagText }
+}
+
+async function fetchCardTags(ids: string[]): Promise<void> {
+  if (!ids.length)
+    return
+  for (const part of chunk(ids, CARD_TAG_CHUNK)) {
+    try {
+      const items = await getCardTags(part)
+      const itemsBySpu = new Map<string, GoodsCardTagItem[]>()
+      for (const item of items || []) {
+        const spuId = String(item?.spuId || '').trim()
+        if (!spuId)
+          continue
+        const list = itemsBySpu.get(spuId) || []
+        list.push(item)
+        itemsBySpu.set(spuId, list)
+      }
+      const now = Date.now()
+      for (const spuId of part)
+        cardTagCache.set(spuId, cardTagEntryFrom(itemsBySpu.get(spuId) || [], now))
+    }
+    catch {
+      // 失败也写空缓存：本页 60s 内不再重复打接口，标签回落不展示
+      const now = Date.now()
+      for (const spuId of part)
+        cardTagCache.set(spuId, { fetchedAt: now, newbiePrice: null, seckillPrice: null, socialProofKind: null, socialProofText: null, priceTagText: null })
+    }
+    part.forEach(id => pendingCardTag.delete(id))
+  }
+}
+
 function pickMissing(
   ids: string[],
   cache: Map<string, { fetchedAt: number }>,
@@ -208,12 +284,15 @@ function pickMissing(
 function clearCaches(): void {
   memberCache.clear()
   clearanceCache.clear()
+  cardTagCache.clear()
   pendingMember.clear()
   pendingClearance.clear()
+  pendingCardTag.clear()
   memberEligible = null
   memberDiscountRate = null
   memberInflight = null
   clearanceInflight = null
+  cardTagInflight = null
 }
 
 /** 清理模块级缓存（登录态切换后资格/价格可能整体变化；测试也用它隔离） */
@@ -228,6 +307,8 @@ export interface ZonePriceLoadOptions {
   member?: boolean
   /** 是否补出清价（默认 true） */
   clearance?: boolean
+  /** 是否补卡面营销标签（默认 true）：新人价/秒杀价（card-tags 端点） */
+  cardTag?: boolean
 }
 
 export interface ZonePriceLookup {
@@ -244,6 +325,8 @@ export interface ZonePriceLookup {
    * @param showOriginal 装修「显示原价」开关；false 时只隐藏划线，不隐藏专区主价
    */
   cardPriceOf: (item: { id?: unknown, price?: unknown, salesPrice?: unknown, originalPrice?: unknown } | null | undefined, showOriginal?: boolean) => ListZonePrice
+  /** 某 SPU 的卡面营销标签原始值（新人价/秒杀价/社证成文；自建 resolve 调用的组件用） */
+  cardTagOf: (spuId: string) => { newbiePrice: number | null, seckillPrice: number | null, socialProofKind: string | null, socialProofText: string | null, priceTagText: string | null } | null
   /** 某 SPU 下按 SKU 的专区成交价（多规格弹层/快捷加购确认用） */
   skuZonePricesOf: (spuId: string) => Record<string, number>
   /** 某 SKU 的专区成交价（无命中返回 null） */
@@ -298,6 +381,15 @@ export function useZonePrices(): ZonePriceLookup {
     return resolveListClearanceDisplay({ items: entry.items }, id, cardPrice)
   }
 
+  /** 某 SPU 的卡面营销标签（未拉取/未命中返回 null，标签位不渲染） */
+  function cardTagOf(spuId: string): CardTagCacheEntry | null {
+    void revision.value
+    const id = String(spuId || '').trim()
+    if (!id)
+      return null
+    return cardTagCache.get(id) || null
+  }
+
   function cardPriceOf(
     item: { id?: unknown, price?: unknown, salesPrice?: unknown, originalPrice?: unknown } | null | undefined,
     showOriginal = true,
@@ -312,12 +404,18 @@ export function useZonePrices(): ZonePriceLookup {
         showOriginal,
       })
     }
+    const tags = cardTagOf(id)
     return resolveListZonePrice({
       salesPrice: sales,
       originalPrice: item?.originalPrice,
       showOriginal,
       memberDisplay: memberDisplayOf(id, sales),
       clearanceDisplay: clearanceDisplayOf(id, sales),
+      seckillPrice: tags?.seckillPrice,
+      newbiePrice: tags?.newbiePrice,
+      socialProofKind: tags?.socialProofKind,
+      socialProofText: tags?.socialProofText,
+      priceTagText: tags?.priceTagText,
     })
   }
 
@@ -399,6 +497,7 @@ export function useZonePrices(): ZonePriceLookup {
     syncAuthScope()
     const wantMember = options.member !== false
     const wantClearance = options.clearance !== false
+    const wantCardTag = options.cardTag !== false
     const tasks: Promise<void>[] = []
 
     if (wantMember) {
@@ -430,6 +529,20 @@ export function useZonePrices(): ZonePriceLookup {
         tasks.push(run())
       }
     }
+    if (wantCardTag) {
+      const missing = pickMissing(ids, cardTagCache, pendingCardTag)
+      if (missing.length) {
+        missing.forEach(id => pendingCardTag.add(id))
+        const run = async () => {
+          if (cardTagInflight)
+            await cardTagInflight.catch(() => {})
+          cardTagInflight = fetchCardTags(missing)
+          await cardTagInflight
+          cardTagInflight = null
+        }
+        tasks.push(run())
+      }
+    }
     if (!tasks.length)
       return
     await Promise.all(tasks.map(task => task.catch(() => {})))
@@ -438,6 +551,7 @@ export function useZonePrices(): ZonePriceLookup {
 
   return {
     cardPriceOf,
+    cardTagOf,
     clearanceDisplayOf,
     loadForSpuIds,
     memberDisplayOf,

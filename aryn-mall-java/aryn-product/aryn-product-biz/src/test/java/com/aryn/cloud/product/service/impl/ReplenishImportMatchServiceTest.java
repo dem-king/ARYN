@@ -118,6 +118,37 @@ class ReplenishImportMatchServiceTest {
 	}
 
 	@Test
+	@DisplayName("多规格商品：500ml 只收敛到 500ml，不能被 1500ml 的子串包含误命中")
+	void specNarrowingDoesNotTreatSubstringQuantityAsSameSpec() {
+		ReplenishImportSkuRow small = skuRow("sku-500", "同款饮料");
+		small.setSpecsArr(List.of(spec("500ml")));
+		ReplenishImportSkuRow large = skuRow("sku-1500", "同款饮料");
+		large.setSpecsArr(List.of(spec("1500ml")));
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList()))
+			.thenReturn(List.of(small, large));
+
+		ReplenishImportMatchDTO dto = request(null, "同款饮料");
+		dto.setSpec("500ml");
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(dto));
+
+		assertEquals("NAME", results.get(0).getMatchType());
+		assertEquals("sku-500", results.get(0).getSkuId(), "500ml 与 1500ml 是不同规格，不能因子串关系收入 1500ml");
+
+		// 清单写 750ml：两个候选都不等价时不能随便选一个，必须让用户补选
+		ReplenishImportMatchDTO unknown = request(null, "同款饮料");
+		unknown.setSpec("750ml");
+		List<ReplenishImportMatchVO> ambiguous = service.matchRows(TENANT, List.of(unknown));
+		assertEquals("AMBIGUOUS", ambiguous.get(0).getMatchType());
+	}
+
+	private GoodsSku.Specs spec(String value) {
+		GoodsSku.Specs specs = new GoodsSku.Specs();
+		specs.setSpecsValueName(value);
+		return specs;
+	}
+
+	@Test
 	@DisplayName("目录导出：编码列写 SKU 编号并带分类，保证回查闭环")
 	void exportCatalogWritesSkuIdAsCode() {
 		ReplenishImportSkuRow row = skuRow("975000000000000001", "鲜牛奶 950ml");

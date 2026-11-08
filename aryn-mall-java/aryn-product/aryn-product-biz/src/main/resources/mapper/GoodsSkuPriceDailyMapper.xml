@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.GoodsSkuPriceDailyMapper">
+
+    <!--
+      价格快照写入：sale_price 口径=MIN(标价, 出清生效价, 秒杀价)（非个性化到手价），
+      由 GoodsSkuPriceDailyServiceImpl 在 Java 侧算好随行传入；口径即合规证据，
+      变更必须走需求评审。uk (tenant_id, sku_id, stat_date) 冲突走覆盖，Job 重跑幂等。
+      租户由上下文（MP 拦截器）与行内显式 tenant_id 双重保证。
+    -->
+    <insert id="upsertDailyPrices">
+        INSERT INTO goods_sku_price_daily (
+            id, tenant_id, spu_id, sku_id, stat_date, sale_price, create_time, update_time
+        )
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (
+                REPLACE(UUID(), '-', ''),
+                #{row.tenantId},
+                #{row.spuId},
+                #{row.skuId},
+                #{row.statDate},
+                #{row.salePrice},
+                NOW(),
+                NOW()
+            )
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            sale_price = VALUES(sale_price),
+            update_time = NOW()
+    </insert>
+
+    <!--
+      近 N 天窗口聚合（「近14天最低价」判定底数）：窗口含当日行，min ≤ 当日价恒成立，
+      「当日价 ≤ min」即「当日价 == min」。todayPrice 用条件聚合取当日行，
+      Job 未跑/当天不在售时为 null（调用方按不出标处理）。
+    -->
+    <select id="selectWindowStats" resultType="com.aryn.cloud.product.support.SkuPriceWindowStat">
+        SELECT
+            sku_id AS skuId,
+            MIN(sale_price) AS minPrice,
+            COUNT(DISTINCT sale_price) AS priceKinds,
+            MAX(CASE WHEN stat_date = #{today} THEN sale_price END) AS todayPrice
+        FROM goods_sku_price_daily
+        WHERE tenant_id = #{tenantId}
+          AND stat_date &gt;= #{startDate}
+          AND sku_id IN
+          <foreach collection="skuIds" item="skuId" open="(" separator="," close=")">#{skuId}</foreach>
+        GROUP BY sku_id
+    </select>
+
+</mapper>

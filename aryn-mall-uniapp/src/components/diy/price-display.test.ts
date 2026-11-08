@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { shouldShowOriginalPrice, splitPrice } from './price-display'
+import { shouldShowOriginalPrice, splitAmountText, splitPrice } from './price-display'
 import { normalizeRetailGoods } from './retail-normalizers'
 
 describe('shouldShowOriginalPrice 划线原价显示判定', () => {
@@ -46,6 +46,18 @@ describe('splitPrice 价格排版拆分', () => {
     expect(splitPrice(-1)).toBeNull()
     expect(splitPrice('abc')).toBeNull()
     expect(splitPrice(undefined)).toBeNull()
+  })
+})
+
+describe('splitAmountText 已有金额文案拆分', () => {
+  it('保留原有小数位数，不补零', () => {
+    expect(splitAmountText('29.9')).toEqual({ integer: '29', decimal: '9' })
+    expect(splitAmountText('0.01')).toEqual({ integer: '0', decimal: '01' })
+    expect(splitAmountText('29')).toEqual({ integer: '29', decimal: '' })
+  })
+
+  it('千分位留在整数段', () => {
+    expect(splitAmountText('1,234.50')).toEqual({ integer: '1,234', decimal: '50' })
   })
 })
 

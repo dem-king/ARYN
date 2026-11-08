@@ -23,6 +23,11 @@ interface Props {
   primary?: boolean
   gradient?: boolean
   searchBtn?: boolean
+  /**
+   * 强制磨砂玻璃态：浮层展开时顶栏与浮层要用同一块玻璃。
+   * 只靠滚动状态的话，页面停在顶部时顶栏还是实心白，会和玻璃浮层分家。
+   */
+  forceFrosted?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -41,6 +46,7 @@ const props = withDefaults(defineProps<Props>(), {
   primary: false,
   gradient: true,
   searchBtn: true,
+  forceFrosted: false,
 })
 
 const emit = defineEmits<{
@@ -66,18 +72,25 @@ const pageScrolled = inject(DIY_NAVBAR_SCROLL_KEY, null)
 const frostedScroll = inject(FROSTED_NAVBAR_KEY, false)
 
 /**
- * 磨砂玻璃态：业务页开着磨砂开关且页面已滚动。
+ * 磨砂玻璃态：业务页开着磨砂开关且页面已滚动；浮层展开时由 forceFrosted 强制开启。
  *
  * transparent（按滚动距离渐显白底）与 primary（品牌色底）是两条既定材质，
  * 这里不接管，避免同一根栏上叠加两套底色逻辑。
  */
 const frosted = computed(
   () =>
-    frostedScroll
-    && pageScrolled?.value === true
-    && !props.transparent
-    && !props.primary,
+    !props.transparent
+    && !props.primary
+    && (props.forceFrosted || (frostedScroll && pageScrolled?.value === true)),
 )
+
+/**
+ * 滚动后磨砂整条生效：输入框融进同一块玻璃，不再单独画一层胶囊。
+ *
+ * 只认「页面滚动」这条路径：forceFrosted（浮层展开）时页面可能仍在顶部，
+ * 搜索框需要保留独立轮廓维持可点识别。
+ */
+const blended = computed(() => frosted.value && pageScrolled?.value === true)
 watch(() => props.modelValue, (val) => {
   searchValue.value = val
 })
@@ -114,12 +127,24 @@ onMounted(() => {
 })
 
 /**
- * 导航栏占位高度（状态栏 + 导航栏）。
+ * 导航栏占位高度（状态栏 + 44px 内容区）。
  *
- * 对外暴露，供「需要从导航栏下沿开始渲染」的浮层使用（如分类页的全部分类面板）：
- * 让浮层直接读取这个值，避免各页面再按平台手算导航栏高度而漂移。
+ * 只用于页面内等高占位。**浮层贴边不要用它**：它不含小程序胶囊的纵向偏移，
+ * 也不含底部分隔线，按它贴边会在导航栏下沿漏出一条透出遮罩的缝。
  */
 const placeholderHeight = computed(() => statusBarHeight.value + navBarHeight.value)
+
+/**
+ * 导航栏**实际渲染**高度（含胶囊纵向偏移与底部分隔线）。
+ *
+ * 供「需要从导航栏下沿开始渲染」的浮层使用（如分类页的全部分类面板）。
+ * 微信里 capsuleCenterOffset 可能为负，导航栏实际高度会比「状态栏 + 44」略矮，
+ * 浮层若按占位高度贴边，两块之间就会留下一根深色细线（遮罩从缝里透出来）。
+ * 底部分隔线由 bordered 控制：面板展开时导航栏会关掉分隔线，高度同步减 1px。
+ */
+const visualHeight = computed(
+  () => placeholderHeight.value + capsuleCenterOffset.value + (props.bordered ? 1 : 0),
+)
 
 function updateValue(val: string) {
   searchValue.value = val
@@ -187,7 +212,7 @@ const titleColor = computed(() => {
   return props.fontColor || '#000000'
 })
 
-defineExpose({ placeholderHeight })
+defineExpose({ placeholderHeight, visualHeight })
 </script>
 
 <template>
@@ -208,7 +233,8 @@ defineExpose({ placeholderHeight })
 
       <view class="mx-10rpx min-w-0 flex-1">
         <view
-          class="box-border h-36px min-w-0 flex items-center border border-[#ececf0] rounded-20rpx border-solid bg-[#f5f6f8] py-4rpx pl-20rpx pr-8rpx"
+          class="search-navbar-field box-border h-36px min-w-0 flex items-center rounded-20rpx py-4rpx pl-20rpx pr-8rpx"
+          :class="{ 'search-navbar-field--blended': blended }"
           @click="handleDisabledClick"
         >
           <text class="i-carbon:search mr-8rpx text-16px text-gray-500" />
@@ -265,6 +291,26 @@ defineExpose({ placeholderHeight })
 </template>
 
 <style lang="scss" scoped>
+/**
+ * 搜索输入框：默认保持与改造前一致的浅灰实心胶囊。
+ *
+ * 页面滚动、整条顶栏切磨砂后由 --blended 撤掉底色与描边，
+ * 输入框融进同一块玻璃，整块头部不再出现「磨砂白头上贴一层胶囊」的分层。
+ */
+.search-navbar-field {
+  border: 1px solid #ececf0;
+  background-color: #f5f6f8;
+}
+
+/**
+ * 滚动后磨砂态：输入框融进整条磨砂顶栏，不再单独画一层胶囊。
+ * 透明描边保留 1px，状态切换时内容不跳位。
+ */
+.search-navbar-field--blended {
+  border-color: transparent;
+  background-color: transparent;
+}
+
 /**
  * 磨砂玻璃态：与 hr-navbar 的磨砂白目标态共用 blur 数值。
  * 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的

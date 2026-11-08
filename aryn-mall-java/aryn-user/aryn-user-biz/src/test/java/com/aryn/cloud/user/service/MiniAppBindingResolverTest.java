@@ -22,6 +22,10 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class MiniAppBindingResolverTest {
 
+	private static final String WX_APP_ID = "wx0a8242ea59f3e6b4";
+
+	private static final String ALI_APP_ID = "2021000000000001";
+
 	@Mock
 	private SocialAccountMapper socialAccountMapper;
 
@@ -34,43 +38,51 @@ class MiniAppBindingResolverTest {
 		resolver = new MiniAppBindingResolver(socialAccountMapper, configCache);
 	}
 
-	private SocialAccount account(String tenantId) {
+	private SocialAccount wxAccount(String tenantId) {
 		return new SocialAccount()
-				.setId("sa-1")
-				.setType("WX_MA")
-				.setAppId("wx0a8242ea59f3e6b4")
-				.setAppSecret("secret")
-				.setTenantId(tenantId);
+			.setId("sa-wx")
+			.setType("WX_MA")
+			.setAppId(WX_APP_ID)
+			.setAppSecret("secret")
+			.setTenantId(tenantId);
+	}
+
+	private SocialAccount aliAccount(String tenantId, String identityMode) {
+		return new SocialAccount()
+			.setId("sa-ali")
+			.setType("ALI_MINI")
+			.setAppId(ALI_APP_ID)
+			.setAppSecret("")
+			.setIdentityMode(identityMode)
+			.setTenantId(tenantId);
 	}
 
 	@Test
 	void requireBindingAcceptsExactTenantMatchAndRefreshesCache() {
-		when(socialAccountMapper.selectValidWxMaByAppId("wx0a8242ea59f3e6b4"))
-			.thenReturn(List.of(account("tenant-1")));
+		when(socialAccountMapper.selectValidByAppIdAndType(WX_APP_ID, "WX_MA"))
+			.thenReturn(List.of(wxAccount("tenant-1")));
 
-		SocialAccount resolved = resolver.requireBinding("wx0a8242ea59f3e6b4", "tenant-1");
+		SocialAccount resolved = resolver.requireBinding(WX_APP_ID, "tenant-1");
 
 		assertThat(resolved.getTenantId()).isEqualTo("tenant-1");
-		// 权威记录刷新进本实例缓存（消费同源）
-		assertThat(configCache.getByAppId("wx0a8242ea59f3e6b4")).isNotNull();
+		assertThat(configCache.getByAppId(WX_APP_ID)).isNotNull();
 	}
 
 	@Test
 	void requireBindingRejectsTenantMismatchWithoutAutoCorrecting() {
-		when(socialAccountMapper.selectValidWxMaByAppId("wx0a8242ea59f3e6b4"))
-			.thenReturn(List.of(account("tenant-1")));
+		when(socialAccountMapper.selectValidByAppIdAndType(WX_APP_ID, "WX_MA"))
+			.thenReturn(List.of(wxAccount("tenant-1")));
 
-		assertThatThrownBy(() -> resolver.requireBinding("wx0a8242ea59f3e6b4", "tenant-2"))
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, "tenant-2"))
 			.isInstanceOf(ArynBusinessException.class)
 			.extracting(e -> ((ArynBusinessException) e).getMsg())
 			.isEqualTo("小程序与租户配置不一致");
-		// 拒绝时不污染缓存
-		assertThat(configCache.getByAppId("wx0a8242ea59f3e6b4")).isNull();
+		assertThat(configCache.getByAppId(WX_APP_ID)).isNull();
 	}
 
 	@Test
 	void requireBindingRejectsUnknownAppId() {
-		when(socialAccountMapper.selectValidWxMaByAppId("wxunknownunknown00")).thenReturn(List.of());
+		when(socialAccountMapper.selectValidByAppIdAndType("wxunknownunknown00", "WX_MA")).thenReturn(List.of());
 
 		assertThatThrownBy(() -> resolver.requireBinding("wxunknownunknown00", "tenant-1"))
 			.isInstanceOf(ArynBusinessException.class)
@@ -80,10 +92,10 @@ class MiniAppBindingResolverTest {
 
 	@Test
 	void requireBindingFailsClosedOnDuplicateAppId() {
-		when(socialAccountMapper.selectValidWxMaByAppId("wx0a8242ea59f3e6b4"))
-			.thenReturn(List.of(account("tenant-1"), account("tenant-2")));
+		when(socialAccountMapper.selectValidByAppIdAndType(WX_APP_ID, "WX_MA"))
+			.thenReturn(List.of(wxAccount("tenant-1"), wxAccount("tenant-2")));
 
-		assertThatThrownBy(() -> resolver.requireBinding("wx0a8242ea59f3e6b4", "tenant-1"))
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, "tenant-1"))
 			.isInstanceOf(ArynBusinessException.class)
 			.extracting(e -> ((ArynBusinessException) e).getMsg())
 			.isEqualTo("小程序与租户配置不一致");
@@ -93,20 +105,61 @@ class MiniAppBindingResolverTest {
 	void requireBindingRejectsMissingHeaderValuesWithoutQuerying() {
 		assertThatThrownBy(() -> resolver.requireBinding(null, "tenant-1"))
 			.isInstanceOf(ArynBusinessException.class);
-		assertThatThrownBy(() -> resolver.requireBinding("wx0a8242ea59f3e6b4", ""))
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, ""))
 			.isInstanceOf(ArynBusinessException.class);
-		verify(socialAccountMapper, never()).selectValidWxMaByAppId(anyString());
+		verify(socialAccountMapper, never()).selectValidByAppIdAndType(anyString(), anyString());
 	}
 
 	@Test
 	void requireBindingRejectsIncompleteSecret() {
-		SocialAccount incomplete = account("tenant-1").setAppSecret("");
-		when(socialAccountMapper.selectValidWxMaByAppId("wx0a8242ea59f3e6b4")).thenReturn(List.of(incomplete));
+		SocialAccount incomplete = wxAccount("tenant-1").setAppSecret("");
+		when(socialAccountMapper.selectValidByAppIdAndType(WX_APP_ID, "WX_MA")).thenReturn(List.of(incomplete));
 
-		assertThatThrownBy(() -> resolver.requireBinding("wx0a8242ea59f3e6b4", "tenant-1"))
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, "tenant-1"))
 			.isInstanceOf(ArynBusinessException.class)
 			.extracting(e -> ((ArynBusinessException) e).getMsg())
 			.isEqualTo("小程序配置不完整");
+	}
+
+	@Test
+	void requireBindingAcceptsAlipayMiniWithoutSecretAndDoesNotPolluteWxCache() {
+		when(socialAccountMapper.selectValidByAppIdAndType(ALI_APP_ID, "ALI_MINI"))
+			.thenReturn(List.of(aliAccount("tenant-1", "user_id")));
+
+		SocialAccount resolved = resolver.requireBinding(ALI_APP_ID, "tenant-1", "ALI_MINI");
+
+		assertThat(resolved.getIdentityMode()).isEqualTo("user_id");
+		assertThat(configCache.getByAppId(ALI_APP_ID)).isNull();
+	}
+
+	@Test
+	void requireBindingRejectsAlipayMiniWithoutIdentityMode() {
+		when(socialAccountMapper.selectValidByAppIdAndType(ALI_APP_ID, "ALI_MINI"))
+			.thenReturn(List.of(aliAccount("tenant-1", null)));
+
+		assertThatThrownBy(() -> resolver.requireBinding(ALI_APP_ID, "tenant-1", "ALI_MINI"))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("支付宝小程序身份模式未配置");
+	}
+
+	@Test
+	void requireBindingRejectsWechatAccountForAlipayPlatform() {
+		// 同一 AppID 只有 WX_MA 记录时，ALI_MINI 查询必须 fail-closed，不能跨类型复用
+		when(socialAccountMapper.selectValidByAppIdAndType(WX_APP_ID, "ALI_MINI")).thenReturn(List.of());
+
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, "tenant-1", "ALI_MINI"))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("小程序与租户配置不一致");
+	}
+
+	@Test
+	void requireBindingRejectsUnknownPlatform() {
+		assertThatThrownBy(() -> resolver.requireBinding(WX_APP_ID, "tenant-1", "H5"))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("不支持的小程序平台");
 	}
 
 }

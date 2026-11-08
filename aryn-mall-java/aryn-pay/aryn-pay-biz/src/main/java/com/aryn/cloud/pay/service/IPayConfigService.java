@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.pay.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.pay.api.entity.PayConfig;
 import com.aryn.cloud.pay.api.vo.PayConfigVO;
@@ -36,5 +37,17 @@ public interface IPayConfigService extends IService<PayConfig> {
 	 * @return 是否更新成功
 	 */
 	boolean updateConfig(PayConfig payConfig);
+
+	/**
+	 * 管理端分页：只返回安全字段，不带密钥、密文与服务器路径。
+	 */
+	Page<PayConfigVO> pageSafe(Page<PayConfig> page, PayConfig query);
+
+	PayConfigVO getDetail(String id);
+
+	/**
+	 * 删除前检查历史交易。已绑定身份版本的交易存在时禁止删除。
+	 */
+	boolean deleteConfig(String id);
 
 }

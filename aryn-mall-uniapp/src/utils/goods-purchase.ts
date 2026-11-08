@@ -16,6 +16,9 @@ import { translate } from '@/locales'
 /** 单规格（后端 goods_spu.enable_specs 取值，与 QuickCartServiceImpl 的 SINGLE_SPEC 对齐） */
 export const ENABLE_SPECS_SINGLE = '0'
 
+/** 商品级固定运费（后端 goods_spu.freight_type 取值，与 ProductConstants.FREIGHT_TYPE_1 对齐；'0' 为零运费） */
+export const FREIGHT_TYPE_FIXED = '1'
+
 /** 单规格商品在弹层里的占位规格名，与 vk-data-goods-sku-popup 的 defaultSingleSkuName 对齐 */
 export const SINGLE_SPEC_NAME = '默认'
 
@@ -101,6 +104,8 @@ export interface DeliveryRowInput {
 }
 
 export interface DeliveryRowView {
+  /** 是否渲染该行（普通场景仅收费商品展示，「包邮」不再上商详） */
+  visible: boolean
   /** 主文案（运费/配送方式） */
   text: string
   /** 副文案（地址/靠港信息），空串表示不渲染 */
@@ -114,7 +119,11 @@ export interface DeliveryRowView {
  *
  * 已绑定船舶上下文时，订单将按内部配送（delivery_way=4）履约——此时展示
  * 「配送至 船舶」与靠港信息，而不是收货地址；措辞与结算页内部配送卡片一致。
- * 普通场景维持 运费/包邮 + 配送至收货地址。
+ *
+ * 普通场景只在商品真实收费（freight_type='1'）时展示「运费 + 送至收货地址」：
+ * 「包邮」是静态商品属性且绝大多数商品取值相同，写在商详属于零信息噪声
+ * （小象超市商详已无配送行、盒马把该位留给订单级运费规则弹层，2026-11 调研口径），
+ * 与商品卡删除「包邮」chip 的决策对齐；免费商品的地址改选交给结算页。
  */
 export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
   if (input.hasVesselContext) {
@@ -132,6 +141,7 @@ export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
         : translate('labels.deliveryWindowSingle', { start: input.deliveryWindowStart })
       : ''
     return {
+      visible: true,
       text: translate('labels.deliverTo', { name: vesselName }),
       // 全角括号紧跟地名，中间不留空格
       detail: `${location}${window}`,
@@ -139,12 +149,14 @@ export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
     }
   }
 
-  const text = input.freightType === '0'
-    ? translate('labels.freeShipping')
-    : translate('labels.freightWithPrice', { price: input.fixedFreightPrice ?? 0 })
+  // 与后端计费同口径：仅 freight_type='1' 按件收固定运费，其余（含缺失）一律零运费
+  if (input.freightType !== FREIGHT_TYPE_FIXED)
+    return { visible: false, text: '', detail: '', tappable: false }
+
   const addressText = (input.addressText ?? '').trim()
   return {
-    text,
+    visible: true,
+    text: translate('labels.freightWithPrice', { price: input.fixedFreightPrice ?? 0 }),
     detail: addressText ? translate('labels.deliverToAddress', { address: addressText }) : '',
     tappable: true,
   }

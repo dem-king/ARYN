@@ -75,10 +75,20 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-promotion-api</artifactId>
         </dependency>
+        <!-- 商品卡主图宽高解析：upms 读本地文件/受信存储域名（L4 -> L3 API） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-upms-api</artifactId>
+        </dependency>
         <!--            安全模块-->
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>
+        </dependency>
+        <!-- SKU价格快照定时任务（skuPriceDailySnapshotJobHandler）执行器接入 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.rocketmq</groupId>

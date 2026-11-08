@@ -53,8 +53,11 @@ public class SettlementOrderDTO {
 	@NotEmpty(message = "订单商品不能为空")
 	private List<CreateOrderSkuReqDTO> skuReqList;
 
-	@Schema(description = "购买场景：1.海员个人购买；2.船供采购")
-	@Pattern(regexp = "[12]", message = "购买场景不合法")
+	@Schema(description = "订单备注")
+	private String remark;
+
+	@Schema(description = "购买场景：1.海员个人购买；2.船供采购；3.岸上企业采购")
+	@Pattern(regexp = "[123]", message = "购买场景不合法")
 	private String purchaseScene;
 
 	@Schema(description = "配送船舶ID（到船配送必填）")

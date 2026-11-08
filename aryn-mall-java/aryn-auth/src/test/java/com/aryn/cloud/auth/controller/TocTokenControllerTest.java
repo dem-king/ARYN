@@ -88,7 +88,8 @@ class TocTokenControllerTest {
 
 	@Test
 	void tenantBindingReturnsMinimalPublicPayloadOnly() {
-		when(loginTenantGuard.requireVerifiedTenant("wx0a8242ea59f3e6b4", "tenant-1")).thenReturn("tenant-1");
+		when(loginTenantGuard.requireVerifiedTenant("wx0a8242ea59f3e6b4", "tenant-1", "WX_MA"))
+			.thenReturn("tenant-1");
 
 		Map<String, Object> payload = controller().tenantBinding(wxMaRequest()).getData();
 

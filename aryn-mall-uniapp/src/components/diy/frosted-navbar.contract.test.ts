@@ -68,6 +68,19 @@ describe('导航组件：磨砂材质自动套用', () => {
     expect(code).toContain('blur(18px) saturate(160%)')
   })
 
+  it('搜索输入框默认保持浅灰实心胶囊，滚动磨砂后融进整条顶栏', () => {
+    const code = source(SEARCH_NAVBAR)
+    expect(code).toContain('search-navbar-field')
+    expect(code).toMatch(/\.search-navbar-field[\s\S]*?background-color: #f5f6f8/)
+    expect(code).toMatch(/\.search-navbar-field[\s\S]*?border: 1px solid #ececf0/)
+    expect(code).toContain('search-navbar-field--blended')
+    // 只有「页面滚动」才融合；浮层展开的 forceFrosted 保留胶囊轮廓
+    expect(code).toContain('frosted.value && pageScrolled?.value === true')
+    expect(code).toMatch(
+      /search-navbar-field--blended[\s\S]*?background-color: transparent/,
+    )
+  })
+
   it('商详顶栏滚动到位后切磨砂玻璃，tabs 同步一步显示', () => {
     const code = source(GOODS_NAVBAR)
     expect(code).toContain('goods-detail-navbar--frosted')

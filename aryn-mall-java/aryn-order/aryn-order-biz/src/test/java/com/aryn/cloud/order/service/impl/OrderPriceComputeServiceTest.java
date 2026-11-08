@@ -1489,6 +1489,45 @@ class OrderPriceComputeServiceTest {
 	}
 
 
+	/**
+	 * 岸上企业采购同样使用 B 端成本价：预览与提交都不能抵积分，
+	 * 避免「预览抵了、提交被拒」导致 expectedPaymentPrice 不一致。
+	 */
+	@Test
+	void pointsDeductionRejectedForEnterprisePurchase() {
+		OrderInfo preview = new OrderInfo().setPurchaseScene("3");
+		OrderItemEntity previewItem = item("100.00");
+		service.orderPointsDeductHandler(preview, List.of(previewItem), 1000, false, pointsContext(5000, 100),
+				false);
+		assertThat(preview.getPointsDeductPrice()).isEqualByComparingTo("0");
+		assertThat(preview.getPointsUsed()).isZero();
+		assertThat(preview.getPointsDeductMax()).isZero();
+
+		OrderInfo submit = new OrderInfo().setPurchaseScene("3");
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(submit, List.of(item("100.00")), 1000, false,
+					pointsContext(5000, 100), true))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(exception -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) exception).getMsg())
+				.contains("企业采购订单不支持积分抵现"));
+	}
+
+	/**
+	 * 船供预览同样把积分额度清零（不是只在提交时拒绝）：确认页展示的应付金额
+	 * 必须与提交重算一致，否则有积分的船供单会在提交时被 expectedPaymentPrice 拒单。
+	 */
+	@Test
+	void pointsPreviewIsZeroForShipSupplyPurchase() {
+		OrderInfo preview = new OrderInfo().setPurchaseScene("2");
+		service.orderPointsDeductHandler(preview, List.of(item("100.00")), null, true, pointsContext(5000, 100),
+				false);
+
+		assertThat(preview.getPointsDeductPrice()).isEqualByComparingTo("0");
+		assertThat(preview.getPointsUsed()).isZero();
+		assertThat(preview.getPointsDeductMax()).isZero();
+	}
+
 	// ==================== 积分风控四参数（P0 止血） ====================
 
 	/**

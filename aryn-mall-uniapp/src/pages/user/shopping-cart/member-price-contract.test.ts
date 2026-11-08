@@ -79,8 +79,8 @@ describe('shopping cart member price contract', () => {
 
   it('renders the member price as main price with badge, guide and strike-through price', () => {
     const cart = source(CART_PAGE)
-    // 行主价必须走与合计同源的 cartUnitPrice
-    expect(cart).toContain(':text="cartUnitPrice(goods)"')
+    // 行主价必须走与合计同源的 cartUnitPrice（price-text 组件只负责排版拆分）
+    expect(cart).toContain(':value="cartUnitPrice(goods)"')
     // 达标角标（固定「会员价」文案）优先于新人价/折扣角标
     expect(cart).toContain('memberDisplayOf(goods).showMemberPrice')
     expect(cart).toContain('cart.memberBadge')

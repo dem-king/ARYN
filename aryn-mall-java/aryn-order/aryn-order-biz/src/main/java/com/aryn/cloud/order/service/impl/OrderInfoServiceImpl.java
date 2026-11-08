@@ -129,6 +129,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@DubboReference
 	private final RemotePayService remotePayService;
 
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.aryn.cloud.order.service.PayCancelGateService payCancelGateService;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.aryn.cloud.order.service.OrderPaySubmitGateService orderPaySubmitGateService;
+
 	private final ApplicationEventPublisher applicationEventPublisher;
 
 	private final OrderPriceComputeService orderPriceComputeService;
@@ -456,6 +462,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@GlobalTransactional(rollbackFor = Exception.class)
 	@Transactional(rollbackFor = Exception.class)
 	public String cancelOrder(OrderInfo orderInfo, OrderStaffNotifyService.CancelSource source) {
+		// 先挂起订单事务做支付查单/关单；只有明确未支付且已关闭或从未发起才允许释放库存与优惠
+		boolean onlinePayment = orderInfo != null
+				&& !com.aryn.cloud.order.api.constant.MallOrderConstants.PAYMENT_TYPE_3
+					.equals(orderInfo.getPaymentType());
+		if (onlinePayment) {
+			payCancelGateService.assertCancellable(orderInfo);
+			// 取得取消锁：与预支付 pay_submitting 争用同一列，关闭门禁后才开始的支付会被拒绝
+			orderPaySubmitGateService.beginCancel(orderInfo.getId());
+		}
 		String canceledOrderId = doCancelOrder(orderInfo);
 		// 工作人员通知挂事务提交后：回滚时不留「订单没取消却收到消息」的误报；
 		// 通知失败只告警，不影响取消事实（幂等由站内信来源唯一键兜底）
@@ -486,7 +501,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 					? OrderStatusEnum.WAITING_FOR_DELIVERY.getCode()
 					: OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
 			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+			.eq(OrderInfo::getPaySubmitting, cashOnDeliveryCancel ? CommonConstants.NO : "2")
 			.set(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.set(OrderInfo::getPaySubmitting, CommonConstants.NO)
+			.set(OrderInfo::getPaySubmitTime, null)
 			.set(OrderInfo::getCancelTime, LocalDateTime.now()));
 		if (updated == 0) {
 			throw new ArynBusinessException("订单状态已变化，无法取消");
@@ -1150,7 +1168,6 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	@Override
-	@Transactional(rollbackFor = Exception.class)
 	public Result<Object> prepay(PrepayDTO prepayDTO) {
 		OrderConfig orderConfig = orderConfigService.getConfig();
 		if (Objects.isNull(orderConfig)) {
@@ -1203,13 +1220,21 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		createOrderReqDTO.setQuitUrl(quitUrl);
 		createOrderReqDTO.setReturnUrl(returnUrl);
 		createOrderReqDTO.setUserId(orderInfo.getUserId());
+		createOrderReqDTO.setClientPlatform(prepayDTO.getClientPlatform());
 		JSONObject extraParams = new JSONObject();
 		extraParams.put(PayConstants.EXTRA_PARAMS_PAY_TYPE, payType);
 		extraParams.put("mqNotifyUrl", RocketMqConstants.PAY_NOTIFY_TOPIC);
 		createOrderReqDTO.setExtra(extraParams.toJSONString());
 		Map<String, Object> resultMap = new HashMap<>();
 		resultMap.put("orderNo", orderInfo.getOrderNo());
-		resultMap.put("payParams", remotePayService.createOrder(createOrderReqDTO));
+		// 短事务写入订单级提交标记后再调用渠道；取消订单只能推进 pay_submitting=0 的单
+		orderPaySubmitGateService.begin(orderInfo.getId());
+		try {
+			resultMap.put("payParams", remotePayService.createOrder(createOrderReqDTO));
+		}
+		finally {
+			orderPaySubmitGateService.clear(orderInfo.getId());
+		}
 		return Result.success(resultMap);
 	}
 
@@ -1317,33 +1342,33 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 5.计算运费（普通快递和商城配送均需收货地址与运费）
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
 				|| MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
-			if (!StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
+			// 结算为预览：未选地址或所选地址已删除时不能整单失败，否则确认页无商品无金额，
+			// 用户补完地址也没有恢复入口（选完地址由前端重新结算补运费）。运费与明细运费
+			// 均已初始化为 0，金额口径自洽；提交订单 createOrder 仍强校验地址，缺地址成不了单
+			UserAddress userAddress = null;
+			if (StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
+				// 查询用户收货地址
+				userAddress = remoteUserAddressService.getById(settlementOrderDTO.getUserAddressId(),
+						settlementOrderDTO.getUserId());
 			}
-			// 查询用户收货地址
-			UserAddress userAddress = remoteUserAddressService.getById(settlementOrderDTO.getUserAddressId(),
-					settlementOrderDTO.getUserId());
-			if (ObjectUtil.isNull(userAddress)) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
-			}
-			orderInfo.setRecipientName(userAddress.getRecipientName());
-			orderInfo.setRecipientPhone(userAddress.getTelephone());
-			orderInfo.setRecipientProvince(userAddress.getProvinceName());
-			orderInfo.setRecipientCity(userAddress.getCityName());
-			orderInfo.setRecipientArea(userAddress.getAreaName());
-			orderInfo.setRecipientProvinceCode(userAddress.getProvinceCode());
-			orderInfo.setRecipientCityCode(userAddress.getCityCode());
-			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
-			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
+			if (ObjectUtil.isNotNull(userAddress)) {
+				orderInfo.setRecipientName(userAddress.getRecipientName());
+				orderInfo.setRecipientPhone(userAddress.getTelephone());
+				orderInfo.setRecipientProvince(userAddress.getProvinceName());
+				orderInfo.setRecipientCity(userAddress.getCityName());
+				orderInfo.setRecipientArea(userAddress.getAreaName());
+				orderInfo.setRecipientProvinceCode(userAddress.getProvinceCode());
+				orderInfo.setRecipientCityCode(userAddress.getCityCode());
+				orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
+				orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 
-			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping());
-			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
-					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
-							userAddress.getCityCode(), userAddress.getAreaCode())) {
-				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
+				orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
+						memberBenefits != null && memberBenefits.isFreeShipping());
+				if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+						&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
+								userAddress.getCityCode(), userAddress.getAreaCode())) {
+					throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
+				}
 			}
 		}
 		// 积分抵现：与下单同口径，保证确认页金额与提交后一致；叠加策略下积分只作用于允许积分的明细

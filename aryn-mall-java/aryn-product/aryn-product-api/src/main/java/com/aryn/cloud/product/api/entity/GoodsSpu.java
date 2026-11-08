@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.common.myabtis.handler.JsonArrayStringTypeHandler;
 import com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler;
+import com.aryn.cloud.product.api.vo.GoodsSocialBubbleVO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -117,6 +118,31 @@ public class GoodsSpu extends Model<GoodsSpu> {
 
 	@TableField(exist = false)
 	private String collectId;
+
+	/**
+	 * 商品主图像素宽/高：C 端列表按图片真实比例锁卡片占位高度，图片加载前后不跳动。
+	 *
+	 * <p>不落库，由列表接口在服务层按主图 URL 解析后回填；解析失败时为空，
+	 * 前端按 1:1 兜底（旧口径，同样不会跳动）。</p>
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "商品主图宽（像素，C 端列表辅助字段，不落库）")
+	@TableField(exist = false)
+	private Integer picWidth;
+
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "商品主图高（像素，C 端列表辅助字段，不落库）")
+	@TableField(exist = false)
+	private Integer picHeight;
+
+	/**
+	 * 商详口碑气泡（轮播图浮层）：社证文案/好评率/买家头像，仅 C 端详情接口在
+	 * 服务层装配（{@code getApiSpuById}），任何一步失败整体置 null，气泡不渲染。
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "商详口碑气泡；null=不展示")
+	@TableField(exist = false)
+	private GoodsSocialBubbleVO socialBubble;
 
 	@Schema(description = "总库存 sku库存累计")
 	private Integer stock;

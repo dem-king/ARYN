@@ -82,3 +82,60 @@ describe('order confirm duplicate SKU merge contract', () => {
     expect(cart).toContain('duplicateSkuIds.has(String(goods.skuId))')
   })
 })
+
+/**
+ * 「无收货地址结算」契约守门。
+ *
+ * 背景（真实缺陷）：用户没有收货地址时进确认页，后端 settlementOrder 对配送方式
+ * 1/3 直接抛「用户收货地址不存在」，整次结算失败——商品列表零行、金额 ¥0.00；
+ * 补完地址回来页面仍停在空数据态（选址只赋值不重结算），怎么操作都恢复不了。
+ *
+ * 修复分四层，缺一即复发：
+ * - 后端：结算为预览，无地址跳过运费与收件人回填，不再整单失败（提交订单仍强校验）；
+ * - 确认页：选址事件必须触发重新结算，把商品金额与运费补回来；
+ * - 确认页：默认地址接口失败时也必须走到 initData，不能让页面永远 loading；
+ * - 展示：无地址时运费行显示「选择地址后计算」，不显示误导性的 ￥0.00。
+ */
+describe('order confirm no-address settlement contract', () => {
+  it('re-settles after the user picks an address', () => {
+    const confirm = source(ORDER_CONFIRM)
+    const handler = functionSource(confirm, 'handleSelectedAddressUpdate')
+    // 选完地址只赋值不重结算 = 图二死态：商品金额永远是 ¥0.00
+    expect(handler).toContain('selectedAddress.value = newAddress')
+    expect(handler).toContain('toSettlement()')
+  })
+
+  it('always reaches initData even when the default-address lookup fails', () => {
+    const confirm = source(ORDER_CONFIRM)
+    const loader = functionSource(confirm, 'getDefaultAddress')
+    // getDefault 异常时 initData 悬空会让页面永远停在 loading
+    expect(loader).toContain('catch')
+    expect(loader).toContain('initData()')
+  })
+
+  it('keeps createOrder strict and settlement preview tolerant of missing address', () => {
+    const service = repoSource(ORDER_SERVICE)
+    // 结算为预览：无地址不再抛 ERROR_50002（否则确认页空 ¥0.00 且无恢复入口），
+    // 全服务仅 createOrder 保留 2 处强校验；有人把抛错加回结算侧即复发
+    const strictThrows = service.match(/ERROR_50002\.getCode\(\)/g) || []
+    expect(strictThrows).toHaveLength(2)
+    expect(service).toContain('结算为预览')
+  })
+
+  it('shows shipping as pending while no address is chosen', () => {
+    const item = source('src/sub-pages/order/order-confirm/components/ShopOrderItem.vue')
+    expect(item).toContain('addressPending')
+    expect(item).toContain('shippingPending')
+  })
+
+  it('returns the saved address straight to the confirm page in choose mode', () => {
+    const list = source('src/sub-pages/user/address/index.vue')
+    const form = source('src/sub-pages/user/address/form.vue')
+    // 列表选择模式跳表单要透传 choose 上下文；表单保存成功后回传新地址并连退两级
+    // （结算页 ← 地址列表 ← 表单），省去「回列表再点一次选中」
+    expect(list).toContain('isChoosing.value ? { placeChooseFlag: \'true\' } : {}')
+    expect(form).toContain('String(options?.placeChooseFlag) === \'true\'')
+    expect(form).toContain('uni.$emit(\'update:selectedAddress\', saved)')
+    expect(form).toContain('uni.navigateBack({ delta: 2 })')
+  })
+})

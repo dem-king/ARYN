@@ -9,17 +9,29 @@
  * `rewriteBootUrl` 改写为 `/boot/{去掉首段}` —— 与全站口径一致，
  * 页面里禁止硬编码 `/boot`。
  */
+import type { ReplenishDirectImport } from '@/api/order/replenishImport'
 import type { SharedCartImport } from '@/api/order/sharedCart'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
-import { translate } from '@/locales'
 import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
+import { translate } from '@/locales'
 
 const BASE = '/mall-order/app/shared-cart'
+
+/** 直下单导入（不挂购物车）的上传基路径 */
+const DIRECT_BASE = '/mall-order/app/replenish-import'
 
 /** 解析后的上传路径（boot/cloud 双模式） */
 function importPath(id: string, suffix: string) {
   const cloudPath = `${BASE}/${id}${suffix}`
+  return buildApiUrl(
+    rewriteBootUrl(cloudPath, parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)) ?? cloudPath,
+  )
+}
+
+/** 直下单导入的解析路径（boot/cloud 双模式） */
+function directImportPath(suffix: string) {
+  const cloudPath = `${DIRECT_BASE}${suffix}`
   return buildApiUrl(
     rewriteBootUrl(cloudPath, parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)) ?? cloudPath,
   )
@@ -73,6 +85,46 @@ export async function previewSharedCartImport(id: string, filePath: string): Pro
         // 成功判定只看 HTTP 状态与 data 是否返回，**不比对业务 code**：
         // 本平台的成功码是 0（handlers.ts 判的是 code !== 0 才算错），
         // 此前这里写死 200，导致解析成功也被判成失败 —— 上传永远弹「上传解析失败」。
+        if (res.statusCode < 200 || res.statusCode >= 300 || !payload.data) {
+          reject(new Error(payload.msg || translate('sharedCart.importPage.uploadFailed')))
+          return
+        }
+        resolve(payload.data)
+      },
+      fail: reject,
+    })
+  })
+}
+
+/**
+ * 上传清单并解析（直下单模式，不挂购物车）。
+ *
+ * 解析行为与 {@link previewSharedCartImport} 完全同源（同一解析器、同一报告口径），
+ * 差异只在任务不归属任何购物车；确认后的复核清单走
+ * `replenishImport.ts` 的 confirmDirectImport 返回。
+ */
+export async function previewDirectImport(filePath: string): Promise<ReplenishDirectImport> {
+  await ensureTenantReady()
+  const header = authHeader()
+  if (header.satoken) {
+    await ensureSessionTenant('mall', header.satoken)
+  }
+  return new Promise<ReplenishDirectImport>((resolve, reject) => {
+    uni.uploadFile({
+      url: directImportPath('/preview'),
+      filePath,
+      name: 'file',
+      header,
+      success(res) {
+        let payload: { code?: number, msg?: string, data?: ReplenishDirectImport }
+        try {
+          payload = JSON.parse(res.data)
+        }
+        catch {
+          reject(new Error(translate('sharedCart.importPage.parseResponseInvalid')))
+          return
+        }
+        // 同车版口径：只看 HTTP 2xx + data 是否返回，不比对业务 code
         if (res.statusCode < 200 || res.statusCode >= 300 || !payload.data) {
           reject(new Error(payload.msg || translate('sharedCart.importPage.uploadFailed')))
           return

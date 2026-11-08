@@ -128,6 +128,16 @@ describe('搜索栏组件：常驻层材质与静置零变化', () => {
     expect(code).toContain('-WEBKIT-backdrop-filter')
   })
 
+  it('默认保持配置色实心胶囊；滚动后融入磨砂头部（整条头部一块玻璃）', () => {
+    // 静置态不做玻璃色层：彩色头部上那层半透明胶囊会发灰、显脏
+    expect(code).not.toContain('search-bar-glass')
+    expect(code).toContain("'search-bar-inner--blended': blended")
+    expect(code).toContain("backgroundColor: blended ? 'transparent' : bgColor")
+    // 只有头部材质真的铺出来（scrollEffect=fade）时才撤掉输入条底色，
+    // 否则 scrollEffect 非 fade 的页面文字会直接飘在滚动内容上
+    expect(code).toContain('material.value.surfaceOpacity > 0')
+  })
+
   it('pinned 用页面级 fixed 且压在导航栏之下（z-index < 500）', () => {
     expect(code).toContain("'position': 'fixed'")
     expect(code).toContain("'z-index': '480'")

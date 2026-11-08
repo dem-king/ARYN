@@ -5,11 +5,11 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getById, saveOrUpdateAddress } from '@/api/user/address'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
-import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 // @ts-expect-error: 省市区数据为纯 js 数据文件，无类型声明
 import regionData from '@/sub-pages/components/region-picker/region-picker.js'
 // @ts-expect-error: region-picker type declaration issue
 import RegionPicker from '@/sub-pages/components/region-picker/region-picker.vue'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
 const { handlePageScroll } = useFrostedNavbar()
 const router = useRouter()
@@ -65,6 +65,8 @@ const state = reactive<State>({
 const submitting = ref(false)
 const region = ref()
 const globalLoading = useGlobalLoading()
+// 从结算页选择模式进入：保存成功后直接回传新地址并连退两级回结算页
+const isChoosing = ref(false)
 
 const regionText = computed(() => {
   const { provinceName, cityName, areaName } = state.form
@@ -75,6 +77,7 @@ const regionText = computed(() => {
 })
 
 onLoad(async (options) => {
+  isChoosing.value = String(options?.placeChooseFlag) === 'true'
   if (options?.id) {
     getDetail(options?.id)
   }
@@ -166,11 +169,21 @@ function submit() {
       submitting.value = true
       globalLoading.loading(t('accountSettings.addressForm.submitting'))
       saveOrUpdateAddress(state.form)
-        .then(() => {
+        .then((saved) => {
           globalLoading.close()
           // 保存期间用户已自行返回/被顶替时不发路由（对已销毁页面路由会触发 routeDone 报错）
           if (!isPageAlive(pageAtSetup)) {
             return
+          }
+          // 选择模式且拿到保存后的实体（含新地址 id）：直接回传结算页并连退两级
+          // （结算页 ← 地址列表 ← 表单）；结算页收到事件会自动重新结算。
+          // 后端未升级返回 boolean 时 saved?.id 为空，回退为回列表由用户点选
+          if (isChoosing.value && saved?.id) {
+            uni.$emit('update:selectedAddress', saved)
+            if (getCurrentPages().length >= 3) {
+              uni.navigateBack({ delta: 2 })
+              return
+            }
           }
           router.back()
         })

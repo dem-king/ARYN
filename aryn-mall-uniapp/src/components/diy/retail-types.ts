@@ -320,6 +320,8 @@ export interface NewbieFloorItem {
   limitPerUser: number;
   /** 注册时效（天），0 表示不限 */
   registerWithinDays: number;
+  /** 长期有效：C 端不展示结束倒计时 */
+  longTerm: boolean;
   goodsList: NewbieGoodsItem[];
 }
 

@@ -17,8 +17,19 @@ public interface INewbieActivityService {
 	 * 取当前进行中的新人专享活动（含新人价商品列表）；无进行中活动返回 null。
 	 *
 	 * <p>固定返回活动配置的新人价，不做按人出价与资格判定（资格在下单链路硬校验）。
+	 * 商品条数按首页楼层的展示上限截断。
 	 */
 	AppNewbieFloorVO getCurrentFloor();
+
+	/**
+	 * 取当前进行中的新人专享活动，并指定商品返回条数。
+	 *
+	 * <p>独立的新人专享页需要看到活动内全部商品，不能沿用首页楼层的 20 条上限；
+	 * 入参在实现内收敛到 [1, 200]，避免列表页请求把响应体无限放大。
+	 *
+	 * @param limit 期望返回的商品条数
+	 */
+	AppNewbieFloorVO getCurrentFloor(int limit);
 
 	/**
 	 * 批量查询指定 SKU 的新人价（商详 / 购物车等已聚焦商品的页面用）。

@@ -3,8 +3,10 @@ package com.aryn.cloud.pay.handler;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
+import com.aryn.cloud.pay.api.dto.PayPrepayResult;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
 import com.aryn.cloud.pay.handler.impl.FreePayHandler;
+import com.aryn.cloud.pay.service.PayUrlPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +34,9 @@ class PaymentHandlerValidationTest {
 
 		Object result = handler.pay(validRequest());
 
-		assertEquals(paidOrder, result);
+		assertTrue(result instanceof PayPrepayResult);
+		assertTrue(((PayPrepayResult) result).isAlreadyPaid());
+		assertEquals("ORDER-1", ((PayPrepayResult) result).getOrderNo());
 		assertEquals(0, handler.doPayCalls);
 	}
 
@@ -40,6 +44,21 @@ class PaymentHandlerValidationTest {
 	void freePaymentTransactionStartsAtExternalHandlerEntryPoint() throws NoSuchMethodException {
 		assertTrue(FreePayHandler.class.getMethod("pay", CreateOrderReqDTO.class)
 			.isAnnotationPresent(Transactional.class));
+	}
+
+	@Test
+	void paidOrderWithoutFrozenIdentityCannotStartChannelPayment() {
+		TestPayHandler handler = new TestPayHandler();
+		handler.order = new PayTradeOrder().setOutTradeNo("ORDER-1").setTradeType("WX_JSAPI_PAY")
+			.setUserId("user-1").setAmount(java.math.BigDecimal.ONE).setPayStatus(CommonConstants.NO);
+		CreateOrderReqDTO request = validRequest();
+		request.setTradeType("WX_JSAPI_PAY");
+		request.setTotalAmount("1.00");
+		request.setNotifyUrl("https://example.com/pay/notify");
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () -> handler.pay(request));
+		assertEquals("支付订单缺少支付身份版本", exception.getMsg());
+		assertEquals(0, handler.doPayCalls);
 	}
 
 	private CreateOrderReqDTO validRequest() {
@@ -59,10 +78,14 @@ class PaymentHandlerValidationTest {
 
 		private int doPayCalls;
 
+		private TestPayHandler() {
+			this.payUrlPolicy = new PayUrlPolicy();
+		}
+
 		@Override
-		public Object doPay(PayTradeOrder payTradeOrder) {
+		public PayPrepayResult doPay(PayTradeOrder payTradeOrder) {
 			doPayCalls++;
-			return payTradeOrder;
+			return PayPrepayResult.alreadyPaid(payTradeOrder.getOutTradeNo());
 		}
 
 		@Override

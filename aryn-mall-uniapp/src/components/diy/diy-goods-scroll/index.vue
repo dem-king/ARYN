@@ -7,6 +7,7 @@ import { followDecorationLink } from '@/components/diy/link-resolver'
 import { loadGoodsGroup } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
+import PriceText from '@/components/price-text/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
 import { useZonePrices } from '@/composables/useZonePrices'
@@ -77,7 +78,8 @@ watch(
   goodsList,
   (list) => {
     const ids = list.map(item => String(item?.id || '').trim()).filter(Boolean)
-    if (!ids.length) return
+    if (!ids.length)
+      return
     void zone.loadForSpuIds(ids)
   },
   { immediate: true },
@@ -104,9 +106,8 @@ function cardBadgeText(item: any): string {
 }
 
 function cardBadgeClass(item: any): string {
-  return cardDisplay(item).badgeKind === 'member'
-    ? 'gs-badge--member'
-    : 'gs-badge--clearance'
+  // 类名直接按枚举派生（会员/捡漏/秒杀/新人各有颜色语义，与主卡同一套令牌）
+  return `gs-badge--${cardDisplay(item).badgeKind || 'clearance'}`
 }
 
 function cardGuideText(item: any): string {
@@ -244,9 +245,7 @@ function openGoods(id: string) {
             -->
             <view class="gs-bottom">
               <text class="gs-price">
-                <text class="gs-price-symbol">
-                  ¥
-                </text>{{ cardMainPrice(item).toFixed(2) }}
+                <price-text :value="cardMainPrice(item)" />
               </text>
               <view class="gs-btn">
                 {{ t('diy.common.grab') }}
@@ -316,9 +315,7 @@ function openGoods(id: string) {
               </view>
               <view class="gs-bottom">
                 <text class="gs-price">
-                  <text class="gs-price-symbol">
-                    ¥
-                  </text>{{ cardMainPrice(item).toFixed(2) }}
+                  <price-text :value="cardMainPrice(item)" />
                 </text>
                 <view class="gs-btn">
                   {{ t('diy.common.grab') }}
@@ -343,6 +340,7 @@ function openGoods(id: string) {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 .gs-head {
   display: flex;
   align-items: center;
@@ -427,8 +425,16 @@ function openGoods(id: string) {
 }
 
 .gs-badge--clearance {
-  background: var(--wot-color-theme-primary, #ff2237);
+  @include goods-tag-clearance;
+}
+
+.gs-badge--seckill {
+  background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   color: #fff;
+}
+
+.gs-badge--newbie {
+  @include goods-tag-newbie;
 }
 
 .gs-img {
@@ -485,10 +491,6 @@ function openGoods(id: string) {
   white-space: nowrap;
 }
 
-.gs-price-symbol {
-  font-size: 22rpx;
-}
-
 /* 划线原价独占一行（行高契约 34rpx = 间距 6 + 行高 28，见 cardBodyHeightRpx）：
    灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .gs-price-original {
@@ -532,11 +534,6 @@ function openGoods(id: string) {
 .gs-track--4 .gs-price,
 .gs-page--4 .gs-price {
   font-size: 24rpx;
-}
-
-.gs-track--4 .gs-price-symbol,
-.gs-page--4 .gs-price-symbol {
-  font-size: 18rpx;
 }
 
 /* 一屏 4 个时内容区仅约 66px 宽，原价也要跟着收窄才放得下 */

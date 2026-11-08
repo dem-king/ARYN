@@ -68,6 +68,8 @@ class PublicEndpointWhitelistContractTest {
 			"/app/goodsspu/hot-search/top10",
 			"/app/goodsspu/quick-cart/123",
 			"/app/goodsspu/suggest",
+			// 商品卡营销标签（可选登录：登录用户按新人资格判定，未登录按潜在新人口径）
+			"/app/goodsspu/card-tags",
 			// 营销域：装修页 / 商城默认主题换肤 / 拼团 / 优惠券 / 秒杀 / 折扣
 			"/app/pagedesign",
 			"/app/pagedesign/2102572931049308162",

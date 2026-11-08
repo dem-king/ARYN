@@ -13,6 +13,8 @@ export default {
     fixedPrice: '一口价',
     memberPriceBadge: '会员价',
     memberGuidePrefix: '会员专享',
+    newbiePriceBadge: '新人首单价',
+    seckillPriceBadge: '秒杀价',
     newbieAlreadyPaid: '新人专享价仅限首单，你已下过单',
     newbieRegisterWithin: '新人专享价仅限注册 {days} 天内的新用户',
     newbieRegisterOnly: '新人专享价仅限新注册用户',
@@ -52,6 +54,7 @@ export default {
     payTimeoutHours: '{count}小时',
     notice: '提示',
     cancelPayment: '取消支付',
+    payUnavailable: '当前终端暂不支持该支付方式',
 
     // 搜索联想 / 加购结果
     history: '历史',

@@ -102,4 +102,13 @@ public class PayConfig extends Model<PayConfig> {
 	@Schema(description = "微信支付公钥ID")
 	private String publicKeyId;
 
+	@Schema(description = "是否启用：0.停用；1.启用；")
+	private String enabled;
+
+	@Schema(description = "当前生效的身份版本ID")
+	private String activeRevisionId;
+
+	@Schema(description = "并发版本号，启用/停用时做乐观锁")
+	private Integer configVersion;
+
 }

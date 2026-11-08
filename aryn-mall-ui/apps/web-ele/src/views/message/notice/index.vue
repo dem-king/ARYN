@@ -1,8 +1,8 @@
-<script setup lang="ts">
-import type { NoticeSavePayload } from '#/api/message/notice';
+<script lang="ts" setup>
+import type { NoticeAction, RowCommand } from './meta';
+
 import type {
   NoticeDispatchStatus,
-  NoticeRecipientItem,
   NoticeRecord,
   NoticeStatus,
 } from '#/api/message/types';
@@ -11,319 +11,152 @@ import { computed, onMounted, reactive, ref } from 'vue';
 
 import { useAccess } from '@vben/access';
 
-import { Search } from '@element-plus/icons-vue';
+import {
+  Bell,
+  MoreFilled,
+  Plus,
+  Refresh,
+  Search,
+  View,
+} from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCheckbox,
-  ElCheckboxGroup,
-  ElDialog,
-  ElDrawer,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElIcon,
   ElInput,
   ElMessage,
   ElMessageBox,
-  ElOption,
-  ElPagination,
-  ElSelect,
+  ElSegmented,
   ElTable,
   ElTableColumn,
-  ElTabPane,
-  ElTabs,
-  ElTag,
-  ElTreeSelect,
+  ElTooltip,
 } from 'element-plus';
 
 import {
-  createNotice,
   deleteNotice,
   getNoticePage,
-  getNoticeRecipients,
   publishNotice,
   republishNotice,
   retryNoticeDispatch,
   revokeNotice,
-  updateNotice,
 } from '#/api/message/notice';
-import { getTreeList as getDeptTree } from '#/api/upms/dept';
-import { getList as getRoleList } from '#/api/upms/sys-role';
-import { getList as getMemberLevelList } from '#/api/user/member-level';
-import { getList as getMemberTagList } from '#/api/user/member-tag';
+import Pagination from '#/components/pagination/index.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
-interface AudienceSnapshot {
-  deptIds?: string[];
-  mallUserIds?: string[];
-  memberLevelId?: string;
-  memberTagId?: string;
-  roleIds?: string[];
-  staffUserIds?: string[];
-}
+import {
+  categoryMeta,
+  deliveryPercent,
+  deliveryText,
+  dispatchMeta,
+  noticeActionPlan,
+  ROW_COMMAND_LABELS,
+  rowCommands,
+  splitDateTime,
+  statusMeta,
+  targetTypesText,
+} from './meta';
+import NoticeDetail from './notice-detail.vue';
+import NoticeEditor from './notice-editor.vue';
 
-interface DeptOption {
-  children?: DeptOption[];
-  id: string;
-  name: string;
-}
+import './notice-ui.css';
 
-interface MemberLevelOption {
-  id: string;
-  levelName: string;
-}
-
-interface MemberTagOption {
-  id: string;
-  tagName: string;
-}
-
-interface RoleOption {
-  id: string;
-  roleName: string;
-}
-
+/**
+ * 「通知管理」页（消息中心 → 通知管理）。
+ *
+ * 业务语义：纯文本通知先存草稿，发布时冻结受众快照并按目标端（会员 / 工作人员）
+ * 拆成若干异步分发任务；发布后正文不可改，只能撤回或重发；分发失败可重试。
+ *
+ * 页面结构：紧凑页头（标题 + 总数 + 新建）→ 吸顶筛选条（状态分段 + 搜索 + 刷新）
+ * → 固定行高表格 → 底部常驻分页；新建/编辑用右侧编辑器抽屉，查看用详情抽屉。
+ *
+ * 与改造前的主要差异（均来自改动前基线实测）：
+ * - 1280 视口下列宽合计 1260 > 可视 970，`fixed=right` 操作列把「创建时间」100% 盖住；
+ *   现在列宽合计收敛到 ~930 且不再使用 fixed 列，任何 ≥1280 的视口都不产生横向溢出。
+ * - 分类原是原始枚举（`VESSEL_CALL_CHANGE` 换行撑高行），统一走 `meta.ts` 的中文标签。
+ * - 行高原来 68–142px 跳动，现在标题/摘要各限一行，行高恒定。
+ * - 分页原来落在首屏之外，现在由 `hx-layout-container` 的标准 flex 规则钉在底部。
+ */
 const { hasAccessByCodes } = useAccess();
-const canViewRecipients = computed(() =>
-  hasAccessByCodes(['message:notice:recipient']),
-);
+
+/** 状态分段：与后端 page 接口的 `status` 参数一一对应，空值表示全部。 */
+type StatusFilter = '' | NoticeStatus;
+
+const STATUS_FILTERS: Array<{ label: string; value: StatusFilter }> = [
+  { label: '全部', value: '' },
+  { label: '草稿', value: 'DRAFT' },
+  { label: '已发布', value: 'PUBLISHED' },
+  { label: '已撤回', value: 'REVOKED' },
+];
+
+/** 行内「更多」菜单的权限口径：与后端 `@SaCheckPermission` 逐项对齐。 */
+const COMMAND_PERMISSIONS: Record<RowCommand, string> = {
+  delete: 'message:notice:delete',
+  edit: 'message:notice:edit',
+  publish: 'message:notice:publish',
+  republish: 'message:notice:publish',
+  retry: 'message:notice:retry',
+  revoke: 'message:notice:revoke',
+};
 
 const loading = ref(false);
 const records = ref<NoticeRecord[]>([]);
 const total = ref(0);
-const dialogOpen = ref(false);
-const drawerOpen = ref(false);
-const editingId = ref<string>();
-const activeRecord = ref<NoticeRecord>();
-const query = reactive({ current: 1, size: 10, keyword: '', status: '' });
-const form = reactive<NoticeSavePayload>({
-  category: 'SYSTEM',
-  content: '',
-  deptIds: [],
-  jumpType: 'NONE',
-  mallUserIds: undefined,
-  memberLevelId: undefined,
-  memberTagId: undefined,
-  priority: 'NORMAL',
-  roleIds: [],
-  staffUserIds: undefined,
-  summary: '',
-  targetTypes: ['MALL_USER'],
-  title: '',
-});
-
-const memberLevels = ref<MemberLevelOption[]>([]);
-const memberTags = ref<MemberTagOption[]>([]);
-const roles = ref<RoleOption[]>([]);
-const depts = ref<DeptOption[]>([]);
-const audienceOptionsLoaded = ref(false);
-
-const detailTab = ref('overview');
-const recipients = ref<NoticeRecipientItem[]>([]);
-const recipientTotal = ref(0);
-const recipientLoading = ref(false);
-const recipientQuery = reactive({
+const query = reactive({
   current: 1,
   keyword: '',
-  readStatus: '',
-  recipientType: '',
-  size: 20,
+  size: 10,
+  status: '' as StatusFilter,
 });
 
-const STATUS_META: Record<
-  NoticeStatus,
-  { label: string; tone: 'danger' | 'info' | 'success' | 'warning' }
-> = {
-  DRAFT: { label: '草稿', tone: 'info' },
-  PUBLISHED: { label: '已发布', tone: 'success' },
-  REVOKED: { label: '已撤回', tone: 'warning' },
-};
+const editorOpen = ref(false);
+const editingRecord = ref<NoticeRecord>();
+const detailOpen = ref(false);
+const activeRecord = ref<NoticeRecord>();
 
-const DISPATCH_META: Record<
-  NoticeDispatchStatus,
-  { label: string; tone: 'danger' | 'info' | 'success' | 'warning' }
-> = {
-  NONE: { label: '未分发', tone: 'info' },
-  RUNNING: { label: '分发中', tone: 'warning' },
-  SUCCEEDED: { label: '已送达', tone: 'success' },
-  PARTIAL_FAILED: { label: '部分失败', tone: 'danger' },
-  FAILED: { label: '分发失败', tone: 'danger' },
-};
-
-const TASK_STATUS_META: Record<
-  string,
-  { label: string; tone: 'danger' | 'info' | 'success' | 'warning' }
-> = {
-  PENDING: { label: '待分发', tone: 'info' },
-  RUNNING: { label: '分发中', tone: 'warning' },
-  SUCCEEDED: { label: '成功', tone: 'success' },
-  PARTIAL_FAILED: { label: '部分失败', tone: 'danger' },
-  FAILED: { label: '失败', tone: 'danger' },
-  CANCELED: { label: '已取消', tone: 'info' },
-};
-
-const AUDIENCE_LABELS: Record<string, string> = {
-  ALL: '全部',
-  FILTERED: '条件筛选',
-  SPECIFIED: '指定',
-};
-
-const activeTasks = computed(() => activeRecord.value?.dispatchTasks ?? []);
-const dispatchError = computed(
-  () => activeTasks.value.find((task) => task.errorSummary)?.errorSummary,
+const hasFilters = computed(
+  () => query.status !== '' || query.keyword.trim() !== '',
 );
 
-function statusInfo(row: NoticeRecord) {
-  return (
-    STATUS_META[row.status] ?? { label: row.status, tone: 'info' as const }
+const emptyTitle = computed(() =>
+  hasFilters.value ? '没有匹配的通知' : '还没有任何通知',
+);
+
+const emptyDescription = computed(() =>
+  hasFilters.value
+    ? '换个关键词或状态再试，也可以清除筛选查看全部通知。'
+    : '新建一条通知草稿，发布后会按受众快照异步分发给会员或工作人员。',
+);
+
+/** 顶部主指标：列表总数（服务端 total，不是当前页条数）。 */
+const totalLabel = computed(() => `${total.value}`);
+
+/** 状态允许的动作 且 当前账号有对应权限码，才渲染进「更多」菜单。 */
+function allowedCommands(row: NoticeRecord): RowCommand[] {
+  return rowCommands(row).filter((command) =>
+    hasAccessByCodes([COMMAND_PERMISSIONS[command]]),
   );
 }
 
-function dispatchInfo(row: NoticeRecord) {
-  if (row.status !== 'PUBLISHED') {
-    return { label: '—', tone: 'info' as const };
-  }
-  return DISPATCH_META[row.dispatchStatus ?? 'NONE'] ?? DISPATCH_META.NONE;
-}
-
-function taskStatusInfo(status: string) {
-  return TASK_STATUS_META[status] ?? { label: status, tone: 'info' as const };
-}
-
-function targetText(targetTypes: string | undefined) {
-  if (!targetTypes) {
-    return '—';
-  }
-  const labels: Record<string, string> = {
-    MALL_USER: '会员',
-    SYS_USER: '工作人员',
-  };
-  return targetTypes
-    .split(',')
-    .map((type) => labels[type] ?? type)
-    .join('、');
-}
-
-function audienceText(audienceType: string | undefined) {
-  return audienceType ? (AUDIENCE_LABELS[audienceType] ?? audienceType) : '—';
-}
-
-function deliveryText(row: NoticeRecord) {
-  if ((row.recipientCount ?? 0) === 0) {
-    return '—';
-  }
-  return `${row.readCount ?? 0} / ${row.recipientCount}`;
-}
-
-function canRetry(row: NoticeRecord) {
-  return (
-    row.status === 'PUBLISHED' &&
-    (row.dispatchStatus === 'FAILED' || row.dispatchStatus === 'PARTIAL_FAILED')
-  );
-}
-
-function parseAudienceSnapshot(snapshot?: string): AudienceSnapshot {
-  if (!snapshot) {
-    return {};
-  }
-  try {
-    return JSON.parse(snapshot) as AudienceSnapshot;
-  } catch {
-    return {};
-  }
-}
-
-async function loadAudienceOptions() {
-  if (audienceOptionsLoaded.value) {
-    return;
-  }
-  audienceOptionsLoaded.value = true;
-  const [levelResult, tagResult, roleResult, deptResult] =
-    await Promise.allSettled([
-      getMemberLevelList(),
-      getMemberTagList(),
-      getRoleList({}),
-      getDeptTree(),
-    ]);
-  if (levelResult.status === 'fulfilled') {
-    memberLevels.value = levelResult.value ?? [];
-  }
-  if (tagResult.status === 'fulfilled') {
-    memberTags.value = tagResult.value ?? [];
-  }
-  if (roleResult.status === 'fulfilled') {
-    roles.value = roleResult.value ?? [];
-  }
-  if (deptResult.status === 'fulfilled') {
-    depts.value = deptResult.value ?? [];
-  }
-}
-
-function syncAudienceFields() {
-  if (!form.targetTypes.includes('MALL_USER')) {
-    form.memberLevelId = undefined;
-    form.memberTagId = undefined;
-    form.mallUserIds = undefined;
-  }
-  if (!form.targetTypes.includes('SYS_USER')) {
-    form.roleIds = [];
-    form.deptIds = [];
-    form.staffUserIds = undefined;
-  }
-}
-
-function buildPayload(): NoticeSavePayload {
-  const mall = form.targetTypes.includes('MALL_USER');
-  const staff = form.targetTypes.includes('SYS_USER');
-  return {
-    ...form,
-    deptIds: staff ? (form.deptIds ?? []) : [],
-    mallUserIds: mall ? form.mallUserIds : undefined,
-    memberLevelId: mall ? form.memberLevelId || undefined : undefined,
-    memberTagId: mall ? form.memberTagId || undefined : undefined,
-    roleIds: staff ? (form.roleIds ?? []) : [],
-    staffUserIds: staff ? form.staffUserIds : undefined,
-  };
-}
-
-function recipientTypeText(type: string) {
-  return type === 'MALL_USER' ? '会员' : '工作人员';
-}
-
-async function loadRecipients() {
-  if (!activeRecord.value) {
-    return;
-  }
-  recipientLoading.value = true;
-  try {
-    const page = await getNoticeRecipients(
-      activeRecord.value.id,
-      recipientQuery,
-    );
-    recipients.value = page.records;
-    recipientTotal.value = page.total;
-  } catch {
-    // 请求层已统一提示
-  } finally {
-    recipientLoading.value = false;
-  }
-}
-
-function searchRecipients() {
-  recipientQuery.current = 1;
-  loadRecipients();
-}
-
-function handleDetailTab(name: number | string) {
-  if (name === 'recipients' && canViewRecipients.value) {
-    searchRecipients();
-  }
+/** 危险动作排到分隔线之后，并与普通动作视觉分离。 */
+function isDangerCommand(command: RowCommand) {
+  return command === 'delete' || command === 'retry';
 }
 
 async function load() {
   loading.value = true;
   try {
-    const page = await getNoticePage(query);
-    records.value = page.records;
-    total.value = page.total;
+    const page = await getNoticePage({
+      current: query.current,
+      keyword: query.keyword.trim() || undefined,
+      size: query.size,
+      status: query.status || undefined,
+    });
+    records.value = page.records ?? [];
+    total.value = page.total ?? 0;
+  } catch {
+    // 请求层已统一提示，保留上一次数据避免整页闪空
   } finally {
     loading.value = false;
   }
@@ -331,1018 +164,789 @@ async function load() {
 
 function search() {
   query.current = 1;
-  load();
+  void load();
 }
 
-function resetForm() {
-  editingId.value = undefined;
-  Object.assign(form, {
-    category: 'SYSTEM',
-    content: '',
-    deptIds: [],
-    jumpPayload: undefined,
-    jumpType: 'NONE',
-    mallUserIds: undefined,
-    memberLevelId: undefined,
-    memberTagId: undefined,
-    priority: 'NORMAL',
-    roleIds: [],
-    staffUserIds: undefined,
-    summary: '',
-    targetTypes: ['MALL_USER'],
-    title: '',
-  });
+function resetFilters() {
+  query.keyword = '';
+  query.status = '';
+  query.current = 1;
+  void load();
+}
+
+/** ElSegmented 的 change 参数是 `string | number | boolean`，这里收窄成状态值。 */
+function changeStatus(value: boolean | number | string) {
+  const next = String(value) as StatusFilter;
+  if (query.status === next) {
+    return;
+  }
+  query.status = next;
+  search();
 }
 
 function openCreate() {
-  resetForm();
-  void loadAudienceOptions();
-  dialogOpen.value = true;
+  editingRecord.value = undefined;
+  editorOpen.value = true;
 }
 
 function openEdit(row: NoticeRecord) {
-  drawerOpen.value = false;
-  editingId.value = row.id;
-  const audience = parseAudienceSnapshot(row.audienceSnapshot);
-  Object.assign(form, {
-    category: row.category,
-    content: row.content,
-    deptIds: audience.deptIds ?? [],
-    jumpPayload: row.jumpPayload,
-    jumpType: row.jumpType || 'NONE',
-    mallUserIds: audience.mallUserIds,
-    memberLevelId: audience.memberLevelId,
-    memberTagId: audience.memberTagId,
-    priority: row.priority,
-    roleIds: audience.roleIds ?? [],
-    staffUserIds: audience.staffUserIds,
-    summary: row.summary,
-    targetTypes: row.targetTypes.split(',') as Array<'MALL_USER' | 'SYS_USER'>,
-    title: row.title,
-  });
-  void loadAudienceOptions();
-  dialogOpen.value = true;
+  editingRecord.value = row;
+  editorOpen.value = true;
 }
 
 function openDetail(row: NoticeRecord) {
   activeRecord.value = row;
-  detailTab.value = 'overview';
-  recipients.value = [];
-  recipientTotal.value = 0;
-  recipientQuery.current = 1;
-  recipientQuery.keyword = '';
-  recipientQuery.readStatus = '';
-  recipientQuery.recipientType = '';
-  drawerOpen.value = true;
+  detailOpen.value = true;
 }
 
-async function save() {
-  if (!form.title.trim() || !form.content.trim()) {
-    ElMessage.warning('标题和正文不能为空');
-    return;
-  }
-  if (form.targetTypes.length === 0) {
-    ElMessage.warning('请选择至少一个目标端');
-    return;
-  }
-  const payload = buildPayload();
-  await (editingId.value
-    ? updateNotice(editingId.value, payload)
-    : createNotice(payload));
-  ElMessage.success('草稿已保存');
-  dialogOpen.value = false;
-  await load();
-}
-
-async function publish(row: NoticeRecord) {
-  await ElMessageBox.confirm(
-    `发布后将按受众快照面向 ${targetText(row.targetTypes)} 异步分发，正文不可再修改。`,
-    '确认发布',
-    { type: 'warning' },
-  );
-  await publishNotice(row.id);
-  drawerOpen.value = false;
-  ElMessage.success('已提交分发任务');
-  await load();
-}
-
-async function revoke(row: NoticeRecord) {
-  await ElMessageBox.confirm(
-    '撤回后收件箱立即隐藏，未开始的分发任务会取消；可在“已撤回”列表中重新发布。',
-    '确认撤回',
-    {
+async function confirm(action: NoticeAction, row: NoticeRecord) {
+  const plan = noticeActionPlan(action, row.targetTypes);
+  try {
+    await ElMessageBox.confirm(plan.message, plan.title, {
+      cancelButtonText: '取消',
+      confirmButtonText: plan.ok,
       type: 'warning',
-    },
-  );
-  await revokeNotice(row.id);
-  drawerOpen.value = false;
-  ElMessage.success('通知已撤回');
+    });
+  } catch {
+    return undefined;
+  }
+  return plan;
+}
+
+/** 行内动作：确认 → 请求 → 提示 → 刷新。文案与详情抽屉同源（meta.ts）。 */
+const ACTION_RUNNERS: Record<
+  NoticeAction,
+  (row: NoticeRecord) => Promise<unknown>
+> = {
+  delete: (row) => deleteNotice(row.id),
+  publish: (row) => publishNotice(row.id),
+  republish: (row) => republishNotice(row.id),
+  retry: (row) => retryNoticeDispatch(row.id),
+  revoke: (row) => revokeNotice(row.id),
+};
+
+async function runAction(action: NoticeAction, row: NoticeRecord) {
+  const plan = await confirm(action, row);
+  if (!plan) {
+    return;
+  }
+  try {
+    await ACTION_RUNNERS[action](row);
+    ElMessage.success(plan.done);
+    await afterMutation();
+  } catch {
+    // 请求层已统一提示，列表保持原样
+  }
+}
+
+const COMMAND_HANDLERS: Record<
+  RowCommand,
+  (row: NoticeRecord) => Promise<void>
+> = {
+  delete: (row) => runAction('delete', row),
+  edit: async (row) => openEdit(row),
+  publish: (row) => runAction('publish', row),
+  republish: (row) => runAction('republish', row),
+  retry: (row) => runAction('retry', row),
+  revoke: (row) => runAction('revoke', row),
+};
+
+async function handleCommand(command: RowCommand, row: NoticeRecord) {
+  await COMMAND_HANDLERS[command](row);
+}
+
+/** 变更后刷新列表；详情抽屉打开时同步刷新其数据来源。 */
+async function afterMutation() {
+  detailOpen.value = false;
   await load();
 }
 
-async function republish(row: NoticeRecord) {
-  await ElMessageBox.confirm(
-    '重新发布后通知会恢复到收件箱；已送达的收件人保留已读状态，未完成的分发会重新提交。',
-    '重新发布',
-    { confirmButtonText: '重新发布', type: 'warning' },
-  );
-  await republishNotice(row.id);
-  drawerOpen.value = false;
-  ElMessage.success('通知已重新发布');
-  await load();
+function handleSaved() {
+  editorOpen.value = false;
+  void load();
 }
 
-async function removeDraft(row: NoticeRecord) {
-  await ElMessageBox.confirm(
-    '删除后草稿不可恢复，未发送的通知不会进入任何收件箱。',
-    '删除草稿',
-    { confirmButtonText: '删除', type: 'warning' },
-  );
-  await deleteNotice(row.id);
-  drawerOpen.value = false;
-  ElMessage.success('草稿已删除');
-  await load();
+function handleDetailRefresh() {
+  void load();
 }
 
-async function retry(row: NoticeRecord) {
-  await ElMessageBox.confirm(
-    '将重新提交失败的分发任务，已送达的收件人不会重复收到。',
-    '重试分发',
-    { confirmButtonText: '重试', type: 'warning' },
-  );
-  await retryNoticeDispatch(row.id);
-  drawerOpen.value = false;
-  ElMessage.success('已重新提交分发');
-  await load();
+/** 详情里点「编辑」：关详情、开编辑器，并沿用同一条记录。 */
+function editFromDetail() {
+  const record = activeRecord.value;
+  detailOpen.value = false;
+  if (record) {
+    openEdit(record);
+  }
+}
+
+function categoryLabel(row: NoticeRecord) {
+  return categoryMeta(row.category).label;
+}
+
+function categoryTone(row: NoticeRecord) {
+  return categoryMeta(row.category).tone;
+}
+
+function statusLabel(status: NoticeStatus) {
+  return statusMeta(status).label;
+}
+
+function statusTone(status: NoticeStatus) {
+  return statusMeta(status).tone;
+}
+
+function dispatchLabel(row: NoticeRecord) {
+  return dispatchMeta(row).label;
+}
+
+function dispatchTone(row: NoticeRecord) {
+  return dispatchMeta(row).tone;
+}
+
+function dispatchStatusOf(row: NoticeRecord): NoticeDispatchStatus {
+  return (row.dispatchStatus ?? 'NONE') as NoticeDispatchStatus;
+}
+
+function createdParts(row: NoticeRecord) {
+  return splitDateTime(row.createTime);
 }
 
 onMounted(load);
+
+// 菜单开启 keepAlive 时，切回本页静默对齐一次（未开启时 onActivated 不触发，无副作用）
+useKeepAliveRefresh(load);
 </script>
 
 <template>
-  <div class="notice-command p-5">
-    <section class="hero-panel">
-      <div>
-        <p class="eyebrow">MESSAGE CONTROL / 通知编排</p>
-        <h1>让每一条通知都有明确的受众、状态和去向</h1>
-        <p class="hero-copy">
-          纯文本发布、受众冻结、异步分发与撤回审计集中在同一工作面板。
-        </p>
-      </div>
-      <ElButton
-        v-access:code="'message:notice:add'"
-        type="primary"
-        size="large"
-        @click="openCreate"
-      >
-        新建通知草稿
-      </ElButton>
-    </section>
-
-    <section class="data-panel">
-      <div class="toolbar">
-        <div class="toolbar-filters">
-          <ElSelect
-            v-model="query.status"
-            clearable
-            placeholder="全部状态"
-            class="w-40"
-            @change="search"
+  <div class="hx-layout-container">
+    <div class="hx-layout-container-auto hx-layout-container-view nt-page">
+      <!-- 页头：紧凑、单行信息层级，不再占用半屏高度 -->
+      <header class="nt-hero">
+        <div class="nt-hero__main">
+          <span class="nt-hero__badge" aria-hidden="true">
+            <ElIcon :size="20"><Bell /></ElIcon>
+          </span>
+          <div class="nt-hero__copy">
+            <nav class="nt-hero__eyebrow" aria-label="面包屑">
+              消息中心 <span aria-hidden="true">/</span> 通知编排
+            </nav>
+            <h1 class="nt-hero__title">通知管理</h1>
+            <p class="nt-hero__desc">
+              纯文本发布 · 受众冻结 · 异步分发与撤回审计
+            </p>
+          </div>
+        </div>
+        <div class="nt-hero__side">
+          <p class="nt-hero__metric">
+            <strong class="nt-num">{{ totalLabel }}</strong>
+            <span>条通知</span>
+          </p>
+          <ElButton
+            v-access:code="'message:notice:add'"
+            type="primary"
+            :icon="Plus"
+            @click="openCreate"
           >
-            <ElOption label="草稿" value="DRAFT" />
-            <ElOption label="已发布" value="PUBLISHED" />
-            <ElOption label="已撤回" value="REVOKED" />
-          </ElSelect>
+            新建通知
+          </ElButton>
+        </div>
+      </header>
+
+      <!-- 吸顶筛选条：状态分段 + 关键词 + 刷新 -->
+      <div class="nt-toolbar">
+        <div class="nt-toolbar__left">
+          <ElSegmented
+            class="nt-seg"
+            :model-value="query.status"
+            :options="STATUS_FILTERS"
+            @change="changeStatus"
+          />
           <ElInput
             v-model="query.keyword"
+            class="nt-search"
             clearable
-            class="w-64"
             :prefix-icon="Search"
             placeholder="搜索标题、摘要或正文"
+            aria-label="搜索通知"
             @clear="search"
             @keyup.enter="search"
           />
-          <ElButton @click="search">查询</ElButton>
+          <ElButton :icon="Search" @click="search">查询</ElButton>
+          <ElButton v-if="hasFilters" link type="primary" @click="resetFilters">
+            清除筛选
+          </ElButton>
         </div>
-        <span class="record-count">{{ total }} 条通知</span>
+        <div class="nt-toolbar__right">
+          <ElTooltip content="刷新列表" placement="top">
+            <ElButton
+              circle
+              :icon="Refresh"
+              aria-label="刷新列表"
+              :disabled="loading"
+              @click="load"
+            />
+          </ElTooltip>
+        </div>
       </div>
+
+      <!-- 列表：行高恒定，标题可点开详情，操作收进「更多」 -->
       <ElTable
         v-loading="loading"
+        class="hx-data-table nt-table"
         :data="records"
-        class="message-table hx-data-table"
+        row-key="id"
+        :show-overflow-tooltip="false"
+        @row-dblclick="openDetail"
       >
         <template #empty>
-          <ElEmpty description="暂无通知" :image-size="80" />
-        </template>
-        <ElTableColumn label="通知" min-width="320">
-          <template #default="{ row }">
-            <div class="notice-title-row">
-              <button
-                type="button"
-                class="notice-title"
-                @click="openDetail(row as NoticeRecord)"
+          <div class="nt-empty">
+            <span class="nt-empty__badge" aria-hidden="true">
+              <ElIcon :size="24"><Bell /></ElIcon>
+            </span>
+            <p class="nt-empty__title">{{ emptyTitle }}</p>
+            <p class="nt-empty__desc">{{ emptyDescription }}</p>
+            <div class="nt-empty__actions">
+              <ElButton v-if="hasFilters" @click="resetFilters">
+                清除筛选
+              </ElButton>
+              <ElButton
+                v-access:code="'message:notice:add'"
+                type="primary"
+                :icon="Plus"
+                @click="openCreate"
               >
-                {{ row.title }}
-              </button>
-              <ElTag
-                v-if="row.senderType === 'SYSTEM'"
-                size="small"
-                type="info"
-                effect="plain"
-              >
-                系统生成
-              </ElTag>
-              <ElTag
-                v-if="row.priority === 'HIGH'"
-                size="small"
-                type="warning"
-                effect="plain"
-              >
-                重要
-              </ElTag>
+                新建通知
+              </ElButton>
             </div>
-            <div class="notice-summary">{{ row.summary || row.content }}</div>
+          </div>
+        </template>
+
+        <ElTableColumn label="通知" min-width="264">
+          <template #default="{ row }">
+            <div class="nt-cell-main">
+              <div class="nt-title-row">
+                <button
+                  type="button"
+                  class="nt-title"
+                  @click="openDetail(row as NoticeRecord)"
+                >
+                  {{ row.title }}
+                </button>
+                <span
+                  v-if="row.priority === 'HIGH'"
+                  class="nt-pill nt-pill--warning"
+                >
+                  重要
+                </span>
+                <span
+                  v-if="row.senderType === 'SYSTEM'"
+                  class="nt-pill nt-pill--info"
+                >
+                  系统生成
+                </span>
+              </div>
+              <p class="nt-summary" :title="row.summary || row.content">
+                {{ row.summary || row.content }}
+              </p>
+            </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="category" label="分类" width="120" />
-        <ElTableColumn label="目标端" width="140">
+
+        <ElTableColumn label="分类 / 目标端" width="128">
           <template #default="{ row }">
-            {{ targetText(row.targetTypes) }}
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="状态" width="100">
-          <template #default="{ row }">
-            <ElTag :type="statusInfo(row as NoticeRecord).tone">
-              {{ statusInfo(row as NoticeRecord).label }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="已读 / 送达" width="140">
-          <template #default="{ row }">
-            <div class="dispatch-cell">
-              <ElTag
-                :type="dispatchInfo(row as NoticeRecord).tone"
-                size="small"
-                effect="plain"
+            <div class="nt-cell-stack">
+              <span
+                class="nt-pill"
+                :class="`nt-pill--${categoryTone(row as NoticeRecord)}`"
               >
-                {{ dispatchInfo(row as NoticeRecord).label }}
-              </ElTag>
-              <span class="read-count">
-                {{ deliveryText(row as NoticeRecord) }}
+                {{ categoryLabel(row as NoticeRecord) }}
+              </span>
+              <span class="nt-cell-sub">
+                {{ targetTypesText(row.targetTypes) }}
               </span>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="createTime" label="创建时间" width="180" />
-        <ElTableColumn label="操作" width="260" fixed="right">
+
+        <ElTableColumn align="center" label="状态" width="88">
           <template #default="{ row }">
-            <ElButton
-              link
-              type="primary"
-              @click="openDetail(row as NoticeRecord)"
+            <span
+              class="nt-pill"
+              :class="`nt-pill--${statusTone(row.status as NoticeStatus)}`"
             >
-              查看
-            </ElButton>
-            <ElButton
-              v-if="row.status === 'DRAFT'"
-              v-access:code="'message:notice:edit'"
-              link
-              type="primary"
-              @click="openEdit(row as NoticeRecord)"
-            >
-              编辑
-            </ElButton>
-            <ElButton
-              v-if="row.status === 'DRAFT'"
-              v-access:code="'message:notice:publish'"
-              link
-              type="success"
-              @click="publish(row as NoticeRecord)"
-            >
-              发布
-            </ElButton>
-            <ElButton
-              v-if="row.status === 'DRAFT'"
-              v-access:code="'message:notice:delete'"
-              link
-              type="danger"
-              @click="removeDraft(row as NoticeRecord)"
-            >
-              删除
-            </ElButton>
-            <ElButton
-              v-if="row.status === 'PUBLISHED'"
-              v-access:code="'message:notice:revoke'"
-              link
-              type="warning"
-              @click="revoke(row as NoticeRecord)"
-            >
-              撤回
-            </ElButton>
-            <ElButton
-              v-if="row.status === 'REVOKED'"
-              v-access:code="'message:notice:publish'"
-              link
-              type="success"
-              @click="republish(row as NoticeRecord)"
-            >
-              重新发布
-            </ElButton>
-            <ElButton
-              v-if="canRetry(row as NoticeRecord)"
-              v-access:code="'message:notice:retry'"
-              link
-              type="danger"
-              @click="retry(row as NoticeRecord)"
-            >
-              重试
-            </ElButton>
+              <i
+                class="nt-dot"
+                :class="`nt-dot--${statusTone(row.status)}`"
+                aria-hidden="true"
+              ></i>
+              {{ statusLabel(row.status as NoticeStatus) }}
+            </span>
+          </template>
+        </ElTableColumn>
+
+        <ElTableColumn label="投递" width="186">
+          <template #default="{ row }">
+            <div class="nt-delivery">
+              <div class="nt-delivery__head">
+                <span
+                  class="nt-pill"
+                  :class="`nt-pill--${dispatchTone(row as NoticeRecord)}`"
+                >
+                  {{ dispatchLabel(row as NoticeRecord) }}
+                </span>
+                <span class="nt-num nt-delivery__count">
+                  {{ deliveryText(row as NoticeRecord) }}
+                </span>
+              </div>
+              <div
+                class="nt-progress"
+                role="progressbar"
+                aria-label="已读占比"
+                :aria-valuemax="100"
+                :aria-valuemin="0"
+                :aria-valuenow="deliveryPercent(row as NoticeRecord)"
+              >
+                <i
+                  class="nt-progress__bar"
+                  :class="{
+                    'is-failed':
+                      dispatchStatusOf(row as NoticeRecord) === 'FAILED',
+                  }"
+                  :style="{ width: `${deliveryPercent(row as NoticeRecord)}%` }"
+                ></i>
+              </div>
+            </div>
+          </template>
+        </ElTableColumn>
+
+        <ElTableColumn label="创建时间" width="122">
+          <template #default="{ row }">
+            <div class="nt-cell-stack nt-cell-stack--time">
+              <span class="nt-num">{{
+                createdParts(row as NoticeRecord).date
+              }}</span>
+              <span class="nt-cell-sub nt-num">{{
+                createdParts(row as NoticeRecord).time
+              }}</span>
+            </div>
+          </template>
+        </ElTableColumn>
+
+        <ElTableColumn align="right" label="操作" width="124">
+          <template #default="{ row }">
+            <div class="nt-actions">
+              <ElButton
+                class="nt-action"
+                link
+                type="primary"
+                :icon="View"
+                @click="openDetail(row as NoticeRecord)"
+              >
+                查看
+              </ElButton>
+              <ElDropdown
+                v-if="allowedCommands(row as NoticeRecord).length > 0"
+                trigger="click"
+                placement="bottom-end"
+                @command="
+                  (cmd: any) =>
+                    handleCommand(cmd as RowCommand, row as NoticeRecord)
+                "
+              >
+                <ElButton
+                  class="nt-action nt-action--more"
+                  link
+                  :icon="MoreFilled"
+                  aria-label="更多操作"
+                />
+                <template #dropdown>
+                  <ElDropdownMenu>
+                    <ElDropdownItem
+                      v-for="command in allowedCommands(row as NoticeRecord)"
+                      :key="command"
+                      :command="command"
+                      :divided="isDangerCommand(command)"
+                      :class="{ 'nt-danger': command === 'delete' }"
+                    >
+                      {{ ROW_COMMAND_LABELS[command] }}
+                    </ElDropdownItem>
+                  </ElDropdownMenu>
+                </template>
+              </ElDropdown>
+            </div>
           </template>
         </ElTableColumn>
       </ElTable>
-      <ElPagination
-        v-model:current-page="query.current"
-        v-model:page-size="query.size"
-        class="mt-5 justify-end"
-        layout="total, prev, pager, next"
+
+      <!-- 分页：由 hx-layout-container 的 flex 规则钉在卡片底部 -->
+      <Pagination
+        v-model:current="query.current"
+        v-model:size="query.size"
         :total="total"
-        @current-change="load"
+        @change="load"
       />
-    </section>
+    </div>
 
-    <ElDialog
-      v-model="dialogOpen"
-      :title="editingId ? '编辑通知草稿' : '新建通知草稿'"
-      width="680px"
-    >
-      <ElForm label-position="top">
-        <div class="grid grid-cols-2 gap-x-5">
-          <ElFormItem label="标题" class="col-span-2">
-            <ElInput v-model="form.title" maxlength="200" show-word-limit />
-          </ElFormItem>
-          <ElFormItem label="分类">
-            <ElInput v-model="form.category" />
-          </ElFormItem>
-          <ElFormItem label="优先级">
-            <ElSelect v-model="form.priority" class="w-full">
-              <ElOption label="普通" value="NORMAL" /><ElOption
-                label="重要"
-                value="HIGH"
-              />
-            </ElSelect>
-          </ElFormItem>
-          <ElFormItem label="目标端" class="col-span-2">
-            <ElCheckboxGroup
-              v-model="form.targetTypes"
-              @change="syncAudienceFields"
-            >
-              <ElCheckbox value="MALL_USER">会员</ElCheckbox
-              ><ElCheckbox value="SYS_USER"> 工作人员 </ElCheckbox>
-            </ElCheckboxGroup>
-          </ElFormItem>
-          <template v-if="form.targetTypes.includes('MALL_USER')">
-            <ElFormItem label="会员等级">
-              <ElSelect
-                v-model="form.memberLevelId"
-                clearable
-                class="w-full"
-                placeholder="全部会员"
-              >
-                <ElOption
-                  v-for="level in memberLevels"
-                  :key="level.id"
-                  :label="level.levelName"
-                  :value="level.id"
-                />
-              </ElSelect>
-            </ElFormItem>
-            <ElFormItem label="会员标签">
-              <ElSelect
-                v-model="form.memberTagId"
-                clearable
-                class="w-full"
-                placeholder="全部会员"
-              >
-                <ElOption
-                  v-for="tag in memberTags"
-                  :key="tag.id"
-                  :label="tag.tagName"
-                  :value="tag.id"
-                />
-              </ElSelect>
-            </ElFormItem>
-            <div
-              v-if="form.mallUserIds?.length"
-              class="audience-hint col-span-2"
-            >
-              已指定 {{ form.mallUserIds.length }}
-              名会员，优先于等级/标签条件。
-              <ElButton
-                link
-                type="primary"
-                size="small"
-                @click="form.mallUserIds = undefined"
-              >
-                清除指定范围
-              </ElButton>
-            </div>
-          </template>
-          <template v-if="form.targetTypes.includes('SYS_USER')">
-            <ElFormItem label="角色" class="col-span-2">
-              <ElSelect
-                v-model="form.roleIds"
-                multiple
-                filterable
-                collapse-tags
-                clearable
-                class="w-full"
-                placeholder="全部在职工作人员"
-              >
-                <ElOption
-                  v-for="role in roles"
-                  :key="role.id"
-                  :label="role.roleName"
-                  :value="role.id"
-                />
-              </ElSelect>
-            </ElFormItem>
-            <ElFormItem label="部门" class="col-span-2">
-              <ElTreeSelect
-                v-model="form.deptIds"
-                :data="depts"
-                multiple
-                show-checkbox
-                check-strictly
-                node-key="id"
-                :props="{ children: 'children', label: 'name' }"
-                class="w-full"
-                placeholder="全部在职工作人员"
-              />
-            </ElFormItem>
-            <div
-              v-if="form.staffUserIds?.length"
-              class="audience-hint col-span-2"
-            >
-              已指定 {{ form.staffUserIds.length }}
-              名工作人员，优先于角色/部门条件。
-              <ElButton
-                link
-                type="primary"
-                size="small"
-                @click="form.staffUserIds = undefined"
-              >
-                清除指定范围
-              </ElButton>
-            </div>
-          </template>
-          <div
-            v-if="
-              form.targetTypes.includes('MALL_USER') ||
-              form.targetTypes.includes('SYS_USER')
-            "
-            class="audience-hint col-span-2"
-          >
-            不选等级/标签/角色/部门时发给全部目标端；同时选择多个条件时取交集。
-          </div>
-          <ElFormItem label="摘要" class="col-span-2">
-            <ElInput v-model="form.summary" maxlength="500" />
-          </ElFormItem>
-          <ElFormItem label="纯文本正文" class="col-span-2">
-            <ElInput
-              v-model="form.content"
-              type="textarea"
-              :rows="8"
-              maxlength="10000"
-              show-word-limit
-            />
-          </ElFormItem>
-        </div>
-      </ElForm>
-      <template #footer>
-        <ElButton @click="dialogOpen = false">取消</ElButton
-        ><ElButton type="primary" @click="save">保存草稿</ElButton>
-      </template>
-    </ElDialog>
+    <NoticeEditor
+      v-model="editorOpen"
+      :record="editingRecord"
+      @saved="handleSaved"
+    />
 
-    <ElDrawer
-      v-model="drawerOpen"
-      size="720px"
-      :title="activeRecord?.title || '通知详情'"
-    >
-      <div v-if="activeRecord" class="notice-detail">
-        <ElTabs v-model="detailTab" @tab-change="handleDetailTab">
-          <ElTabPane label="概览" name="overview">
-            <div class="detail-tags">
-              <ElTag :type="statusInfo(activeRecord).tone">
-                {{ statusInfo(activeRecord).label }}
-              </ElTag>
-              <ElTag
-                v-if="activeRecord.senderType === 'SYSTEM'"
-                type="info"
-                effect="plain"
-              >
-                系统生成
-              </ElTag>
-              <ElTag
-                v-if="activeRecord.priority === 'HIGH'"
-                type="warning"
-                effect="plain"
-              >
-                重要
-              </ElTag>
-            </div>
-
-            <dl class="detail-grid">
-              <div>
-                <dt>分类</dt>
-                <dd>{{ activeRecord.category }}</dd>
-              </div>
-              <div>
-                <dt>目标端</dt>
-                <dd>{{ targetText(activeRecord.targetTypes) }}</dd>
-              </div>
-              <div>
-                <dt>发送人</dt>
-                <dd>{{ activeRecord.senderName || '系统' }}</dd>
-              </div>
-              <div>
-                <dt>创建时间</dt>
-                <dd>{{ activeRecord.createTime }}</dd>
-              </div>
-              <div>
-                <dt>发布时间</dt>
-                <dd>{{ activeRecord.publishTime || '—' }}</dd>
-              </div>
-              <div>
-                <dt>过期时间</dt>
-                <dd>{{ activeRecord.expireTime || '—' }}</dd>
-              </div>
-            </dl>
-
-            <section class="detail-section">
-              <h3>正文</h3>
-              <pre class="detail-content">{{ activeRecord.content }}</pre>
-            </section>
-
-            <section class="detail-section">
-              <h3>送达与阅读</h3>
-              <div class="detail-stats">
-                <span>
-                  <strong>{{ activeRecord.recipientCount ?? 0 }}</strong>
-                  送达
-                </span>
-                <span>
-                  <strong>{{ activeRecord.readCount ?? 0 }}</strong>
-                  已读
-                </span>
-                <span>
-                  <strong>{{ activeRecord.hiddenCount ?? 0 }}</strong>
-                  隐藏
-                </span>
-              </div>
-            </section>
-
-            <section v-if="activeTasks.length > 0" class="detail-section">
-              <h3>分发任务</h3>
-              <ElTable :data="activeTasks" size="small" class="dispatch-table">
-                <ElTableColumn label="目标端" width="90">
-                  <template #default="{ row }">
-                    {{ targetText(row.targetType) }}
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="受众" width="90">
-                  <template #default="{ row }">
-                    {{ audienceText(row.audienceType) }}
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="状态" width="90">
-                  <template #default="{ row }">
-                    <ElTag :type="taskStatusInfo(row.status).tone" size="small">
-                      {{ taskStatusInfo(row.status).label }}
-                    </ElTag>
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="成功 / 失败" width="100">
-                  <template #default="{ row }">
-                    {{ row.successCount ?? 0 }} / {{ row.failureCount ?? 0 }}
-                  </template>
-                </ElTableColumn>
-                <ElTableColumn label="重试" width="70">
-                  <template #default="{ row }">
-                    {{ row.retryCount ?? 0 }}
-                  </template>
-                </ElTableColumn>
-              </ElTable>
-              <p v-if="dispatchError" class="dispatch-error">
-                最近错误：{{ dispatchError }}
-              </p>
-            </section>
-
-            <section
-              v-if="activeRecord.status === 'DRAFT'"
-              class="detail-section"
-            >
-              <h3>草稿提示</h3>
-              <p class="detail-hint">
-                草稿不会进入任何收件箱；发布后正文不可修改，只能撤回。
-              </p>
-            </section>
-          </ElTabPane>
-          <ElTabPane
-            v-if="canViewRecipients"
-            label="收件人明细"
-            name="recipients"
-          >
-            <div class="recipient-toolbar">
-              <ElSelect
-                v-model="recipientQuery.readStatus"
-                clearable
-                placeholder="全部阅读状态"
-                class="w-36"
-                @change="searchRecipients"
-              >
-                <ElOption label="未读" value="0" />
-                <ElOption label="已读" value="1" />
-              </ElSelect>
-              <ElSelect
-                v-model="recipientQuery.recipientType"
-                clearable
-                placeholder="全部类型"
-                class="w-36"
-                @change="searchRecipients"
-              >
-                <ElOption label="会员" value="MALL_USER" />
-                <ElOption label="工作人员" value="SYS_USER" />
-              </ElSelect>
-              <ElInput
-                v-model="recipientQuery.keyword"
-                clearable
-                class="w-48"
-                placeholder="搜索姓名或ID"
-                @clear="searchRecipients"
-                @keyup.enter="searchRecipients"
-              />
-              <span class="recipient-count">{{ recipientTotal }} 人</span>
-            </div>
-            <ElTable
-              v-loading="recipientLoading"
-              :data="recipients"
-              size="small"
-              class="recipient-table hx-data-table"
-            >
-              <template #empty>
-                <ElEmpty description="暂无收件人" :image-size="80" />
-              </template>
-              <ElTableColumn label="收件人" min-width="160">
-                <template #default="{ row }">
-                  <div class="recipient-name">
-                    {{ row.recipientName || row.recipientId }}
-                  </div>
-                  <div class="recipient-id">{{ row.recipientId }}</div>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn label="类型" width="80">
-                <template #default="{ row }">
-                  {{ recipientTypeText(row.recipientType) }}
-                </template>
-              </ElTableColumn>
-              <ElTableColumn label="阅读" width="120">
-                <template #default="{ row }">
-                  <ElTag
-                    :type="row.readStatus === '1' ? 'success' : 'info'"
-                    size="small"
-                  >
-                    {{ row.readStatus === '1' ? '已读' : '未读' }}
-                  </ElTag>
-                  <div v-if="row.readTime" class="recipient-id">
-                    {{ row.readTime }}
-                  </div>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn prop="receivedTime" label="接收时间" width="160" />
-              <ElTableColumn label="收件箱" width="80">
-                <template #default="{ row }">
-                  {{ row.inboxStatus === 'HIDDEN' ? '隐藏' : '显示' }}
-                </template>
-              </ElTableColumn>
-            </ElTable>
-            <ElPagination
-              v-model:current-page="recipientQuery.current"
-              v-model:page-size="recipientQuery.size"
-              class="mt-4 justify-end"
-              layout="total, prev, pager, next"
-              :total="recipientTotal"
-              @current-change="loadRecipients"
-            />
-          </ElTabPane>
-        </ElTabs>
-      </div>
-
-      <template #footer>
-        <div class="drawer-footer">
-          <ElButton @click="drawerOpen = false">关闭</ElButton>
-          <ElButton
-            v-if="activeRecord?.status === 'DRAFT'"
-            v-access:code="'message:notice:edit'"
-            @click="activeRecord && openEdit(activeRecord)"
-          >
-            编辑
-          </ElButton>
-          <ElButton
-            v-if="activeRecord?.status === 'DRAFT'"
-            v-access:code="'message:notice:publish'"
-            type="success"
-            @click="activeRecord && publish(activeRecord)"
-          >
-            发布
-          </ElButton>
-          <ElButton
-            v-if="activeRecord?.status === 'DRAFT'"
-            v-access:code="'message:notice:delete'"
-            type="danger"
-            plain
-            @click="activeRecord && removeDraft(activeRecord)"
-          >
-            删除
-          </ElButton>
-          <ElButton
-            v-if="activeRecord?.status === 'PUBLISHED'"
-            v-access:code="'message:notice:revoke'"
-            type="warning"
-            plain
-            @click="activeRecord && revoke(activeRecord)"
-          >
-            撤回
-          </ElButton>
-          <ElButton
-            v-if="activeRecord?.status === 'REVOKED'"
-            v-access:code="'message:notice:publish'"
-            type="success"
-            @click="activeRecord && republish(activeRecord)"
-          >
-            重新发布
-          </ElButton>
-          <ElButton
-            v-if="activeRecord && canRetry(activeRecord)"
-            v-access:code="'message:notice:retry'"
-            type="danger"
-            plain
-            @click="activeRecord && retry(activeRecord)"
-          >
-            重试失败任务
-          </ElButton>
-        </div>
-      </template>
-    </ElDrawer>
+    <NoticeDetail
+      v-model="detailOpen"
+      :record="activeRecord"
+      @edit="editFromDetail"
+      @refresh="handleDetailRefresh"
+    />
   </div>
 </template>
 
 <style scoped>
-.notice-command {
-  --ink: var(--el-text-color-primary);
-  --signal: var(--el-color-primary);
+.nt-page {
+  --nt-line: var(--el-border-color-lighter);
 
-  /* 品牌视觉：通知编排 hero 的深色渐变与 hero 内文字集中在这里 */
-  --hero-bg: linear-gradient(125deg, #102a43 0%, #173f5f 62%, #0f766e 100%);
-  --hero-text: #fff;
-  --hero-text-soft: rgb(255 255 255 / 68%);
-  --hero-accent: #5eead4;
-  --hero-shadow: 0 18px 55px rgb(16 42 67 / 20%);
-
-  /* 与 hx-layout-container 同机制：绝对定位铺满内容区，滚动收进内容区，避免 document 全屏滚动条 */
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  background:
-    radial-gradient(
-      circle at 88% 4%,
-      var(--el-color-primary-light-9),
-      transparent 26%
-    ),
-    var(--el-bg-color-page);
+  gap: 10px;
 }
 
-.hero-panel {
+/* ---------- 页头 ---------- */
+.nt-hero {
   display: flex;
-  gap: 32px;
-  align-items: end;
-  justify-content: space-between;
-  padding: 34px;
-  color: var(--hero-text);
-  background: var(--hero-bg);
-  border-radius: 18px;
-  box-shadow: var(--hero-shadow);
-}
-
-.hero-panel h1 {
-  max-width: 720px;
-  margin: 7px 0 10px;
-  font-family: 'Noto Serif SC', serif;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.eyebrow {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--hero-accent);
-  letter-spacing: 0.18em;
-}
-
-.hero-copy {
-  color: var(--hero-text-soft);
-}
-
-.data-panel {
-  padding: 22px;
-  margin-top: 18px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 16px;
-}
-
-.toolbar {
-  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  padding: 14px 16px;
+  background:
+    radial-gradient(
+      120% 220% at 0% 0%,
+      var(--el-color-primary-light-9),
+      transparent 58%
+    ),
+    var(--el-bg-color);
+  border: 1px solid var(--nt-line);
+  border-radius: 12px;
 }
 
-.toolbar-filters {
+.nt-hero__main {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.nt-hero__badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-8);
+  border-radius: 11px;
+}
+
+.nt-hero__copy {
+  min-width: 0;
+}
+
+.nt-hero__eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nt-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.nt-hero__title {
+  margin: 2px 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  color: var(--el-text-color-primary);
+}
+
+.nt-hero__desc {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--nt-text-muted);
+}
+
+.nt-hero__side {
+  display: flex;
+  flex: none;
+  gap: 16px;
+  align-items: center;
+}
+
+.nt-hero__metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.nt-hero__metric strong {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.nt-hero__metric span {
+  font-size: 11px;
+  color: var(--nt-text-muted);
+}
+
+/* ---------- 筛选条 ---------- */
+.nt-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--nt-line);
+  border-radius: 12px;
+
+  @supports (backdrop-filter: blur(1px)) {
+    background: color-mix(in srgb, var(--el-bg-color) 72%, transparent);
+    box-shadow: var(--el-box-shadow-lighter);
+    backdrop-filter: blur(10px) saturate(1.4);
+  }
+}
+
+.nt-toolbar__left,
+.nt-toolbar__right {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
-.record-count {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+.nt-search {
+  width: 260px;
 }
 
-.notice-title-row {
+/* 分段控件与查询控件统一圆角语言 */
+
+/* 分段控件：class 挂在组件根上，直接选中即可（点选块用卡片色浮起） */
+.nt-seg.el-segmented {
+  --el-segmented-bg-color: var(--el-fill-color-light);
+  --el-segmented-item-selected-bg-color: var(--el-bg-color);
+  --el-segmented-item-selected-color: var(--el-color-primary);
+  --el-segmented-color: var(--el-text-color-regular);
+
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.nt-seg :deep(.el-segmented__item-selected) {
+  border-radius: 8px;
+  box-shadow: var(--el-box-shadow-lighter);
+}
+
+.nt-toolbar :deep(.el-input__wrapper) {
+  border-radius: 9px;
+}
+
+/* ---------- 表格 ---------- */
+.nt-table {
+  flex: 1 1 0;
+  min-height: 240px;
+  border-radius: 10px;
+}
+
+.nt-table :deep(.el-table__cell) {
+  vertical-align: middle;
+}
+
+.nt-table :deep(.el-table__row) {
+  height: 62px;
+}
+
+.nt-table :deep(.el-table__cell .cell) {
+  padding: 0 10px;
+  line-height: 1.45;
+}
+
+.nt-cell-main {
+  min-width: 0;
+}
+
+.nt-title-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  min-width: 0;
 }
 
-.notice-title {
-  padding: 0;
+.nt-title {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font: inherit;
-  font-weight: 700;
-  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   background: none;
   border: 0;
+  border-radius: 4px;
 }
 
-.notice-title:hover {
-  color: var(--signal);
-  text-decoration: underline;
+.nt-title:hover {
+  color: var(--el-color-primary);
 }
 
-.notice-summary {
-  max-width: 520px;
-  margin-top: 5px;
+.nt-title:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.nt-summary {
+  margin: 2px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  line-height: 18px;
+  color: var(--nt-text-muted);
   white-space: nowrap;
 }
 
-.dispatch-cell {
+.nt-cell-stack {
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: flex-start;
 }
 
-.read-count {
+.nt-cell-stack--time {
+  gap: 2px;
+}
+
+.nt-cell-sub {
   font-size: 12px;
-  color: var(--el-text-color-regular);
+  color: var(--nt-text-muted);
+  white-space: nowrap;
 }
 
-.notice-detail {
-  color: var(--ink);
-}
-
-.detail-tags {
+/* ---------- 投递 ---------- */
+.nt-delivery {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nt-delivery__head {
+  display: flex;
   gap: 8px;
-  margin-bottom: 18px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
 }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 18px;
-  margin: 0;
+.nt-delivery__head .nt-pill {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.detail-grid dt {
+.nt-delivery__count {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.detail-grid dd {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.detail-section {
-  padding-top: 16px;
-  margin-top: 18px;
-  border-top: 1px solid var(--el-border-color-lighter);
-}
-
-.detail-section h3 {
-  margin: 0 0 10px;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.detail-content {
-  padding: 12px 14px;
-  margin: 0;
-  overflow: auto;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.7;
   color: var(--el-text-color-regular);
-  white-space: pre-wrap;
-  background: var(--el-fill-color-lighter);
-  border-radius: 10px;
+  white-space: nowrap;
 }
 
-.detail-stats {
+/* ---------- 操作 ---------- */
+.nt-actions {
   display: flex;
-  gap: 28px;
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.nt-action {
+  height: 28px;
+  padding: 0 6px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
 }
 
-.detail-stats strong {
-  margin-right: 4px;
-  font-size: 20px;
-  color: var(--ink);
+.nt-action--more {
+  min-width: 28px;
 }
 
-.dispatch-error {
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-color-danger);
-  overflow-wrap: anywhere;
+/* ---------- 空态 ---------- */
+.nt-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 28px 16px;
 }
 
-.detail-hint {
+.nt-empty__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  color: var(--nt-text-muted);
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--nt-line);
+  border-radius: 14px;
+}
+
+.nt-empty__title {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.nt-empty__desc {
+  max-width: 420px;
   margin: 0;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--el-text-color-secondary);
+  color: var(--nt-text-muted);
+  text-align: center;
 }
 
-.audience-hint {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-placeholder);
-}
-
-.recipient-toolbar {
+.nt-empty__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
+  justify-content: center;
+  margin-top: 8px;
 }
 
-.recipient-count {
-  font-size: 12px;
-  color: var(--el-text-color-placeholder);
-}
+/* stylelint-disable-next-line order/order -- 媒体查询必须排在基础规则之后 */
+@media (width <= 900px) {
+  .nt-search {
+    width: 100%;
+    min-width: 180px;
+  }
 
-.recipient-name {
-  font-weight: 600;
-  color: var(--ink);
-}
+  .nt-toolbar__left {
+    flex: 1 1 100%;
+  }
 
-.recipient-id {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--el-text-color-placeholder);
-  overflow-wrap: anywhere;
-}
-
-.drawer-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
+  .nt-hero__side {
+    justify-content: space-between;
+    width: 100%;
+  }
 }
 </style>

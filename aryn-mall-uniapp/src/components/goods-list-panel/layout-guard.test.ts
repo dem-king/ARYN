@@ -11,7 +11,9 @@ import { describe, expect, it } from 'vitest'
  * 零头会让 flex-wrap 判定「放不下」，整屏退化成每行一张、右侧半屏空白——
  * 类型检查和单元测试都拦不住，只能在真机上肉眼发现。
  *
- * 因此两列必须走 grid 轨道均分（先扣 gap 再分轨道），卡片不再自带 50% 宽度。
+ * 现在改成交替瀑布流：两列容器 flex:1 均分（固定两条列），卡片宽度 100%、
+ * 不再自带 50% 宽度，从根上避开半宽容差问题；列数（手机 2 / 宽屏 3）由
+ * useResponsiveColumns 控制，分列由 splitIntoColumns 完成。
  */
 const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
 
@@ -28,16 +30,27 @@ function styleBlock(file: string) {
 describe('商品流两列布局', () => {
   const panel = 'src/components/goods-list-panel/index.vue'
 
-  it('两列容器用 grid 轨道均分，而非 flex-wrap + 半宽容差为零的写法', () => {
+  it('两列容器用交替分列，而非 flex-wrap + 半宽容差为零的写法', () => {
+    const code = source(panel)
     const style = styleBlock(panel)
     const grid = style.slice(style.indexOf('.goods-list--grid'))
     const rule = grid.slice(0, grid.indexOf('}'))
 
-    expect(rule).toContain('display: grid')
-    expect(rule).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+    expect(rule).toContain('display: flex')
+    expect(rule).toContain('align-items: flex-start')
+    expect(rule).not.toContain('flex-wrap')
+
+    const column = style.slice(style.indexOf('.goods-column'))
+    const columnRule = column.slice(0, column.indexOf('}'))
+    expect(columnRule).toContain('flex: 1')
+    expect(columnRule).toContain('min-width: 0')
+
+    // 手机 2 列 / 宽屏 3 列，按索引交替入列
+    expect(code).toContain('useResponsiveColumns(600, 2, 3)')
+    expect(code).toContain('splitIntoColumns')
   })
 
-  it('栅格卡片不再自带 50% 宽度（宽度由 grid 轨道决定）', () => {
+  it('栅格卡片不再自带 50% 宽度（宽度由列容器决定）', () => {
     const style = styleBlock(panel)
     const grid = style.slice(style.indexOf('.goods-card--grid'))
     const rule = grid.slice(0, grid.indexOf('}'))

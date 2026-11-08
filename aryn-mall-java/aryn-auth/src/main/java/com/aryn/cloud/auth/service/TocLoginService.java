@@ -55,6 +55,45 @@ public class TocLoginService {
 
 	private final TenantAccessGuard tenantAccessGuard;
 
+	/**
+	 * 支付宝小程序授权码登录。
+	 *
+	 * <p>与微信登录完全隔离：身份由支付宝 OAuth 按 social_account 显式配置的
+	 * user_id/open_id 模式获取，再映射到当前租户的商城用户；不复用微信 openid。
+	 */
+	public SaTokenInfo aliMiniLogin(UserLoginReqDTO userLoginReqDTO) {
+		assertAliMiniPlatform(userLoginReqDTO);
+		if (!StringUtils.hasText(userLoginReqDTO.getAuthCode())) {
+			throw new ArynBusinessException(403, "缺少支付宝授权码");
+		}
+		String verifiedTenantId = loginTenantGuard.requireVerifiedTenant(
+				userLoginReqDTO.getAppId(), userLoginReqDTO.getRequestTenantId(),
+				OpenPlatformTypeEnum.ALI_MINI.getCode());
+		String previousTenantId = ArynTenantContextHolder.getTenantId();
+		ArynTenantContextHolder.setTenantId(verifiedTenantId);
+		try {
+			tenantAccessGuard.assertAvailable(verifiedTenantId);
+			SocialUser socialUser = remoteSocialUserService.aliMiniLogin(userLoginReqDTO);
+			assertSocialUserTenant(socialUser, verifiedTenantId);
+			String userId = socialUser.getMallUserId();
+			if (!StringUtils.hasText(userId)) {
+				UserInfo userInfo = remoteMallUserService.getUserByOpenId(socialUser.getOpenId(),
+						OpenPlatformTypeEnum.ALI_MINI.getCode());
+				if (Objects.isNull(userInfo)) {
+					throw new IllegalArgumentException("login failed");
+				}
+				assertMemberEnabled(userInfo.getStatus());
+				assertUserTenant(userInfo.getTenantId(), verifiedTenantId, "商城用户");
+				userId = userInfo.getId();
+				bindOpenUser(socialUser, userInfo.getId(), userLoginReqDTO, verifiedTenantId);
+			}
+			return loginAlipayMallUser(userId, socialUser.getOpenId(), verifiedTenantId);
+		}
+		finally {
+			ArynTenantContextHolder.setTenantId(previousTenantId);
+		}
+	}
+
 	public SaTokenInfo maPhoneLogin(UserLoginReqDTO userLoginReqDTO) {
 		// /ma/phone/login 固定微信小程序语义：平台缺失/错误直接拒绝
 		assertWxMaPlatform(userLoginReqDTO);
@@ -98,6 +137,7 @@ public class TocLoginService {
 	}
 
 	public SaTokenInfo smsLogin(UserLoginReqDTO userLoginReqDTO) {
+		assertNotAliMini(userLoginReqDTO);
 		boolean wxMa = OpenPlatformTypeEnum.WX_MA.getCode().equals(userLoginReqDTO.getPlatformType());
 		assertPlatformMatchesAppId(userLoginReqDTO);
 		// WX_MA 先权威校验绑定再查用户；H5/APP 保留既有租户登录分支
@@ -143,6 +183,7 @@ public class TocLoginService {
 	}
 
 	public SaTokenInfo passwordLogin(UserLoginReqDTO userLoginReqDTO) {
+		assertNotAliMini(userLoginReqDTO);
 		boolean wxMa = OpenPlatformTypeEnum.WX_MA.getCode().equals(userLoginReqDTO.getPlatformType());
 		assertPlatformMatchesAppId(userLoginReqDTO);
 		String verifiedTenantId = wxMa
@@ -220,26 +261,42 @@ public class TocLoginService {
 	}
 
 	public void logout(UserLoginReqDTO userLoginReqDTO) {
-		// 小程序解绑商城用户
-		if (OpenPlatformTypeEnum.WX_MA.getCode().equals(userLoginReqDTO.getPlatformType())) {
+		// 小程序解绑商城用户（微信/支付宝各自按本平台 AppID 与身份解绑）
+		if (OpenPlatformTypeEnum.WX_MA.getCode().equals(userLoginReqDTO.getPlatformType())
+				|| OpenPlatformTypeEnum.ALI_MINI.getCode().equals(userLoginReqDTO.getPlatformType())) {
 			unbindOpenUser(SecurityUtils.getOpenId(), SecurityUtils.getUserId(), userLoginReqDTO);
 		}
 		StpUtil.logout();
 	}
 
 	private Object loginMallUser(String userId, String openid, String tenantId) {
+		return loginMallUser(userId, openid, tenantId, openid, false);
+	}
+
+	private SaTokenInfo loginAlipayMallUser(String userId, String buyerIdentity, String tenantId) {
+		return loginMallUser(userId, buyerIdentity, tenantId, buyerIdentity, true);
+	}
+
+	/**
+	 * username 保留渠道身份兼容既有读取方；openId 用于后续支付买家字段与解绑。
+	 * 支付宝身份只能写入支付宝会话，不得与微信 openid 混用。
+	 */
+	private SaTokenInfo loginMallUser(String userId, String openid, String tenantId, String username,
+			boolean assertTenant) {
 		UserInfoVO userInfo = remoteMallUserService.getUserById(userId);
 		if (Objects.isNull(userInfo)) {
 			throw new IllegalArgumentException("login failed");
 		}
 		assertMemberEnabled(userInfo.getStatus());
+		if (assertTenant) {
+			assertUserTenant(userInfo.getTenantId(), tenantId, "商城用户");
+		}
 		tenantAccessGuard.assertAvailable(tenantId);
 		ArynUser hxUser = new ArynUser();
 		hxUser.setUserId(userId);
 		hxUser.setOpenId(openid);
 		hxUser.setTenantId(tenantId);
-		// username 保留 openid 兼容既有读取方；昵称/头像单独写入，供消息域等展示使用
-		hxUser.setUsername(openid);
+		hxUser.setUsername(username);
 		hxUser.setNickname(userInfo.getNickname());
 		hxUser.setAvatar(userInfo.getAvatarUrl());
 
@@ -256,6 +313,19 @@ public class TocLoginService {
 	private void assertWxMaPlatform(UserLoginReqDTO userLoginReqDTO) {
 		if (!OpenPlatformTypeEnum.WX_MA.getCode().equals(userLoginReqDTO.getPlatformType())) {
 			throw new ArynBusinessException(403, "该登录入口仅支持微信小程序");
+		}
+	}
+
+	private void assertAliMiniPlatform(UserLoginReqDTO userLoginReqDTO) {
+		if (!OpenPlatformTypeEnum.ALI_MINI.getCode().equals(userLoginReqDTO.getPlatformType())) {
+			throw new ArynBusinessException(403, "该登录入口仅支持支付宝小程序");
+		}
+	}
+
+	/** 支付宝小程序当前只开放授权码登录，短信/密码入口不得绕过 AppID 绑定。 */
+	private void assertNotAliMini(UserLoginReqDTO userLoginReqDTO) {
+		if (OpenPlatformTypeEnum.ALI_MINI.getCode().equals(userLoginReqDTO.getPlatformType())) {
+			throw new ArynBusinessException(403, "支付宝小程序仅支持授权码登录");
 		}
 	}
 

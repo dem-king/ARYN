@@ -68,13 +68,15 @@ describe('category page structure', () => {
   it('浮层顶边从导航栏下沿开始，不遮挡搜索框', () => {
     const pageSource = source(page)
     const sheet = source('src/components/category-all-sheet/index.vue')
-    // 页面把导航栏真实占位高度透传给面板，避免按平台手算高度而漂移
+    // 页面把导航栏真实渲染高度透传给面板，避免按平台手算高度而漂移
     expect(pageSource).toContain('sheetTopOffset')
     expect(pageSource).toContain(':top-offset="sheetTopOffset"')
+    // 必须读 visualHeight：占位高度不含微信胶囊偏移，按它贴边会漏出一根遮罩缝
+    expect(pageSource).toContain('visualHeight')
     expect(sheet).toContain('topOffset')
     // 导航栏组件需暴露该高度，作为唯一事实来源
     const navbar = source('src/components/hr-search-navbar/index.vue')
-    expect(navbar).toContain('defineExpose({ placeholderHeight })')
+    expect(navbar).toContain('defineExpose({ placeholderHeight, visualHeight })')
   })
 
   it('浮层高度自适应内容，上限底边不贴屏幕底（86.5% 屏高封顶）', () => {
@@ -83,9 +85,46 @@ describe('category page structure', () => {
     // 分类少时面板随宫格收窄（不得写死 bottom 撑满到固定高度）；
     // 分类多时由内联 max-height 上限截断为内部滚动，防止退化成铺满全屏
     expect(sheet).toContain('maxHeight')
-    expect(sheet).toMatch(/calc\(86\.5% - \$\{props\.topOffset\}px\)/)
+    // 根节点从导航栏下沿开始，百分比会再扣掉导航栏高度，必须按视口高度算
+    expect(sheet).toMatch(/calc\(86\.5vh - \$\{props\.topOffset\}px\)/)
     expect(styleBlock).not.toMatch(/bottom:\s*13\.5%/)
     expect(styleBlock).toContain('border-bottom-left-radius')
+  })
+
+  it('浮层与搜索导航栏同为一整块玻璃：同组磨砂数值、展开时导航栏强制玻璃并去分隔线', () => {
+    const pageSource = source(page)
+    // 强制顶栏玻璃：页面停在顶部时顶栏本来是实心白，不强制会与玻璃面板分家
+    expect(pageSource).toContain(':force-frosted="sheetVisible"')
+    expect(pageSource).toContain(':bordered="!sheetVisible"')
+    expect(pageSource).toMatch(/<category-all-sheet[\s\S]*?\bfrosted\b/)
+
+    const sheet = source('src/components/category-all-sheet/index.vue')
+    const css = sheet.slice(sheet.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '')
+    const start = css.indexOf('.all-sheet--frosted {')
+    expect(start, '缺少 .all-sheet--frosted 规则').toBeGreaterThan(-1)
+    const rule = css.slice(start, css.indexOf('}', start))
+    // 与 hr-search-navbar 的磨砂目标态逐值一致（白 86% + blur 18px + saturate 160%）
+    expect(rule).toContain('background: rgba(255, 255, 255, 0.86)')
+    expect(rule).toContain('blur(18px) saturate(160%)')
+
+    const navbar = source('src/components/hr-search-navbar/index.vue')
+    expect(navbar).toContain('rgba(255, 255, 255, 0.86)')
+    expect(navbar).toContain('blur(18px) saturate(160%)')
+  })
+
+  it('压暗遮罩只作用在面板下方，不垫在玻璃背后把它染灰', () => {
+    const sheet = source('src/components/category-all-sheet/index.vue')
+    const css = sheet.slice(sheet.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '')
+    const start = css.indexOf('.all-sheet-mask {')
+    expect(start, '缺少 .all-sheet-mask 规则').toBeGreaterThan(-1)
+    const rule = css.slice(start, css.indexOf('}', start))
+    // 遮罩是根节点 flex 列的第二项（order: 2），排在面板之后
+    expect(rule).toContain('order: 2')
+    // 顶部 28rpx 渐变段藏在面板底角后面，填住圆角缺口且不留硬边
+    expect(rule).toContain('margin-top: -28rpx')
+    expect(rule).toContain('linear-gradient')
+    // 不得再是全屏绝对定位（旧版做法会让玻璃透出遮罩的暗色）
+    expect(rule).not.toContain('top: 0')
   })
 
   it('未配图的类目渲染首字色块兜底，不渲染空白圆', () => {
@@ -146,15 +185,14 @@ describe('category page structure', () => {
     expect(panel).toContain('goods-desc')
   })
 
-  it('分类页支持双列/单列切换，并记住上次选择', () => {
+  it('分类页商品流固定单列（图左信息右），不再提供双列切换', () => {
     const pageSource = source(page)
-    // 布局状态由页面持有（需要跨分类保留并持久化），面板只负责渲染与切换事件
-    expect(pageSource).toContain('v-model:grid="gridLayout"')
-    expect(pageSource).toContain('show-layout-toggle')
-    expect(pageSource).toContain('Local.get(\'category-goods-grid\')')
+    // 布局由页面显式锁定为单列：分类页右栏较窄，单列才能完整承载卖点与营销标签
+    expect(pageSource).toContain(':grid="false"')
+    expect(pageSource).not.toContain('show-layout-toggle')
+    expect(pageSource).not.toContain('category-goods-grid')
 
     const panel = source('src/components/goods-list-panel/index.vue')
-    expect(panel).toMatch(/emit\('update:grid'/)
     // 单列复用卡片现有的 row 布局（图左信息右），不另写一套模板
     expect(panel).toContain('goods-card--row')
   })

@@ -4,7 +4,9 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.upms.api.entity.SysMaterial;
 import com.aryn.cloud.upms.api.remote.RemoteMaterialService;
+import com.aryn.cloud.upms.api.vo.RemoteImageSizeVO;
 import com.aryn.cloud.upms.service.ISysMaterialService;
+import com.aryn.cloud.upms.support.ImageSizeResolver;
 import com.aryn.cloud.upms.support.PrivateFileUrlSigner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,8 @@ public class RemoteMaterialServiceImpl implements RemoteMaterialService {
 
 	private final PrivateFileUrlSigner privateFileUrlSigner;
 
+	private final ImageSizeResolver imageSizeResolver;
+
 	@Override
 	public Map<String, String> mapUrlByIds(List<String> materialIds) {
 		if (CollUtil.isEmpty(materialIds)) {
@@ -57,6 +61,11 @@ public class RemoteMaterialServiceImpl implements RemoteMaterialService {
 				return url;
 			}
 		}).toList();
+	}
+
+	@Override
+	public Map<String, RemoteImageSizeVO> resolveImageSizes(List<String> urls) {
+		return imageSizeResolver.resolve(urls);
 	}
 
 }

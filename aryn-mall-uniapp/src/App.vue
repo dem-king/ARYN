@@ -214,11 +214,37 @@ uni-tabbar .uni-tabbar-border {
   display: none !important;
 }
 
+/**
+ * 底部渐进模糊蒙层：胶囊是悬浮的，两侧与下方会透出滚动内容，用渐隐蒙层兜住。
+ * 高度 68px（贴底 16 + 高 52）在胶囊上沿收干净；层级 890 在胶囊(998)之下、
+ * 页面弹层(900+)之上。掩码同时作用于背景与 backdrop-filter，模糊由下往上渐弱。
+ */
+uni-tabbar::before {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 68px;
+  z-index: 890;
+  pointer-events: none;
+  background-color: rgba(255, 255, 255, 0.42);
+  /* 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的写法） */
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  -WEBKIT-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
 /* 深色模式：与 theme.json 的 dark.tabBgColor 同族，不把夜间底栏刷成白玻璃 */
 @media (prefers-color-scheme: dark) {
   uni-tabbar .uni-tabbar {
     background-color: rgba(26, 26, 26, 0.86) !important;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
+  }
+
+  uni-tabbar::before {
+    background-color: rgba(18, 18, 18, 0.5);
   }
 }
 /* #endif */

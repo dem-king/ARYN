@@ -47,6 +47,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -366,6 +367,61 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			vo.setSubTitle(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getSubTitle() : null);
 		}
 		return vo;
+	}
+
+	@Override
+	public List<SeckillGoods> getActiveSeckillGoodsBySpuIds(Collection<String> spuIds) {
+		if (CollectionUtils.isEmpty(spuIds)) {
+			return List.of();
+		}
+		List<String> sessionIds = activeSessionIds();
+		if (sessionIds.isEmpty()) {
+			return List.of();
+		}
+		return seckillGoodsService.list(Wrappers.<SeckillGoods>lambdaQuery()
+				.in(SeckillGoods::getSessionId, sessionIds)
+				.in(SeckillGoods::getSpuId, spuIds));
+	}
+
+	@Override
+	public List<SeckillGoods> getActiveSeckillGoodsBySkuIds(Collection<String> skuIds) {
+		if (CollectionUtils.isEmpty(skuIds)) {
+			return List.of();
+		}
+		List<String> sessionIds = activeSessionIds();
+		if (sessionIds.isEmpty()) {
+			return List.of();
+		}
+		return seckillGoodsService.list(Wrappers.<SeckillGoods>lambdaQuery()
+				.in(SeckillGoods::getSessionId, sessionIds)
+				.in(SeckillGoods::getSkuId, skuIds));
+	}
+
+	/**
+	 * 当前「进行中」场次 ID 集合（活动未暂停未结束 + 场次已开始未结束）。
+	 *
+	 * <p>与 {@link #getActiveSessions(String)} 同口径按时间判定，不依赖定时任务
+	 * 落库的场次 status——任务停摆时卡面角标/价格快照与会场表现一致不空窗。
+	 */
+	private List<String> activeSessionIds() {
+		LocalDateTime now = LocalDateTime.now();
+		List<SeckillActivity> activities = this.list(Wrappers.<SeckillActivity>lambdaQuery()
+				.select(SeckillActivity::getId)
+				.ne(SeckillActivity::getStatus, 3)
+				.gt(SeckillActivity::getEndTime, now));
+		if (CollectionUtils.isEmpty(activities)) {
+			return List.of();
+		}
+		List<String> activityIds = activities.stream().map(SeckillActivity::getId).collect(Collectors.toList());
+		List<SeckillSession> sessions = seckillSessionService.list(Wrappers.<SeckillSession>lambdaQuery()
+				.select(SeckillSession::getId)
+				.in(SeckillSession::getActivityId, activityIds)
+				.le(SeckillSession::getStartTime, now)
+				.gt(SeckillSession::getEndTime, now));
+		if (CollectionUtils.isEmpty(sessions)) {
+			return List.of();
+		}
+		return sessions.stream().map(SeckillSession::getId).collect(Collectors.toList());
 	}
 
 	// ==================== 私有方法 ====================

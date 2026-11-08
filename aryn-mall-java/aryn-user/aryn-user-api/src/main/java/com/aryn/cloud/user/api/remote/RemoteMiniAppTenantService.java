@@ -1,5 +1,6 @@
 package com.aryn.cloud.user.api.remote;
 
+import com.aryn.cloud.user.api.dto.MiniAppBuyerIdentityVerifyDTO;
 import com.aryn.cloud.user.api.dto.MiniAppTenantBindingDTO;
 
 /**
@@ -21,5 +22,22 @@ public interface RemoteMiniAppTenantService {
 	 * @throws com.aryn.cloud.common.security.handler.ArynBusinessException 配置不存在、重复或与期望租户不一致（403）
 	 */
 	MiniAppTenantBindingDTO requireBinding(String appId, String expectedTenantId);
+
+	/**
+	 * 校验 AppID 与期望租户、平台类型的权威绑定关系。
+	 * @param appId 小程序 AppID（来自请求头 app-id）
+	 * @param expectedTenantId 期望租户（来自原始请求头 tenant-id，不取 ThreadLocal）
+	 * @param platformType WX_MA / ALI_MINI
+	 * @return 绑定信息（含身份模式，不含任何机密字段）
+	 */
+	MiniAppTenantBindingDTO requireBinding(String appId, String expectedTenantId, String platformType);
+
+	/**
+	 * 校验支付宝小程序买家身份确属当前租户/应用/身份模式的商城用户。
+	 *
+	 * @param request 买家身份与商城用户映射
+	 * @return true 仅当 social_user 与 user_info 均命中同一租户
+	 */
+	boolean verifyBuyerIdentity(MiniAppBuyerIdentityVerifyDTO request);
 
 }

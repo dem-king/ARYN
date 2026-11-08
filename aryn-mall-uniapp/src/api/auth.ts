@@ -52,11 +52,26 @@ export interface UserInfoResponse {
 export interface MPLoginParams {
   jsCode: string
 }
+
+export interface AliMiniLoginParams {
+  authCode: string
+}
 /**
  * 微信小程序登录（静默登录获取openid）
  */
 export function wxLogin(data: MPLoginParams) {
   return alovaInstance.Post('/auth/toc-token/ma/login', data, {
+    headers: {
+      skipToken: true,
+    },
+  })
+}
+
+/**
+ * 支付宝小程序登录（my.getAuthCode 授权码）
+ */
+export function aliMiniLogin(data: AliMiniLoginParams) {
+  return alovaInstance.Post('/auth/toc-token/ma/alipay/login', data, {
     headers: {
       skipToken: true,
     },

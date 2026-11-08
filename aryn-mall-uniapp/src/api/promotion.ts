@@ -239,6 +239,8 @@ export interface AppNewbieGoodsVO {
   spuId: string
   skuId: string
   goodsName: string
+  /** 商品子标题（与商品名相同或为空时不展示） */
+  subTitle?: string
   goodsImage: string
   /** 新人专享价 */
   newbiePrice: number
@@ -255,6 +257,8 @@ export interface AppNewbieFloorVO {
   /** 每人每 SKU 限购件数（固定 1） */
   limitPerUser: number
   endTime: string
+  /** 是否长期有效（true 时不展示结束倒计时） */
+  longTerm?: boolean
   goodsList: AppNewbieGoodsVO[]
 }
 
@@ -263,12 +267,15 @@ export interface AppNewbieFloorVO {
  * GET /promotion/app/newbie/current
  *
  * 免登可访问：楼层对所有人展示新人价做营销吸引，资格在下单链路硬校验。
+ *
+ * @param limit 返回商品条数；不传走首页楼层默认上限（20），独立专享页传 200 取全量
  */
-export function getCurrentNewbieFloor() {
+export function getCurrentNewbieFloor(limit?: number) {
   return alovaInstance.Get<AppNewbieFloorVO | null>(
     '/promotion/app/newbie/current',
     {
       headers: { skipToken: true },
+      ...(limit ? { params: { limit } } : {}),
     },
   )
 }

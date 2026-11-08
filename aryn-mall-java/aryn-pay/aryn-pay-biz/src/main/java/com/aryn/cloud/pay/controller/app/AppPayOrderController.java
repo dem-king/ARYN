@@ -42,6 +42,7 @@ public class AppPayOrderController {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("outTradeNo", order.getOutTradeNo());
 		result.put("payStatus", order.getPayStatus());
+		result.put("tradeStatus", order.getTradeStatus());
 		result.put("amount", order.getAmount());
 		result.put("extra", order.getExtra());
 		return Result.success(result);

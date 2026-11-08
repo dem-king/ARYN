@@ -4,6 +4,7 @@
   "name": "",
   "tenantId": "",
   "wxAppId": "",
+  "aliAppId": "",
   "defaultProfile": "production",
   "defaultDeployment": "boot",
   "profiles": {

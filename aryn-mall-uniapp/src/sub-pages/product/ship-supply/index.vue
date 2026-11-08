@@ -30,6 +30,7 @@ import { alovaInstance } from '@/api/core/instance'
 import { addSharedCartItem, getSharedCart, getSharedCartItems, SHARED_CART_NAME_REQUIRED } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import PriceText from '@/components/price-text/index.vue'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
@@ -443,12 +444,14 @@ onShow(() => {
           </view>
           <view class="row__price-line">
             <view class="row__price">
-              <text class="row__price-symbol">
-                ￥
-              </text>
-              <text class="row__price-value">
-                {{ salesPriceText(row) }}
-              </text>
+              <price-text
+                v-if="salesPriceText(row) !== '-'"
+                class="row__price-value"
+                :value="row.salesPrice"
+                format="trim"
+                symbol="￥"
+              />
+              <text v-else class="row__price-value">-</text>
               <text
                 v-if="shouldShowOriginalPrice(row.salesPrice, row.originalPrice)"
                 class="row__price-original"
@@ -779,10 +782,6 @@ onShow(() => {
     min-width: 0;
     color: var(--wot-color-theme-primary, #ff2237);
     font-weight: 600;
-  }
-
-  &__price-symbol {
-    font-size: 22rpx;
   }
 
   &__price-value {

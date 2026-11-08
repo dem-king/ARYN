@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { getById, reorderPreview } from '@/api/order/orderInfo'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
+import PriceText from '@/components/price-text/index.vue'
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
@@ -410,13 +411,10 @@ onPageScroll(handlePageScroll)
               </view>
             </view>
             <view class="od-item__price-wrap">
-              <wd-text
-                :text="item.paymentPrice"
-                size="15px"
-                :color="PRICE_COLOR"
-                mode="price"
-                prefix="￥"
-                custom-class="od-item__price"
+              <price-text
+                class="od-item__price"
+                :value="item.paymentPrice"
+                symbol="￥"
               />
               <text class="od-item__qty">
                 x{{ item.buyQuantity }}
@@ -947,6 +945,13 @@ $hairline: var(--app-border);
   flex-direction: column;
   align-items: flex-end;
   flex-shrink: 0;
+}
+
+/* 商品单价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
+.od-item__price {
+  color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+  font-size: 15px;
+  line-height: 1;
 }
 
 .od-item__price {

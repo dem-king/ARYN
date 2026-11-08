@@ -2,7 +2,11 @@
 package com.aryn.cloud.pay.api.remote;
 
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
+import com.aryn.cloud.pay.api.dto.PayCloseResult;
 import com.aryn.cloud.pay.api.dto.PaySettlementResult;
+import com.aryn.cloud.pay.api.vo.PayCapabilityVO;
+
+import java.util.List;
 
 /**
  * @author 雨滴kian
@@ -27,5 +31,27 @@ public interface RemotePayService {
 	 *         返回 {@code paid=false}，调用方按既有状态展示即可
 	 */
 	PaySettlementResult queryAndSettlePayOrder(String outTradeNo);
+
+	/**
+	 * 取消业务订单前的支付门禁：先查单/关单，再决定能否释放库存与优惠。
+	 *
+	 * <p>只有渠道明确未支付且已关闭，或确认从未发起支付，才返回可取消；
+	 * 网络失败、响应不明、暂未查到时返回 UNKNOWN，调用方不得释放资源。
+	 *
+	 * @param outTradeNo 商户订单号
+	 * @return 关单核对结果
+	 */
+	PayCloseResult closeAndCheckPayOrder(String outTradeNo);
+
+	/**
+	 * 查询当前租户指定终端真正可用的支付场景。
+	 *
+	 * <p>只返回已实现、已启用且本地材料合格的渠道；不得返回商户密钥、
+	 * 证书路径或“已签约”一类无法由本地证明的结论。
+	 *
+	 * @param terminalType 支付端类型；为空时返回全部终端
+	 * @return 支付能力清单
+	 */
+	List<PayCapabilityVO> queryPayCapabilities(String terminalType);
 
 }

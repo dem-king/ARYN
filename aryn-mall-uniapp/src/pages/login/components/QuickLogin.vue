@@ -107,9 +107,15 @@ function onGetPhoneNumberError(event: any) {
       @click="handleWxLogin"
     >
       <text class="login-submit__label">
+        <!-- #ifdef MP-ALIPAY -->
+        {{ t('login.alipayLogin') }}
+        <!-- #endif -->
+        <!-- #ifndef MP-ALIPAY -->
         {{ t('login.wechatLogin') }}
+        <!-- #endif -->
       </text>
     </button>
+    <!-- #ifndef MP-ALIPAY -->
     <button
       class="login-submit login-submit--ghost login-submit--stacked"
       :class="{ 'is-loading': loading }"
@@ -125,6 +131,7 @@ function onGetPhoneNumberError(event: any) {
         {{ t('login.phoneQuickLogin') }}
       </text>
     </button>
+    <!-- #endif -->
   </view>
 </template>
 

@@ -34,6 +34,13 @@ const goodsList = computed<RetailNewbieGoodsItem[]>(
   () => (floor.value?.goodsList ?? []) as RetailNewbieGoodsItem[],
 );
 
+/** 活动商品多于楼层展示数时，C 端会出现「查看全部」入口 */
+const hasMoreGoods = computed(
+  () =>
+    (floor.value?.totalGoods ?? goodsList.value.length) >
+    (Number(props.showData.count) || 0),
+);
+
 const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -56,7 +63,8 @@ onBeforeUnmount(() => {
  */
 const countdown = computed<null | { prefix: string; text: string }>(() => {
   const endTime = floor.value?.endTime;
-  if (!props.showData.showCountdown || !endTime) return null;
+  if (!props.showData.showCountdown || !endTime || floor.value?.longTerm)
+    return null;
   const target = Date.parse(endTime);
   if (Number.isNaN(target)) return { prefix: '活动', text: '已结束' };
   const totalSeconds = Math.max(0, Math.floor((target - now.value) / 1000));
@@ -219,10 +227,13 @@ watch([shouldAutoAdvance, intervalMs, () => goodsList.value.length], () => {
           <span class="nf-cd-time">{{ countdown.text }}</span>
         </span>
       </div>
-      <div v-if="floor" class="nf-perks">
-        注册{{ floor.registerWithinDays }}天内新人 · 每人每款限{{
-          floor.limitPerUser
-        }}件
+      <div v-if="floor" class="nf-meta-row">
+        <div class="nf-perks">
+          注册{{ floor.registerWithinDays }}天内新人 · 每人每款限{{
+            floor.limitPerUser
+          }}件
+        </div>
+        <div v-if="hasMoreGoods" class="nf-more">查看全部 ›</div>
       </div>
       <div
         ref="scrollEl"
@@ -383,11 +394,31 @@ watch([shouldAutoAdvance, intervalMs, () => goodsList.value.length], () => {
   color: var(--wot-color-theme-primary, #ff2237);
 }
 
-.nf-perks {
+/* 规则行 + 「查看全部」：与小程序 1rpx = 0.5px 同口径 */
+.nf-meta-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
   margin-top: 3px;
+}
+
+.nf-perks {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 10px;
   line-height: 1.4;
   color: #8f959e;
+  white-space: nowrap;
+}
+
+.nf-more {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .nf-scroll {

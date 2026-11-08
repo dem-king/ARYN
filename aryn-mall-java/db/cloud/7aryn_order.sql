@@ -235,6 +235,79 @@ CREATE TABLE `shopping_cart`  (
 -- ----------------------------
 
 -- ----------------------------
+-- Table structure for replenish_direct_import
+-- ----------------------------
+DROP TABLE IF EXISTS `replenish_direct_import`;
+CREATE TABLE `replenish_direct_import`  (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `file_name` varchar(255) NULL DEFAULT NULL COMMENT '上传文件名',
+  `file_size` bigint NULL DEFAULT NULL COMMENT '文件字节数',
+  `file_sha256` char(64) NULL DEFAULT NULL COMMENT '文件内容摘要',
+  `total_rows` int NOT NULL DEFAULT 0 COMMENT '解析出的数据行数（不含表头）',
+  `matched_rows` int NOT NULL DEFAULT 0 COMMENT '匹配成功行数',
+  `unmatched_rows` int NOT NULL DEFAULT 0 COMMENT '未匹配行数',
+  `spec_changed_rows` int NOT NULL DEFAULT 0 COMMENT '规格变更行数',
+  `over_stock_rows` int NOT NULL DEFAULT 0 COMMENT '超库存行数',
+  `invalid_rows` int NOT NULL DEFAULT 0 COMMENT '数量/格式异常行数',
+  `off_shelf_rows` int NOT NULL DEFAULT 0 COMMENT '已下架商品行数',
+  `not_filled_rows` int NOT NULL DEFAULT 0 COMMENT '未填数量行数（客户本次不采购，非错误）',
+  `confirmed_rows` int NOT NULL DEFAULT 0 COMMENT '确认后复核通过的明细项数（同 SKU 合并后）',
+  `skipped_rows` int NOT NULL DEFAULT 0 COMMENT '确认时跳过或未处置的行数',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待确认 2已确认 3已取消',
+  `operator_user_id` varchar(32) NOT NULL COMMENT '上传操作人（确认/取回校验归属）',
+  `confirmed_time` datetime NULL DEFAULT NULL COMMENT '确认时间',
+  `remark` varchar(500) NULL DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_replenish_direct_import_operator` (`tenant_id`, `operator_user_id`, `status`),
+  KEY `idx_replenish_direct_import_status` (`tenant_id`, `status`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '清单直下单导入任务' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for replenish_direct_import_row
+-- ----------------------------
+DROP TABLE IF EXISTS `replenish_direct_import_row`;
+CREATE TABLE `replenish_direct_import_row`  (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `import_id` varchar(32) NOT NULL COMMENT '导入任务ID',
+  `row_no` int NOT NULL DEFAULT 0 COMMENT '行号（从1开始，不含表头）',
+  `raw_code` varchar(64) NULL DEFAULT NULL COMMENT 'Excel 商品编码原文',
+  `raw_name` varchar(255) NULL DEFAULT NULL COMMENT 'Excel 品名原文',
+  `raw_spec` varchar(128) NULL DEFAULT NULL COMMENT 'Excel 规格原文',
+  `raw_quantity` int NULL DEFAULT NULL COMMENT 'Excel 数量原文',
+  `raw_remark` varchar(255) NULL DEFAULT NULL COMMENT 'Excel 备注原文',
+  `match_type` varchar(16) NULL DEFAULT NULL COMMENT '匹配方式：CODE编码 / NAME品名 / AMBIGUOUS多规格待选 / NONE未命中',
+  `matched_sku_id` varchar(32) NULL DEFAULT NULL COMMENT '匹配到的SKU ID',
+  `matched_spu_id` varchar(32) NULL DEFAULT NULL COMMENT '匹配到的SPU ID',
+  `matched_name` varchar(255) NULL DEFAULT NULL COMMENT '匹配到的商品名',
+  `matched_spec` varchar(255) NULL DEFAULT NULL COMMENT '匹配到的规格描述',
+  `matched_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '匹配时的售价快照（仅展示）',
+  `matched_stock` int NULL DEFAULT NULL COMMENT '匹配时的库存快照（仅展示）',
+  `planned_quantity` int NULL DEFAULT NULL COMMENT '本次采购数量（确认复核后与 resolved_quantity 同值）',
+  `suggested_quantity` int NULL DEFAULT NULL COMMENT '服务端建议数量（超库存调减/数量异常就近取整）',
+  `result_type` varchar(24) NOT NULL DEFAULT 'UNMATCHED' COMMENT '结果：OK/UNMATCHED/SPEC_CHANGED/OVER_STOCK/INVALID_QTY/OFF_SHELF/NOT_FILLED',
+  `result_message` varchar(500) NULL DEFAULT NULL COMMENT '结果说明（给用户看）',
+  `resolved_action` varchar(24) NULL DEFAULT NULL COMMENT '用户处置：ACCEPT_SPEC/ADJUST_QTY/REPLACE_SKU/SKIP',
+  `resolved_sku_id` varchar(32) NULL DEFAULT NULL COMMENT '人工补选后的SKU ID',
+  `resolved_quantity` int NULL DEFAULT NULL COMMENT '调整后的数量',
+  `resolved_time` datetime NULL DEFAULT NULL COMMENT '处置时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_replenish_direct_import_row` (`tenant_id`, `import_id`, `row_no`),
+  KEY `idx_replenish_direct_import_row_result` (`tenant_id`, `import_id`, `result_type`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '清单直下单导入解析行' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for undo_log
 -- ----------------------------
 DROP TABLE IF EXISTS `undo_log`;

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * 全站自动动效总开关的接线契约：
- * 开关（mallThemeStore.autoMotionEnabled）必须被 6 处自动动效消费，
+ * 开关（mallThemeStore.autoMotionEnabled）必须被 7 处自动动效消费，
  * 且「关闭时不启动」的判定要真的落在自动播放/定时器上，而不是只存在字段。
  */
 const diyRoot = resolve(process.cwd(), 'src/components/diy')
@@ -60,5 +60,20 @@ describe('全站自动动效总开关接线', () => {
   it('新人专享：关闭开关后不启动自动前进', () => {
     const source = read('diy-newbie-floor/index.vue')
     expect(source).toMatch(/shouldAutoAdvance[\s\S]{0,200}mallThemeStore\.autoMotionEnabled/)
+  })
+
+  it('商详口碑气泡（第 7 处消费）：弹出与文案轮换受开关约束，关闭时首帧静态显示', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/sub-pages/product/goods-detail/components/GoodsInfo.vue'),
+      'utf8',
+    )
+    expect(source, '口碑气泡应引入 store').toContain('useMallThemeStore')
+    expect(source, '口碑气泡应消费开关').toContain('autoMotionEnabled')
+    // 关闭时不弹出不轮换（静态显示首帧）
+    expect(source).toMatch(/if \(!mallThemeStore\.autoMotionEnabled\)\s*\{\s*bubbleVisible\.value = true/)
+    expect(source).toMatch(/if \(!mallThemeStore\.autoMotionEnabled\)\s+return/)
+    // 开关异步到达后 watch 自愈启停
+    expect(source).toContain('watch(')
+    expect(source).toContain('startRotation()')
   })
 })

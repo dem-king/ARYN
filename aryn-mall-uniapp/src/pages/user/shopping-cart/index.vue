@@ -14,6 +14,7 @@ import { getClearanceSkuPrices } from '@/api/product/spu'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 // 推荐商品流（「为你推荐」）由本页滚动广播驱动自动续页，见 WaterfallGoods
@@ -1260,11 +1261,7 @@ onPageScroll(handlePageScroll)
                 <!-- 主价走 cartUnitPrice（会员价 > 新人价 > 限时折扣 > 售价），与合计同源；
                      划线价优先取原价，无原价时会员价/新人价场景退回划售价，折扣场景划活动基准价 -->
                 <view class="goods-price-main">
-                  <wd-text
-                    :text="cartUnitPrice(goods)"
-                    size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
-                    prefix="￥"
-                  />
+                  <price-text class="goods-price-value" :value="cartUnitPrice(goods)" symbol="￥" />
                   <!--
                     角标必须与 cartUnitPrice 同源（同一份「出清 vs 会员取低」判定）：
                     出清价胜出 → 捡漏价；会员价胜出 → 会员价；再次才是新人价/折扣角标。
@@ -1687,6 +1684,13 @@ onPageScroll(handlePageScroll)
         display: flex;
         align-items: center;
         min-width: 0;
+
+        /* 主价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
+        .goods-price-value {
+          color: var(--wot-color-theme-primary, #ff2e4d);
+          font-size: 30rpx;
+          line-height: 1;
+        }
       }
     }
 

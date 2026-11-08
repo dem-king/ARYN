@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -29,6 +30,37 @@ import java.util.Set;
 public class ActivityPublishGovernanceService {
 
 	private final PromotionActivityMapper promotionActivityMapper;
+
+	/**
+	 * 长期有效活动的结束时间哨兵。
+	 *
+	 * <p>活动生效、发布冲突、列表展示态都沿用既有的 endTime 区间比较，
+	 * 因此「长期有效」不落独立的空结束时间，而是统一写入远期时间；
+	 * C 端是否展示倒计时由 rules.longTerm 决定，不依赖该时间值。
+	 */
+	public static final LocalDateTime LONG_TERM_END_TIME = LocalDateTime.of(2099, 12, 31, 23, 59, 59);
+
+	/**
+	 * 新人价活动勾选「长期有效」时把结束时间规范到远期。
+	 *
+	 * <p>保存/修改/发布都调用，避免依赖管理端传值：只要规则标记为长期有效，
+	 * 库内的结束时间就必须是远期哨兵，否则会出现「C 端不显示倒计时、
+	 * 活动却很快到期」的不一致。
+	 */
+	public void normalizeLongTerm(PromotionActivity activity) {
+		if (!PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())
+				|| !StringUtils.hasText(activity.getRules())) {
+			return;
+		}
+		try {
+			if (JSONUtil.parseObj(activity.getRules()).getBool("longTerm", false)) {
+				activity.setEndTime(LONG_TERM_END_TIME);
+			}
+		}
+		catch (Exception ex) {
+			// 规则结构由 validateRules 统一拦截并给出明确提示，这里不重复抛错
+		}
+	}
 
 	/**
 	 * 发布前规则结构校验：

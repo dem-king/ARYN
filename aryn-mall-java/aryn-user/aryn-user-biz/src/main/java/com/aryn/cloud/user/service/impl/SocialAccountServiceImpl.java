@@ -13,6 +13,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.desensitization.KeyDesensitization;
+import com.aryn.cloud.common.core.enums.MiniAppIdentityModeEnum;
+import com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.SocialAccount;
@@ -71,11 +73,12 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 				&& !socialAccount.getTenantId().equals(ArynTenantContextHolder.getTenantId())) {
 			throw new ArynBusinessException("不允许跨租户维护三方账号");
 		}
+		validateAndNormalize(socialAccount, null);
 		assertNoDuplicateAppId(socialAccount.getAppId(), null);
 		boolean saved = this.save(socialAccount);
 		if (saved) {
 			SocialAccount reloaded = baseMapper.selectById(socialAccount.getId());
-			if (reloaded != null) {
+			if (reloaded != null && OpenPlatformTypeEnum.WX_MA.getCode().equals(reloaded.getType())) {
 				configCache.updateConfig(reloaded);
 			}
 		}
@@ -94,31 +97,74 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 			throw new ArynBusinessException("不允许跨租户维护三方账号");
 		}
 		String oldAppId = target.getAppId();
-		String newAppId = socialAccount.getAppId() != null ? socialAccount.getAppId() : oldAppId;
-		assertNoDuplicateAppId(newAppId, target.getId());
 		if (target.getAppSecret() != null
 				&& keyDesensitization.serialize(target.getAppSecret()).equals(socialAccount.getAppSecret())) {
 			socialAccount.setAppSecret(null);
 		}
+		validateAndNormalize(socialAccount, target);
+		String newAppId = socialAccount.getAppId() != null ? socialAccount.getAppId() : oldAppId;
+		assertNoDuplicateAppId(newAppId, target.getId());
 		boolean updated = this.updateById(socialAccount);
 		if (updated) {
 			SocialAccount reloaded = baseMapper.selectById(socialAccount.getId());
 			if (reloaded != null) {
-				if (socialAccount.getAppId() != null && !socialAccount.getAppId().equals(oldAppId)) {
+				if (!OpenPlatformTypeEnum.WX_MA.getCode().equals(reloaded.getType())
+						|| (socialAccount.getAppId() != null && !socialAccount.getAppId().equals(oldAppId))) {
 					configCache.removeByAppId(oldAppId);
 				}
-				configCache.updateConfig(reloaded);
+				if (OpenPlatformTypeEnum.WX_MA.getCode().equals(reloaded.getType())) {
+					configCache.updateConfig(reloaded);
+				}
 			}
 		}
 		return updated;
+	}
+
+	/**
+	 * 三方账号只保存 AppID 与身份模式：WX_MA 使用 appSecret；ALI_MINI 的私钥/证书
+	 * 必须留在支付材料中，app_secret 列仅存空串，避免在账号配置里出现第二份凭证。
+	 */
+	private void validateAndNormalize(SocialAccount account, SocialAccount existing) {
+		String type = StringUtils.hasText(account.getType()) ? account.getType().trim()
+				: (existing == null ? null : existing.getType());
+		if (!OpenPlatformTypeEnum.WX_MA.getCode().equals(type)
+				&& !OpenPlatformTypeEnum.ALI_MINI.getCode().equals(type)) {
+			throw new ArynBusinessException("不支持的三方账号类型");
+		}
+		account.setType(type);
+		if (!StringUtils.hasText(account.getAppId())) {
+			throw new ArynBusinessException("三方账号 AppID 不能为空");
+		}
+		account.setAppId(account.getAppId().trim());
+		if (OpenPlatformTypeEnum.WX_MA.getCode().equals(type)) {
+			String effectiveSecret = StringUtils.hasText(account.getAppSecret()) ? account.getAppSecret()
+					: (existing == null ? null : existing.getAppSecret());
+			if (!StringUtils.hasText(effectiveSecret)) {
+				throw new ArynBusinessException("微信小程序密钥不能为空");
+			}
+			if (StringUtils.hasText(account.getAppSecret())) {
+				account.setAppSecret(account.getAppSecret().trim());
+			}
+			account.setIdentityMode("");
+			return;
+		}
+		MiniAppIdentityModeEnum mode = MiniAppIdentityModeEnum.fromCode(account.getIdentityMode());
+		if (mode == null && existing != null) {
+			mode = MiniAppIdentityModeEnum.fromCode(existing.getIdentityMode());
+		}
+		if (mode == null) {
+			throw new ArynBusinessException("支付宝小程序必须配置身份模式 user_id 或 open_id");
+		}
+		account.setIdentityMode(mode.getCode());
+		account.setAppSecret("");
 	}
 
 	private void assertNoDuplicateAppId(String appId, String excludeId) {
 		if (!StringUtils.hasText(appId)) {
 			return;
 		}
-		if (baseMapper.countValidWxMaByAppIdExcluding(appId, excludeId) > 0) {
-			throw new ArynBusinessException("该微信 AppID 已被其它三方账号配置使用");
+		if (baseMapper.countValidByAppIdExcluding(appId, excludeId) > 0) {
+			throw new ArynBusinessException("该 AppID 已被其它三方账号配置使用");
 		}
 	}
 

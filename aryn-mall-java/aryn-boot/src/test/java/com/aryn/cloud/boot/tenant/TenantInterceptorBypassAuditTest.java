@@ -34,6 +34,20 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageConversationMapper.java#selectInactiveConversations",
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageDispatchTaskMapper.java#selectRecoveryTasks",
 			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByAppId",
+			// 支付配置/身份版本/材料：SQL 均显式带 tenant_id，公开方法入参由服务层 fail-closed
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByTenantAndId",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByTenantRoute",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMaterialMapper.java#selectByTenantAndIds",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigRevisionMapper.java#selectByIdentityHash",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigRevisionMapper.java#selectByTenantAndId",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigRevisionMapper.java#selectByTenantAndIds",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigRevisionMapper.java#selectMaxRevisionNo",
+			// 支付事件 outbox 中继：任务跨租户扫描，逐事件用 id 认领/标记，不返回混合租户业务数据
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayEventOutboxMapper.java#claim",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayEventOutboxMapper.java#markRetry",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayEventOutboxMapper.java#markSent",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayEventOutboxMapper.java#resetStaleSending",
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayEventOutboxMapper.java#selectDue",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMenuMapper.java#selectTenantMenuTree",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#countUserByQuery",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
@@ -46,8 +60,8 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsRankMapper.java#selectHotTop10",
 			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsRankMapper.java#selectOnSaleByIds",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId",
-			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectValidWxMaByAppId",
-			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidWxMaByAppIdExcluding",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectValidByAppIdAndType",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidByAppIdExcluding",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByIdInAnyTenant",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByAppIdAndOpenIdInAnyTenant",
 			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/mapper/DailyUserOrderStatMapper.java#deleteDay",
@@ -71,11 +85,12 @@ class TenantInterceptorBypassAuditTest {
 				annotationCount += (int) INTERCEPTOR_IGNORE_ANNOTATION.matcher(source).results().count();
 				Matcher matcher = METHOD_DECLARATION.matcher(source);
 				while (matcher.find()) {
-					int boundary = Math.max(source.lastIndexOf(';', matcher.start()),
-							Math.max(source.lastIndexOf('}', matcher.start()),
-									source.lastIndexOf('{', matcher.start())));
+					// 只认上一个接口方法的分号：@Select 文本块里的 #{} 不能当作成员边界，
+					// 否则注解会被误判为属于上一条 SQL 而不是下一条方法声明。
+					int boundary = source.lastIndexOf(';', matcher.start());
 					String memberPrefix = source.substring(boundary + 1, matcher.start());
-					if (TENANT_LINE_BYPASS.matcher(memberPrefix).find()) {
+					if (TENANT_LINE_BYPASS.matcher(memberPrefix).find()
+							&& looksLikeMethodDeclaration(source, matcher)) {
 						actual.add(projectRoot.relativize(path).toString().replace('\\', '/') + "#"
 								+ matcher.group(1));
 					}
@@ -84,6 +99,46 @@ class TenantInterceptorBypassAuditTest {
 		}
 		assertThat(actual).as("所有 @InterceptorIgnore 都必须被审计解析").hasSize(annotationCount);
 		assertThat(actual).containsExactlyInAnyOrderElementsOf(ALLOWED_BYPASSES);
+	}
+
+	/**
+	 * 注解文本块里的 SQL 函数（如 COALESCE(...)）也会命中“名字 + 左括号”，
+	 * 必须确认配对右括号之后紧跟 ;/{/throws，才视为方法声明。
+	 */
+	private static boolean looksLikeMethodDeclaration(String source, Matcher matcher) {
+		int depth = 0;
+		char quote = 0;
+		for (int index = matcher.end() - 1; index < source.length(); index++) {
+			char current = source.charAt(index);
+			if (quote != 0) {
+				if (current == quote && source.charAt(index - 1) != '\\') {
+					quote = 0;
+				}
+				continue;
+			}
+			if (current == '"' || current == '\'') {
+				quote = current;
+				continue;
+			}
+			if (current == '(') {
+				depth++;
+			}
+			else if (current == ')') {
+				depth--;
+				if (depth == 0) {
+					int next = index + 1;
+					while (next < source.length() && Character.isWhitespace(source.charAt(next))) {
+						next++;
+					}
+					if (next >= source.length()) {
+						return false;
+					}
+					char marker = source.charAt(next);
+					return marker == ';' || marker == '{' || source.startsWith("throws", next);
+				}
+			}
+		}
+		return false;
 	}
 
 	private static boolean isMainJavaSource(Path path) {

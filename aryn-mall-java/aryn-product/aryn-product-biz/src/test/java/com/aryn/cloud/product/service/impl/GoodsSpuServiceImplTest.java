@@ -15,6 +15,7 @@ import com.aryn.cloud.product.api.entity.GoodsFootprint;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
+import com.aryn.cloud.product.service.IGoodsSocialBubbleService;
 import com.aryn.cloud.product.mapper.GoodsCategoryMapper;
 import com.aryn.cloud.product.mapper.GoodsCollectMapper;
 import com.aryn.cloud.product.mapper.GoodsFootprintMapper;
@@ -69,7 +70,8 @@ class GoodsSpuServiceImplTest {
 		footprintMapper = mock(GoodsFootprintMapper.class);
 		priceHistoryService = mock(GoodsPriceHistoryService.class);
 		service = new TestGoodsSpuService(skuMapper, mock(GoodsCollectMapper.class), footprintMapper,
-				mock(GoodsCategoryMapper.class), spuMapper, priceHistoryService);
+				mock(GoodsCategoryMapper.class), spuMapper, priceHistoryService,
+				mock(IGoodsSocialBubbleService.class));
 	}
 
 	@Test
@@ -489,6 +491,16 @@ class GoodsSpuServiceImplTest {
 	}
 
 	@Test
+	void getApiSpuByIdReturnsNullInsteadOfNpeWhenGoodsMissing() {
+		// 商品不存在/已下架：返回 null 让 C 端走「商品已下架」退回，而不是脱敏处 NPE 500
+		when(spuMapper.selectApiSpuById("missing")).thenReturn(null);
+
+		assertThat(service.getApiSpuById("missing")).isNull();
+		verify(footprintMapper, never()).insert(any(GoodsFootprint.class));
+		verify(footprintMapper, never()).updateById(any(GoodsFootprint.class));
+	}
+
+	@Test
 	void apiListByIdsReturnsOnlyPublishedGoodsAndMasksCostPrice() {
 		GoodsSpu published = product("spu-1", List.of());
 		published.setSalesPrice(BigDecimal.valueOf(20));
@@ -648,8 +660,10 @@ class GoodsSpuServiceImplTest {
 
 		private TestGoodsSpuService(GoodsSkuMapper goodsSkuMapper, GoodsCollectMapper goodsCollectMapper,
 				GoodsFootprintMapper goodsFootprintMapper, GoodsCategoryMapper goodsCategoryMapper,
-				GoodsSpuMapper goodsSpuMapper, GoodsPriceHistoryService priceHistoryService) {
-			super(goodsSkuMapper, goodsCollectMapper, goodsFootprintMapper, goodsCategoryMapper, priceHistoryService);
+				GoodsSpuMapper goodsSpuMapper, GoodsPriceHistoryService priceHistoryService,
+				IGoodsSocialBubbleService goodsSocialBubbleService) {
+			super(goodsSkuMapper, goodsCollectMapper, goodsFootprintMapper, goodsCategoryMapper, priceHistoryService,
+					goodsSocialBubbleService);
 			this.baseMapper = goodsSpuMapper;
 		}
 

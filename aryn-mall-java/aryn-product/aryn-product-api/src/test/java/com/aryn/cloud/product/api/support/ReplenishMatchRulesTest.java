@@ -33,10 +33,26 @@ class ReplenishMatchRulesTest {
 	}
 
 	@Test
-	@DisplayName("规格互相包含视为等价，真实差异才算变更")
+	@DisplayName("规格等价：只忽略格式与包装描述，数字/单位/包装数量差异必须报变更")
 	void specEquivalentRealDifference() {
+		// 允许的归一化：全角/大小写/空白/乘号不同，或补了包装描述
 		assertTrue(ReplenishMatchRules.specEquivalent("550ml*24", "550ml*24/箱"));
+		assertTrue(ReplenishMatchRules.specEquivalent("500ML", "500ml"));
+		assertTrue(ReplenishMatchRules.specEquivalent("500ml×2", "500ml*2"));
+		assertTrue(ReplenishMatchRules.specEquivalent("5kg", "5千克"));
+		assertTrue(ReplenishMatchRules.specEquivalent("500ml", "500ml/瓶"));
+		assertTrue(ReplenishMatchRules.specEquivalent("大瓶", "大瓶装"));
+		assertTrue(ReplenishMatchRules.specEquivalent("500ml 家庭装", "500ml"));
+
+		// 真实差异：子串包含不能作为等价依据（500ml 不是 1500ml 的子串误判例外）
 		assertFalse(ReplenishMatchRules.specEquivalent("500ml", "550ml"));
+		assertFalse(ReplenishMatchRules.specEquivalent("500ml", "1500ml"));
+		assertFalse(ReplenishMatchRules.specEquivalent("1kg", "11kg"));
+		assertFalse(ReplenishMatchRules.specEquivalent("500ml*12瓶", "500ml*24瓶"));
+		assertFalse(ReplenishMatchRules.specEquivalent("500ml", "500ml 无糖"),
+				"数字相同但语义文本不同，必须人工确认");
+		assertFalse(ReplenishMatchRules.specEquivalent("500ml", "大瓶"),
+				"一侧有数字、另一侧没有，无法证明是同一规格");
 	}
 
 	@Test

@@ -59,10 +59,20 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>
         </dependency>
+        <!--        操作审计-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-log</artifactId>
+        </dependency>
         <!--       支付公共模块-->
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-pay-api</artifactId>
+        </dependency>
+        <!-- 支付宝小程序支付前校验买家身份确属当前租户/应用/商城用户 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-user-api</artifactId>
         </dependency>
         <dependency>
             <groupId>com.aryn</groupId>

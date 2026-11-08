@@ -37,8 +37,11 @@ public class AppNewbieFloorVO implements Serializable {
 	@Schema(description = "每人每 SKU 限购件数（固定 1）")
 	private Integer limitPerUser;
 
-	@Schema(description = "活动结束时间")
+	@Schema(description = "活动结束时间；长期有效时仍下发远期时间，由 longTerm 决定是否展示倒计时")
 	private LocalDateTime endTime;
+
+	@Schema(description = "是否长期有效（true 时 C 端不展示结束倒计时）")
+	private Boolean longTerm;
 
 	@Schema(description = "新人价商品列表")
 	private List<NewbieGoodsVO> goodsList;
@@ -58,6 +61,9 @@ public class AppNewbieFloorVO implements Serializable {
 
 		@Schema(description = "商品名称")
 		private String goodsName;
+
+		@Schema(description = "商品子标题（与商品名相同或为空时展示端不渲染）")
+		private String subTitle;
 
 		@Schema(description = "商品图片")
 		private String goodsImage;

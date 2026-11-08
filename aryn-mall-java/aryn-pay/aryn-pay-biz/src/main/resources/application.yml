@@ -19,6 +19,25 @@ spring:
 
 # IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
 aryn:
+  pay:
+    credential:
+      master-key: ${ARYN_PAY_CREDENTIAL_MASTER_KEY:}
+      key-id: ${ARYN_PAY_CREDENTIAL_KEY_ID:primary}
+      previous-keys: ${ARYN_PAY_CREDENTIAL_PREVIOUS_KEYS:}
+      max-material-bytes: ${ARYN_PAY_CREDENTIAL_MAX_BYTES:262144}
+    callback:
+      allow-http: ${ARYN_PAY_CALLBACK_ALLOW_HTTP:false}
+      allow-private: ${ARYN_PAY_CALLBACK_ALLOW_PRIVATE:false}
+    allowed-return-hosts: ${ARYN_PAY_ALLOWED_RETURN_HOSTS:}
+    client-ip:
+      trusted-proxy: ${ARYN_PAY_TRUSTED_PROXY:false}
+    outbox:
+      relay-interval-ms: ${ARYN_PAY_OUTBOX_RELAY_INTERVAL_MS:5000}
+      batch-size: ${ARYN_PAY_OUTBOX_BATCH_SIZE:100}
+      max-attempts: ${ARYN_PAY_OUTBOX_MAX_ATTEMPTS:20}
+    alipay:
+      gateway-prod: ${ARYN_PAY_ALIPAY_GATEWAY_PROD:https://openapi.alipay.com/gateway.do}
+      gateway-sandbox: ${ARYN_PAY_ALIPAY_GATEWAY_SANDBOX:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
   ip:
     enabled: ${ARYN_IP_ENABLED:true}
     fallback-http: ${ARYN_IP_FALLBACK_HTTP:true}

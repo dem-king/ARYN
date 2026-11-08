@@ -184,11 +184,29 @@ useKeepAliveRefresh(initPage);
       >
         <ElTableColumn label="账号类型" align="center" prop="type">
           <template #default="scope">
-            <span>{{ scope.row.type === 'WX_MA' ? '微信小程序' : '' }}</span>
+            <span>{{
+              scope.row.type === 'WX_MA'
+                ? '微信小程序'
+                : scope.row.type === 'ALI_MINI'
+                  ? '支付宝小程序'
+                  : scope.row.type
+            }}</span>
           </template>
         </ElTableColumn>
         <ElTableColumn label="账号" align="center" prop="appId" />
-        <ElTableColumn label="密钥" align="center" prop="appSecret" />
+        <ElTableColumn label="身份模式" align="center">
+          <template #default="scope">
+            {{
+              scope.row.identityMode ||
+              (scope.row.type === 'WX_MA' ? 'open_id' : '未配置')
+            }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="密钥" align="center">
+          <template #default="scope">
+            {{ scope.row.type === 'ALI_MINI' ? '—' : scope.row.appSecret }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="创建时间" align="center" prop="createTime" />
         <ElTableColumn label="创建人" align="center" prop="createBy" />
         <ElTableColumn label="修改人" align="center" prop="updateBy" />

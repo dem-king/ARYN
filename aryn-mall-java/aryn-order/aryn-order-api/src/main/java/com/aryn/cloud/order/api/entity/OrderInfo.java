@@ -54,6 +54,12 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "支付状态：0.未支付；1.已支付;")
 	private String payStatus;
 
+	@Schema(description = "支付提交/取消锁：0.空闲；1.支付提交中；2.取消锁")
+	private String paySubmitting;
+
+	@Schema(description = "支付提交时间")
+	private LocalDateTime paySubmitTime;
+
 	@Schema(description = "订单状态")
 	private String status;
 

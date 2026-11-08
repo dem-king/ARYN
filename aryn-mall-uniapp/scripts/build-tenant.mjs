@@ -26,14 +26,14 @@ const require = createRequire(path.join(projectRoot, 'package.json'))
 const { TenantConfigError, listTenantKeys, loadTenantConfig, precheckAll, resolveTarget, normalize, newBuildId, toDisplay } = await import(pathToFileURL(path.join(projectRoot, 'build', 'tenant-config.mjs')).href)
 const { resolveBuildPaths, buildChildEnv } = await import(pathToFileURL(path.join(projectRoot, 'build', 'build-context.mjs')).href)
 const { createSnapshot, verifySnapshot, summarizeInventory, SnapshotError } = await import(pathToFileURL(path.join(projectRoot, 'build', 'snapshot.mjs')).href)
-const { verifyArtifact, ArtifactVerifyError, sha256File } = await import(pathToFileURL(path.join(projectRoot, 'build', 'artifact-verifier.mjs')).href)
+const { verifyArtifact, verifyAlipayArtifact, ArtifactVerifyError, sha256File } = await import(pathToFileURL(path.join(projectRoot, 'build', 'artifact-verifier.mjs')).href)
 
 class BuildFailedError extends Error {}
 
 // ---------- 参数解析 ----------
 
 function parseArgs(argv) {
-  const args = { target: undefined, profile: undefined, deployment: undefined, dryRun: false }
+  const args = { target: undefined, profile: undefined, deployment: undefined, platform: 'mp-weixin', dryRun: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--profile') {
@@ -41,6 +41,9 @@ function parseArgs(argv) {
     }
     else if (arg === '--deployment') {
       args.deployment = argv[++i]
+    }
+    else if (arg === '--platform') {
+      args.platform = argv[++i]
     }
     else if (arg === '--dry-run') {
       args.dryRun = true
@@ -66,9 +69,10 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`用法:
-  pnpm build:tenant <key>|all [--profile production|staging] [--deployment boot|cloud] [--dry-run]
+  pnpm build:tenant <key>|all [--profile production|staging] [--deployment boot|cloud] [--platform mp-weixin|mp-alipay] [--dry-run]
 
 不传 --profile/--deployment 时使用租户 defaultProfile/defaultDeployment；
+--platform 默认 mp-weixin，支付宝小程序需租户配置 aliAppId 后显式指定。
 生产 CI 必须显式传两维参数。--dry-run 只打印计划，不生成副本、不编译。`)
 }
 
@@ -134,6 +138,7 @@ export const tenantBuildIdentity: Readonly<TenantBuildIdentity> | null = Object.
   key: '${normalized.key}',
   tenantId: '${normalized.tenantId}',
   wxAppId: '${normalized.wxAppId}',
+  aliAppId: '${normalized.aliAppId || ''}',
   name: '${normalized.name.replace(/'/g, '\\\'')}',
   profile: '${normalized.profile}',
   deployment: '${normalized.deployment}',
@@ -151,14 +156,27 @@ async function generateManifestInCopy(appRoot, normalized) {
   const manifest = factory.createManifest({
     name: normalized.name,
     wxAppId: normalized.wxAppId,
+    aliAppId: normalized.aliAppId,
     // 折叠屏 app.json resizable 的构建期回滚开关：租户构建与默认构建同口径
     resizable: factory.resolveMpResizable(process.env.MP_RESIZABLE),
   })
   const target = path.join(appRoot, 'src', 'manifest.json')
   fs.writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
   const reparsed = JSON.parse(fs.readFileSync(target, 'utf8'))
-  if (reparsed.name !== manifest.name || reparsed['mp-weixin'].appid !== manifest['mp-weixin'].appid) {
+  if (reparsed.name !== manifest.name || reparsed['mp-weixin'].appid !== manifest['mp-weixin'].appid
+    || (normalized.aliAppId && reparsed['mp-alipay']?.appid !== normalized.aliAppId)) {
     throw new BuildFailedError('副本 manifest 回读校验失败')
+  }
+  // uni-app 的 mp-alipay 编译器不会把 manifest mp-alipay.appid 写入 mini.project.json
+  // （其内置 source 固定 touristappid）；租户构建在副本内显式提供该工程配置，
+  // 让支付宝开发者工具导入产物时直接使用租户 AppID。
+  if (normalized.aliAppId) {
+    fs.writeFileSync(path.join(appRoot, 'src', 'mini.project.json'),
+      `${JSON.stringify({
+        format: 2,
+        compileOptions: { globalObjectMode: 'enable', treeShaking: true },
+        appId: normalized.aliAppId,
+      }, null, 2)}\n`, 'utf8')
   }
   return manifest
 }
@@ -187,11 +205,12 @@ function nodeMajorVersion() {
 
 // ---------- 单次构建 ----------
 
-async function buildOne(normalized, { dryRun }) {
-  const paths = resolveBuildPaths(projectRoot, normalized)
+async function buildOne(normalized, { dryRun, platform }) {
+  const paths = resolveBuildPaths(projectRoot, normalized, platform)
   paths.createdAt = new Date().toISOString()
 
   if (dryRun) {
+    console.log('[dry-run] 平台:', platform)
     console.log('[dry-run] 规范化身份:', JSON.stringify(toDisplay(normalized), null, 2))
     console.log('[dry-run] 工作目录:', paths.workRoot)
     console.log('[dry-run] 发布目录:', paths.releaseRoot)
@@ -247,7 +266,7 @@ async function buildOne(normalized, { dryRun }) {
   const child = spawn(process.execPath, [
     uniBin,
     'build',
-    '-p', 'mp-weixin',
+    '-p', platform,
     '--mode', normalized.profile,
   ], {
     cwd: paths.appRoot,
@@ -287,7 +306,8 @@ async function buildOne(normalized, { dryRun }) {
   let verification
   let checksums
   try {
-    const result = verifyArtifact({
+    const verifier = platform === 'mp-alipay' ? verifyAlipayArtifact : verifyArtifact
+    const result = verifier({
       outputDir: paths.outputDir,
       snapshotAppRoot: paths.appRoot,
       normalized,
@@ -307,9 +327,9 @@ async function buildOne(normalized, { dryRun }) {
 
   // 发布（同文件系统 rename；目标不存在已在前面检查）。
   // 微信开发者工具/上传工具导入的是 releaseRoot/mp-weixin 目录，包外元数据平级放置。
-  fs.mkdirSync(path.join(paths.releaseRoot, 'mp-weixin'), { recursive: true })
+  fs.mkdirSync(path.join(paths.releaseRoot, platform), { recursive: true })
   try {
-    fs.renameSync(paths.outputDir, path.join(paths.releaseRoot, 'mp-weixin'))
+    fs.renameSync(paths.outputDir, path.join(paths.releaseRoot, platform))
   }
   catch (error) {
     throw new BuildFailedError(`发布 rename 失败（目标可能已被占用）: ${error.message}`)
@@ -320,6 +340,8 @@ async function buildOne(normalized, { dryRun }) {
     name: normalized.name,
     tenantId: normalized.tenantId,
     wxAppId: normalized.wxAppId,
+    aliAppId: normalized.aliAppId,
+    platform,
     profile: normalized.profile,
     deployment: normalized.deployment,
     openBoot: normalized.openBoot,
@@ -351,6 +373,9 @@ async function main() {
   if (nodeMajorVersion() < 22) {
     throw new BuildFailedError(`需要 Node >= 22，当前 ${process.version}`)
   }
+  if (!['mp-weixin', 'mp-alipay'].includes(args.platform)) {
+    throw new BuildFailedError(`--platform 仅支持 mp-weixin 或 mp-alipay，收到 ${args.platform}`)
+  }
 
   const tenantsDir = path.join(projectRoot, 'tenants')
   // 全量预检（all 与单租户都做：错误提前失败）
@@ -362,11 +387,17 @@ async function main() {
     const target = resolveTarget(config, { profile: args.profile, deployment: args.deployment })
     return normalize(config, target, newBuildId())
   })
-  console.log(`[build-tenant] 计划构建: ${plan.map(item => `${item.key}/${item.profile}/${item.deployment}`).join(', ')}`)
+  if (args.platform === 'mp-alipay') {
+    const missingAli = plan.filter(item => !item.aliAppId).map(item => item.key)
+    if (missingAli.length > 0) {
+      throw new BuildFailedError(`支付宝小程序构建缺少 aliAppId: ${missingAli.join(', ')}`)
+    }
+  }
+  console.log(`[build-tenant] 计划构建: ${plan.map(item => `${item.key}/${item.profile}/${item.deployment}/${args.platform}`).join(', ')}`)
 
   if (args.dryRun) {
     for (const normalized of plan) {
-      await buildOne(normalized, { dryRun: true })
+      await buildOne(normalized, { dryRun: true, platform: args.platform })
     }
     return
   }
@@ -377,7 +408,7 @@ async function main() {
   try {
     for (const normalized of plan) {
       try {
-        const release = await buildOne(normalized, { dryRun: false })
+        const release = await buildOne(normalized, { dryRun: false, platform: args.platform })
         if (release) {
           releases.push(release)
         }

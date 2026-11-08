@@ -16,6 +16,8 @@ public enum OpenPlatformTypeEnum {
 
 	/** 微信小程序 */
 	WX_MA("WX_MA", "微信小程序"),
+	/** 支付宝小程序 */
+	ALI_MINI("ALI_MINI", "支付宝小程序"),
 	/** 普通H5 */
 	H5("H5", "普通H5"),
 	/** APP */

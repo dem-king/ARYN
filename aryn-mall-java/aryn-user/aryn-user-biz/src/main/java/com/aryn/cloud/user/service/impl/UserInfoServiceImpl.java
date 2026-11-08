@@ -243,7 +243,9 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		userInfo.setOpenId(openid);
 		userInfo.setUserSource(platformType);
 		userInfo.setStatus("0");
-		userInfo.setNickname("微信用户" + RandomUtil.randomNumbers(4));
+		String nicknamePrefix = com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum.ALI_MINI.getCode()
+			.equals(platformType) ? "支付宝用户" : "微信用户";
+		userInfo.setNickname(nicknamePrefix + RandomUtil.randomNumbers(4));
 		userInfo.setCreateBy(openid);
 		// boot 单体模式（Dubbo injvm）下租户上下文可能未随 RPC 传递，从三方绑定记录反查兜底
 		String tenantId = ArynTenantContextHolder.getTenantId();

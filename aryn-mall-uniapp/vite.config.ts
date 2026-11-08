@@ -102,6 +102,7 @@ export default async (mode: ConfigEnv) => {
           key: process.env.VITE_TENANT_KEY!,
           tenantId: process.env.VITE_TENANT_ID!,
           wxAppId: process.env.VITE_TENANT_WX_APPID!,
+          aliAppId: process.env.VITE_TENANT_ALI_APPID || '',
           name: process.env.VITE_TENANT_NAME!,
           profile: process.env.VITE_ENV_NAME!,
           deployment: parseOpenBootToDeployment(process.env.VITE_OPEN_BOOT),

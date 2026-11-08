@@ -37,4 +37,14 @@ public interface RechargeOrderMapper extends BaseMapper<RechargeOrder> {
 	int markPaidIfPending(@Param("id") String id, @Param("payOrderNo") String payOrderNo,
 			@Param("payTime") LocalDateTime payTime);
 
+	@Update("""
+			UPDATE recharge_order
+			SET pay_status = '2',
+				update_time = NOW()
+			WHERE id = #{id}
+			  AND pay_status = '0'
+			  AND del_flag = '0'
+			""")
+	int markCanceledIfPending(@Param("id") String id);
+
 }

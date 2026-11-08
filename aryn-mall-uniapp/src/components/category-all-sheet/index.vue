@@ -11,13 +11,15 @@
  *     分类多时被上限封顶（底边最多落在约 86.5% 屏高处），宫格内部滚动，
  *     下方始终保留遮罩带露出压暗的页面内容。
  *   · 底角带圆角，形成「自上滑出的卡片」观感。
- *   · 面板为毛玻璃：半透明白 + backdrop-filter 模糊透出压暗的页面内容。
- *     不支持 backdrop-filter 的内核（部分安卓 X5）自动退化为半透明白，
- *     文字对比度仍由 0.78 的白色底保证，可读性不依赖模糊生效。
+ *   · 玻璃拟态：面板与上方搜索导航栏用同一组磨砂数值（白 86% + blur 18px + saturate 160%），
+ *     透出背后未压暗的页面内容，拼成一整块亮玻璃。压暗遮罩只作用在面板**下方**——
+ *     若垫在面板背后，玻璃会透出遮罩的暗色变成灰玻璃，与导航栏分家。
+ *     不支持 backdrop-filter 的内核退化为 86% 白底，文字仍可读。
+ *   · 宿主导航栏未接磨砂（如共享车分类页）时传 frosted=false，面板退回实心卡片底。
  *
- * 层级：遮罩 999 —— 高于 H5 tabBar(998)，低于导航栏(1000)；SKU 弹层同为 999
+ * 层级：浮层根节点 999 —— 高于 H5 tabBar(998)，低于导航栏(1000)；SKU 弹层同为 999
  * （分别用在分类页与购物车/商详页，不同页共存）。
- * 因此导航栏保持点亮、其余页面内容被压暗，与参考图一致。
+ * 因此导航栏保持点亮可点、其余页面内容被压暗，与参考图一致。
  *
  * 组件由父级用 `v-if` 懒挂载：分类页不打开浮层时不产生任何节点。
  */
@@ -40,12 +42,18 @@ interface Props {
    * 保证面板恰好从搜索框下沿开始，不遮挡它。
    */
   topOffset?: number
+  /**
+   * 是否使用与搜索导航栏一致的磨砂玻璃（白 86% + blur 18px）。
+   * 分类页展开浮层时顶栏会强制切玻璃，因此恒传 true；宿主导航栏是实心时保持 false。
+   */
+  frosted?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   categories: () => [],
   activeIndex: 0,
   topOffset: 0,
+  frosted: false,
 })
 
 const emit = defineEmits<{
@@ -65,13 +73,21 @@ function showFallback(item: CategoryItem, index: number) {
   return !item.categoryPic || failedImages.value[index] === true
 }
 
-const sheetStyle = computed(() => ({
-  top: `${props.topOffset}px`,
+const rootStyle = computed(() => ({
   /**
-   * 面板高度自适应内容；上限使底边最多落在 86.5% 屏高处
-   * （绝对定位元素的百分比参照 fixed 全屏根节点），分类再多也不铺满全屏。
+   * 根节点从导航栏实际下沿开始（再向上叠 1px 压进导航栏底边）：
+   * 两块半透明表面在亚像素边界处会被抗锯齿各露一半，拼出一根比两侧都深的细线；
+   * 导航栏 z-index(1000) 高于本浮层(999)，重叠的 1px 不可见。
    */
-  maxHeight: `calc(86.5% - ${props.topOffset}px)`,
+  top: `calc(${props.topOffset}px - 1px)`,
+}))
+
+const sheetStyle = computed(() => ({
+  /**
+   * 面板高度自适应内容；上限使底边最多落在 86.5% 屏高处，分类再多也不铺满全屏。
+   * 根节点已从导航栏下沿开始，百分比会再扣掉导航栏高度，这里必须用 vh。
+   */
+  maxHeight: `calc(86.5vh - ${props.topOffset}px)`,
 }))
 
 /** 打开时把选中项滚入可视区；用 scroll-into-view 而非 DOM API，小程序同样可用 */
@@ -79,10 +95,14 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
 </script>
 
 <template>
-  <view class="all-sheet-root">
+  <view class="all-sheet-root" :style="rootStyle">
     <view class="all-sheet-mask" @click="emit('close')" />
 
-    <view class="all-sheet" :style="sheetStyle">
+    <view
+      class="all-sheet"
+      :class="{ 'all-sheet--frosted': props.frosted }"
+      :style="sheetStyle"
+    >
       <view class="all-sheet-header">
         <view class="all-sheet-title">
           {{ t('catalog.allCategories') }}
@@ -144,9 +164,15 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
 </template>
 
 <style lang="scss" scoped>
+/**
+ * 浮层根节点：从导航栏实际下沿开始，纵向 flex —— 面板在上、遮罩在下。
+ *
+ * 遮罩**不再铺满全屏**：它只压暗面板下方的页面内容。若像旧版那样垫在面板背后，
+ * 半透明玻璃会透出遮罩的暗色，整块变成灰玻璃，与上方导航栏的亮玻璃分家。
+ * 根节点顶边由内联样式给出（导航栏实际下沿 - 1px）。
+ */
 .all-sheet-root {
   position: fixed;
-  top: 0;
   right: 0;
   bottom: 0;
   left: 0;
@@ -155,36 +181,56 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
    * 导航栏因此保持点亮可点，其余页面内容被遮罩压暗 —— 与参考图一致。
    */
   z-index: 999;
+  display: flex;
+  flex-direction: column;
 }
 
 .all-sheet-mask {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(16, 24, 40, 0.52);
+  position: relative;
+  /* 画在面板下层：负外边距的渐变段才能藏到面板底角后面，填住圆角缺口 */
+  z-index: -1;
+  /* 布局上排在面板之后，占满面板下方的剩余高度 */
+  order: 2;
+  flex: 1;
+  min-height: 0;
+  /**
+   * 顶部 28rpx 与面板底角同高：渐变段藏在面板下面，填住两个圆角缺口，
+   * 又不会在玻璃内部留下一道硬边；面板下沿处已达到完整压暗浓度。
+   */
+  margin-top: -28rpx;
+  background: linear-gradient(180deg, rgba(16, 24, 40, 0) 0, rgba(16, 24, 40, 0.52) 28rpx);
   animation: all-sheet-mask-in 220ms ease-out both;
 }
 
 .all-sheet {
-  position: absolute;
-  right: 0;
-  left: 0;
+  position: relative;
+  z-index: 0;
+  flex: none;
   /* 高度自适应内容；上限由内联 maxHeight 封顶（底边最多 86.5% 屏高），分类多时宫格内滚动 */
   display: flex;
   flex-direction: column;
-  /* 毛玻璃：半透明白打底，backdrop-filter 把遮罩下压暗的页面内容模糊透出 */
-  background: rgba(255, 255, 255, 0.78);
-  /* WEBKIT 大写写法避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的 backdrop-filter） */
-  -WEBKIT-backdrop-filter: blur(24px) saturate(160%);
-  backdrop-filter: blur(24px) saturate(160%);
+  /**
+   * 默认实心卡片底（宿主导航栏也是实心时用，如共享车分类页）；
+   * 分类页会传 frosted，切成与导航栏一致的磨砂玻璃。
+   */
+  background: var(--app-card);
   border-bottom-left-radius: 28rpx;
   border-bottom-right-radius: 28rpx;
-  box-shadow: 0 16rpx 48rpx rgba(20, 29, 45, 0.14);
+  /* 不投影：面板与导航栏拼成一张连续玻璃，投影会在顶栏下方透出暗边 */
   overflow: hidden;
   transform-origin: top center;
   animation: all-sheet-panel-in 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+/**
+ * 玻璃拟态：与 hr-search-navbar 的磨砂目标态逐值一致（白 86% + blur 18px + saturate 160%）。
+ * 面板背后的遮罩已下移到面板下方，玻璃透出的是未压暗的页面内容，呈亮玻璃而非灰玻璃。
+ */
+.all-sheet--frosted {
+  background: rgba(255, 255, 255, 0.86);
+  /* WEBKIT 大写写法避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的 backdrop-filter） */
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
 }
 
 .all-sheet-header {
@@ -306,7 +352,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   justify-content: center;
   height: 96rpx;
   border-top: 1rpx solid rgba(20, 29, 45, 0.08);
-  /* 透出面板自身的毛玻璃底，不再垫白色实底 */
+  /* 透出面板自身材质（实心卡片底 / 磨砂玻璃），不再垫白色实底 */
   background: transparent;
   font-size: 28rpx;
   color: #687080;
@@ -345,7 +391,8 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
  */
 .wot-theme-dark .all-sheet {
   background: rgba(26, 26, 26, 0.82);
-  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.5);
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
 }
 
 .wot-theme-dark .all-sheet-header {

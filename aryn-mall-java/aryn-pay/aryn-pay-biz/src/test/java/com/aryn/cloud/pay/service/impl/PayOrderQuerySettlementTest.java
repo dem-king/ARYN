@@ -3,22 +3,24 @@ package com.aryn.cloud.pay.service.impl;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.github.binarywang.wxpay.bean.result.WxPayOrderQueryV3Result;
 import com.github.binarywang.wxpay.exception.WxPayException;
+import com.aryn.cloud.pay.PayTestFixtures;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.PaySettlementResult;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
-import com.aryn.cloud.pay.api.vo.PayConfigVO;
+import com.aryn.cloud.pay.config.PayChannelClientFactory;
 import com.aryn.cloud.pay.mapper.PayNotifyRecordMapper;
 import com.aryn.cloud.pay.mapper.PayRefundOrderMapper;
 import com.aryn.cloud.pay.mapper.PayTradeOrderMapper;
 import com.aryn.cloud.pay.service.IPayConfigService;
+import com.aryn.cloud.pay.service.PayCredentialResolver;
+import com.aryn.cloud.pay.service.PayEventOutboxService;
+import com.aryn.cloud.pay.service.PayMaterialParser;
+import com.aryn.cloud.pay.service.PayResolvedIdentity;
+import com.aryn.cloud.pay.service.PayTradeTransactionService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.messaging.Message;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -29,7 +31,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -54,21 +55,30 @@ import static org.mockito.Mockito.when;
  */
 class PayOrderQuerySettlementTest {
 
-	private RocketMQTemplate rocketMQTemplate;
+	private PayEventOutboxService outboxService;
 
 	private PayTradeOrderMapper tradeOrderMapper;
 
 	private IPayConfigService configService;
 
+	private PayCredentialResolver credentialResolver;
+
+	private PayTradeTransactionService tradeTransactionService;
+
 	private TestPayNotifyRecordService service;
 
 	@BeforeEach
 	void setUp() {
-		rocketMQTemplate = mock(RocketMQTemplate.class);
+		outboxService = mock(PayEventOutboxService.class);
 		tradeOrderMapper = mock(PayTradeOrderMapper.class);
 		configService = mock(IPayConfigService.class);
-		service = new TestPayNotifyRecordService(rocketMQTemplate, tradeOrderMapper,
-				mock(PayRefundOrderMapper.class), mock(HttpServletRequest.class), configService);
+		credentialResolver = mock(PayCredentialResolver.class);
+		tradeTransactionService = mock(PayTradeTransactionService.class);
+		when(credentialResolver.resolveForOrder(anyString(), any(PayTradeOrder.class)))
+			.thenReturn(PayTestFixtures.wechatIdentity("rev-wx"));
+		service = new TestPayNotifyRecordService(outboxService, tradeOrderMapper,
+				mock(PayRefundOrderMapper.class), mock(HttpServletRequest.class), configService, credentialResolver,
+				mock(PayChannelClientFactory.class), tradeTransactionService, new PayMaterialParser());
 		ReflectionTestUtils.setField(service, "baseMapper", mock(PayNotifyRecordMapper.class));
 	}
 
@@ -77,21 +87,17 @@ class PayOrderQuerySettlementTest {
 	void channelConfirmedSettlesThroughSamePathAsCallback() {
 		// given
 		when(tradeOrderMapper.selectOne(any())).thenReturn(pendingWxOrder());
-		when(configService.getConfig(PayConstants.PAY_TYPE_1, "0")).thenReturn(wechatConfig());
-		when(tradeOrderMapper.markPaidIfPending("tenant-1", "pay-1", "WX-1",
-				LocalDateTime.of(2026, 10, 8, 12, 0))).thenReturn(1);
-		SendResult sendResult = new SendResult();
-		sendResult.setSendStatus(SendStatus.SEND_OK);
-		when(rocketMQTemplate.syncSend(anyString(), any(Message.class), anyLong())).thenReturn(sendResult);
 		service.queryResult = queryResult("SUCCESS");
+		when(tradeTransactionService.settleWxQuery(anyString(), any(PayTradeOrder.class),
+				any(PayResolvedIdentity.class), any(WxPayOrderQueryV3Result.class)))
+			.thenReturn(PaySettlementResult.paid("WX-1"));
 
 		// when
 		PaySettlementResult result = service.queryAndSettlePayOrder("tenant-1", "R20261008001");
 
-		// then - 条件更新抢占 + 广播，与回调一致
-		verify(tradeOrderMapper).markPaidIfPending("tenant-1", "pay-1", "WX-1",
-				LocalDateTime.of(2026, 10, 8, 12, 0));
-		verify(rocketMQTemplate).syncSend(anyString(), any(Message.class), anyLong());
+		// then - 查单在事务外，落账交给短事务服务
+		verify(tradeTransactionService).settleWxQuery(anyString(), any(PayTradeOrder.class),
+				any(PayResolvedIdentity.class), any(WxPayOrderQueryV3Result.class));
 		assertTrue(result.isPaid());
 	}
 
@@ -101,6 +107,9 @@ class PayOrderQuerySettlementTest {
 		// given
 		when(tradeOrderMapper.selectOne(any())).thenReturn(pendingWxOrder());
 		service.queryResult = queryResult("USERPAYING");
+		when(tradeTransactionService.settleWxQuery(anyString(), any(PayTradeOrder.class),
+				any(PayResolvedIdentity.class), any(WxPayOrderQueryV3Result.class)))
+			.thenReturn(PaySettlementResult.unpaid("USERPAYING"));
 
 		// when
 		PaySettlementResult result = service.queryAndSettlePayOrder("tenant-1", "R20261008001");
@@ -109,8 +118,7 @@ class PayOrderQuerySettlementTest {
 		assertFalse(result.isPaid());
 		assertTrue("USERPAYING".equals(result.getTradeState()),
 				"应把渠道状态透出，供上层区分「确认中」与「已关闭」");
-		verify(tradeOrderMapper, never()).markPaidIfPending(anyString(), anyString(), anyString(), any());
-		verify(rocketMQTemplate, never()).syncSend(anyString(), any(Message.class), anyLong());
+		verify(outboxService, never()).enqueue(anyString(), anyString(), anyString(), anyString(), anyString());
 	}
 
 	@Test
@@ -118,17 +126,19 @@ class PayOrderQuerySettlementTest {
 	void amountMismatchIsRejected() {
 		// given
 		when(tradeOrderMapper.selectOne(any())).thenReturn(pendingWxOrder());
-		when(configService.getConfig(PayConstants.PAY_TYPE_1, "0")).thenReturn(wechatConfig());
 		WxPayOrderQueryV3Result mismatch = queryResult("SUCCESS");
 		mismatch.getAmount().setTotal(1); // 本地是 99.90 元
 		service.queryResult = mismatch;
+		when(tradeTransactionService.settleWxQuery(anyString(), any(PayTradeOrder.class),
+				any(PayResolvedIdentity.class), any(WxPayOrderQueryV3Result.class)))
+			.thenReturn(PaySettlementResult.unpaid("SUCCESS"));
 
 		// when
 		PaySettlementResult result = service.queryAndSettlePayOrder("tenant-1", "R20261008001");
 
 		// then - 查单不是校验较弱的旁路
 		assertFalse(result.isPaid());
-		verify(tradeOrderMapper, never()).markPaidIfPending(anyString(), anyString(), anyString(), any());
+		verify(outboxService, never()).enqueue(anyString(), anyString(), anyString(), anyString(), anyString());
 	}
 
 	@Test
@@ -162,15 +172,15 @@ class PayOrderQuerySettlementTest {
 	}
 
 	private PayTradeOrder pendingWxOrder() {
-		return new PayTradeOrder().setId("pay-1").setTenantId("tenant-1").setOutTradeNo("R20261008001")
+		return new PayTradeOrder().setId("pay-1").setTenantId(PayTestFixtures.TENANT).setOutTradeNo("R20261008001")
 			.setTerminalType("0").setTradeType("WX_JSAPI_PAY").setPayStatus("0")
-			.setAmount(new BigDecimal("99.90"));
+			.setAmount(new BigDecimal("99.90")).setConfigRevisionId("rev-wx");
 	}
 
 	private WxPayOrderQueryV3Result queryResult(String tradeState) {
 		WxPayOrderQueryV3Result result = new WxPayOrderQueryV3Result();
-		result.setAppid("app-1");
-		result.setMchid("merchant-1");
+		result.setAppid("wx-synthetic-app");
+		result.setMchid("synthetic-mch");
 		result.setOutTradeNo("R20261008001");
 		result.setTransactionId("WX-1");
 		result.setTradeState(tradeState);
@@ -182,13 +192,6 @@ class PayOrderQuerySettlementTest {
 		return result;
 	}
 
-	private PayConfigVO wechatConfig() {
-		PayConfigVO config = new PayConfigVO();
-		config.setAppId("app-1");
-		config.setMchId("merchant-1");
-		return config;
-	}
-
 	/** 可覆盖渠道查询的测试子类：不把单测绑死在真实微信 SDK 上 */
 	public static final class TestPayNotifyRecordService extends PayNotifyRecordServiceImpl {
 
@@ -198,14 +201,18 @@ class PayOrderQuerySettlementTest {
 
 		int queryCount;
 
-		TestPayNotifyRecordService(RocketMQTemplate rocketMQTemplate, PayTradeOrderMapper payTradeOrderMapper,
+		TestPayNotifyRecordService(PayEventOutboxService outboxService, PayTradeOrderMapper payTradeOrderMapper,
 				PayRefundOrderMapper payRefundOrderMapper, HttpServletRequest httpServletRequest,
-				IPayConfigService payConfigService) {
-			super(rocketMQTemplate, payTradeOrderMapper, payRefundOrderMapper, httpServletRequest, payConfigService);
+				IPayConfigService payConfigService, PayCredentialResolver credentialResolver,
+				PayChannelClientFactory clientFactory, PayTradeTransactionService tradeTransactionService,
+				PayMaterialParser materialParser) {
+			super(outboxService, payTradeOrderMapper, payRefundOrderMapper, httpServletRequest, payConfigService,
+					credentialResolver, clientFactory, tradeTransactionService, materialParser);
 		}
 
 		@Override
-		protected WxPayOrderQueryV3Result queryWxOrder(String terminalType, String outTradeNo) throws WxPayException {
+		protected WxPayOrderQueryV3Result queryWxOrder(PayResolvedIdentity identity, String outTradeNo)
+				throws WxPayException {
 			queryCount++;
 			if (queryThrows) {
 				throw new WxPayException("渠道不可用");

@@ -1,5 +1,6 @@
 <script>
 import { useI18n } from 'vue-i18n'
+import { splitAmountText } from '@/components/diy/price-display'
 
 let vk // vk依赖
 const goodsCache = {} // 本地商品缓存
@@ -387,6 +388,10 @@ export default {
         str = goodsInfo.salesPrice
       }
       return str
+    },
+    // 价格排版：整数大、小数小（保留服务端金额文本的小数位）
+    priceParts() {
+      return splitAmountText(String(this.priceCom ?? ''))
     },
     // 库存显示
     stockCom() {
@@ -1008,7 +1013,10 @@ export default {
                   ¥
                 </text>
                 <text class="price">
-                  {{ priceCom }}
+                  {{ priceParts.integer }}
+                </text>
+                <text v-if="priceParts.decimal" class="price-decimal">
+                  .{{ priceParts.decimal }}
                 </text>
               </view>
               <view v-if="!hideStock && selectShop.stock" class="inventory">
@@ -1209,6 +1217,10 @@ export default {
               .price {
                 margin-left: 4rpx;
                 font-size: 48rpx;
+              }
+
+              .price-decimal {
+                font-size: 34rpx;
               }
 
               .price2 {

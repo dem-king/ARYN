@@ -18,16 +18,15 @@ import com.aryn.cloud.pay.api.entity.PayRefundOrder;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
 import com.aryn.cloud.pay.api.enums.PayRefundOrderStatusEnum;
 import com.aryn.cloud.pay.api.constants.PayConstants;
-import com.aryn.cloud.pay.config.AliPayConfiguration;
+import com.aryn.cloud.pay.config.PayChannelClientFactory;
 import com.aryn.cloud.pay.handler.AbstractPayRefundOrderHandler;
 import com.aryn.cloud.pay.service.IPayRefundOrderService;
 import com.aryn.cloud.pay.service.IPayTradeOrderService;
+import com.aryn.cloud.pay.service.PayCredentialResolver;
+import com.aryn.cloud.pay.service.PayEventOutboxService;
+import com.aryn.cloud.pay.service.PayResolvedIdentity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -39,9 +38,13 @@ public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
 
 	private final IPayRefundOrderService payRefundOrderService;
 
-	private final RocketMQTemplate rocketMQTemplate;
+	private final PayEventOutboxService outboxService;
 
 	private final IPayTradeOrderService tradeOrderService;
+
+	private final PayCredentialResolver credentialResolver;
+
+	private final PayChannelClientFactory clientFactory;
 
 	@Override
 	public Object doRefund(PayRefundOrder payRefundOrder) {
@@ -58,7 +61,8 @@ public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
 
 		AlipayClient alipayClient = null;
 		try {
-			alipayClient = AliPayConfiguration.getAlipayClient(payTradeOrder.getTerminalType());
+			alipayClient = clientFactory.alipayClient(
+					credentialResolver.resolveForOrder(ArynTenantContextHolder.getTenantId(), payTradeOrder));
 		}
 		catch (Exception e) {
 			throw new RuntimeException(e);
@@ -121,7 +125,8 @@ public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
 				resetToPending(payRefundOrder.getId());
 				return false;
 			}
-			AlipayClient alipayClient = AliPayConfiguration.getAlipayClient(payTradeOrder.getTerminalType());
+			AlipayClient alipayClient = clientFactory.alipayClient(
+					credentialResolver.resolveForOrder(ArynTenantContextHolder.getTenantId(), payTradeOrder));
 			if (!queryRefundSucceeded(alipayClient, payRefundOrder)) {
 				resetToPending(payRefundOrder.getId());
 				return false;
@@ -174,11 +179,9 @@ public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
 		jsonObject.put(PayConstants.EXTRA_PARAMS, payRefundOrder.getExtra());
 		jsonObject.put(PayConstants.REFUND_TRADE_NO, payRefundOrder.getRefundTradeNo());
 		jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
-		SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
-				new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
-		if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
-			throw new IllegalStateException("退款状态通知发送失败");
-		}
+		outboxService.enqueue(ArynTenantContextHolder.getTenantId(), "REFUND_SUCCESS",
+				payRefundOrder.getRefundTradeNo(), RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+				jsonObject.toJSONString());
 	}
 
 	@Override

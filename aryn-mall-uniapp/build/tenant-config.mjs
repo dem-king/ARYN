@@ -21,6 +21,7 @@ export class TenantConfigError extends Error {
 
 const KEY_RE = /^[a-z][a-z0-9-]{0,31}$/
 const WX_APP_ID_RE = /^wx[0-9a-f]{16}$/
+const ALI_APP_ID_RE = /^[0-9]{16}$/
 const FORBIDDEN_HOST_PATTERNS = [
   { re: /^localhost$/i, reason: 'localhost' },
   { re: /\.local$/i, reason: '本地 mDNS 域名' },
@@ -30,7 +31,7 @@ const FORBIDDEN_HOST_PATTERNS = [
   { re: /(^|\.)yourapp\.com$/i, reason: 'yourapp 占位域名' },
 ]
 const FORBIDDEN_HOSTS = new Set(['127.0.0.1', '0.0.0.0', '::1', '::', '[::1]', '169.254.x.x'])
-const ALLOWED_TOP_FIELDS = ['schemaVersion', 'key', 'name', 'tenantId', 'wxAppId', 'defaultProfile', 'defaultDeployment', 'profiles']
+const ALLOWED_TOP_FIELDS = ['schemaVersion', 'key', 'name', 'tenantId', 'wxAppId', 'aliAppId', 'defaultProfile', 'defaultDeployment', 'profiles']
 
 function fail(message) {
   throw new TenantConfigError(message)
@@ -109,6 +110,14 @@ export function loadTenantConfig(tenantsDir, key) {
   }
   if (config.wxAppId === 'wx0000000000000000') {
     fail(`租户配置 ${file} 使用了游客 AppID`)
+  }
+  if (config.aliAppId !== undefined) {
+    if (typeof config.aliAppId !== 'string') {
+      fail(`租户配置 ${file} 的 aliAppId 必须是字符串（空字符串表示未配置）`)
+    }
+    if (config.aliAppId && !ALI_APP_ID_RE.test(config.aliAppId)) {
+      fail(`租户配置 ${file} 的 aliAppId 必须为 16 位数字`)
+    }
   }
   if (!PROFILES.includes(config.defaultProfile)) {
     fail(`租户配置 ${file} 的 defaultProfile 必须是 ${PROFILES.join(' 或 ')}`)
@@ -196,6 +205,12 @@ export function precheckAll(tenantsDir) {
       fail(`租户 ${key} 与 ${byAppId.get(config.wxAppId)} 重复使用微信 AppID ${config.wxAppId}`)
     }
     byAppId.set(config.wxAppId, key)
+    if (config.aliAppId) {
+      if (byAppId.has(config.aliAppId)) {
+        fail(`租户 ${key} 与 ${byAppId.get(config.aliAppId)} 重复使用小程序 AppID ${config.aliAppId}`)
+      }
+      byAppId.set(config.aliAppId, key)
+    }
     return config
   })
   return configs
@@ -236,6 +251,7 @@ export function normalize(config, target, buildId) {
     name: config.name.trim(),
     tenantId: config.tenantId,
     wxAppId: config.wxAppId,
+    aliAppId: config.aliAppId || '',
     profile: target.profile,
     deployment: target.deployment,
     openBoot: target.openBoot,
@@ -255,6 +271,7 @@ export function toDisplay(normalized) {
     name: normalized.name,
     tenantId: normalized.tenantId,
     wxAppId: normalized.wxAppId,
+    aliAppId: normalized.aliAppId,
     profile: normalized.profile,
     deployment: normalized.deployment,
     openBoot: normalized.openBoot,

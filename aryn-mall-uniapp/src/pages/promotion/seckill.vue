@@ -11,6 +11,7 @@ import {
   unsubscribeSeckill,
 } from '@/api/promotion'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import { useAuthStore } from '@/store/authStore'
 import { normalizeStock, resolveSeckillProgress } from '@/utils/seckill-progress'
 import { navigateToUrl } from '@/utils/tab-bar'
@@ -737,12 +738,7 @@ function goOtherSession() {
               <!-- 价格与 CTA 同一行：CTA 不再独占一条竖直通道 -->
               <view class="goods-price-row">
                 <view class="goods-price">
-                  <text class="price-sym">
-                    ¥
-                  </text>
-                  <text class="price-val">
-                    {{ formatPrice(goods.seckillPrice) }}
-                  </text>
+                  <price-text class="price-val" :value="goods.seckillPrice" />
                   <text v-if="hasOriginalPrice(goods)" class="price-orig">
                     ¥{{ formatPrice(goods.originalPrice) }}
                   </text>
@@ -1123,7 +1119,6 @@ function goOtherSession() {
   }
 
   .goods-name,
-  .price-sym,
   .price-val {
     color: var(--app-text-3);
   }
@@ -1243,13 +1238,9 @@ function goOtherSession() {
   white-space: nowrap;
 }
 
-.price-sym {
-  color: var(--wot-color-theme-primary, #ff2237);
-  font-size: 20rpx;
-  font-weight: 700;
-}
-
 .price-val {
+  --price-symbol-size: 0.48em;
+
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 42rpx;
   font-weight: 800;

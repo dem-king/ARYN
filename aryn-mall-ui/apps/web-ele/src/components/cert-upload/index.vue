@@ -1,65 +1,68 @@
 <script lang="ts" setup>
-import type { UploadProps } from 'element-plus';
-
-import { ref } from 'vue';
-
-import { useAppConfig } from '@vben/hooks';
-import { useAccessStore } from '@vben/stores';
+import type { UploadProps, UploadRequestOptions } from 'element-plus';
 
 import { Upload } from '@element-plus/icons-vue';
 import { ElButton, ElIcon, ElMessage, ElUpload } from 'element-plus';
 
-import { parseOpenBoot, rewriteBootUrl } from '#/api/boot-url';
+import { uploadMaterial } from '#/api/pay/config';
 
-const emit = defineEmits(['handleSuccess']);
-const accessStore = useAccessStore();
-const headers = ref({
-  satoken: accessStore.accessToken,
-});
-
-const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
-const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT);
-const action = ref(
-  `${apiURL}${rewriteBootUrl('/pay/payconfig/cert/upload', openBoot) ?? '/pay/payconfig/cert/upload'}`,
+const props = withDefaults(
+  defineProps<{
+    buttonText?: string;
+    configId?: string;
+    disabled?: boolean;
+    purpose: string;
+  }>(),
+  {
+    configId: '',
+    buttonText: '上传资料',
+    disabled: false,
+  },
 );
-/**
- * 上传素材前事件
- */
-const beforeUploadCert: UploadProps['beforeUpload'] = () => {
+
+const emit = defineEmits<{
+  success: [material: any];
+}>();
+
+const beforeUpload: UploadProps['beforeUpload'] = (file) => {
+  if (!props.configId) {
+    ElMessage.warning('请先保存支付配置，再上传资料');
+    return false;
+  }
+  if (file.size > 256 * 1024) {
+    ElMessage.error('支付资料不能超过 256KB');
+    return false;
+  }
   return true;
 };
-/**
- * 上传成功事件
- */
-const handleSuccess: UploadProps['onSuccess'] = (response) => {
-  emit('handleSuccess', response.data);
-};
-/**
- * 上传失败事件
- */
-const handleError: UploadProps['onError'] = (error) => {
-  ElMessage.error(`${error}`);
+
+const handleUpload = async (options: UploadRequestOptions) => {
+  try {
+    const uploaded = await uploadMaterial(
+      props.configId,
+      props.purpose,
+      options.file as File,
+    );
+    options.onSuccess(uploaded);
+    emit('success', uploaded);
+    ElMessage.success('资料已加密保存');
+  } catch (error) {
+    options.onError(error as any);
+  }
 };
 </script>
+
 <template>
-  <div class="cert-upload">
-    <ElUpload
-      append-to-body
-      :action="action"
-      :headers="headers"
-      :show-file-list="false"
-      :before-upload="beforeUploadCert"
-      :on-success="handleSuccess"
-      :on-error="handleError"
-    >
-      <ElButton type="primary">
-        <ElIcon> <Upload /> </ElIcon>上传证书
-      </ElButton>
-    </ElUpload>
-  </div>
+  <ElUpload
+    action="#"
+    :disabled="disabled"
+    :show-file-list="false"
+    :before-upload="beforeUpload"
+    :http-request="handleUpload"
+  >
+    <ElButton type="primary" :disabled="disabled">
+      <ElIcon><Upload /></ElIcon>
+      {{ buttonText }}
+    </ElButton>
+  </ElUpload>
 </template>
-<style scoped>
-.cert-upload {
-  margin: 5px;
-}
-</style>

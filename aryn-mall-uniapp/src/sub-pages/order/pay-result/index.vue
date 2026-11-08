@@ -45,6 +45,8 @@ const state = reactive<{ order: any, payType: string }>({
 })
 /** 支付结果必须等待服务端确认，不能仅凭客户端回调展示成功 */
 const isPaid = computed(() => String(state.order?.payStatus ?? '') === '1')
+/** 渠道明确关闭后不再轮询，提示重新下单 */
+const isClosed = computed(() => String(state.order?.tradeStatus ?? '') === 'CLOSED')
 /** 推荐上下文：支付结果页只拿到支付单，订单商品需另查一次 */
 const recommendItems = ref<any[]>([])
 const payRecommendSpuIds = computed(() => {
@@ -88,7 +90,7 @@ async function refresh() {
   try {
     await getOrder(orderNo.value)
     loaded = true
-    if (isPaid.value) {
+    if (isPaid.value || isClosed.value) {
       clearPoll()
     }
     else {
@@ -123,7 +125,7 @@ async function getOrder(no: string) {
 }
 
 function schedulePoll() {
-  if (disposed || pollTimer || pollCount >= MAX_POLL || isPaid.value) {
+  if (disposed || pollTimer || pollCount >= MAX_POLL || isPaid.value || isClosed.value) {
     return
   }
   pollTimer = setTimeout(() => {
@@ -183,16 +185,16 @@ onPageScroll(handlePageScroll)
     </view>
     <view class="pay-result-header animated bounceInDown flex flex-col items-center justify-center p-30rpx">
       <wd-icon
-        :color="isPaid ? '#19be6b' : '#ff9900'"
-        :name="isPaid ? 'check-circle' : 'info-circle'"
+        :color="isPaid ? '#19be6b' : isClosed ? '#999999' : '#ff9900'"
+        :name="isPaid ? 'check-circle' : isClosed ? 'close-circle' : 'info-circle'"
         size="100rpx"
         :class="isPaid ? 'success-icon animated pulse infinite' : ''"
       />
       <text class="animated fadeInUp py-1 text-xl font-bold">
-        {{ isPaid ? t('order.result.success') : t('order.result.confirming') }}
+        {{ isPaid ? t('order.result.success') : isClosed ? t('order.result.closed') : t('order.result.confirming') }}
       </text>
       <text v-if="!isPaid" class="mt-2 px-6 text-center text-xs text-gray-400">
-        {{ t('order.result.confirmingDesc') }}
+        {{ isClosed ? t('order.result.closedDesc') : t('order.result.confirmingDesc') }}
       </text>
     </view>
     <view class="pay-result-content animated fadeInUp m-50rpx mx-80rpx delay-03s">
@@ -216,7 +218,7 @@ onPageScroll(handlePageScroll)
       </view>
     </view>
     <view class="pay-result-foot animated fadeInUp mt-40rpx flex items-center justify-center delay-05s">
-      <view v-if="!isPaid" class="p-2">
+      <view v-if="!isPaid && !isClosed" class="p-2">
         <wd-button plain :loading="checking" custom-class="action-btn hover-scale" @click="manualRefresh">
           {{ t('order.result.refresh') }}
         </wd-button>

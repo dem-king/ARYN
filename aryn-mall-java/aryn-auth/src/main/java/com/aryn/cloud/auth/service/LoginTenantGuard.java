@@ -29,15 +29,26 @@ public class LoginTenantGuard {
 	 * @return 已验证的租户 ID（与权威配置严格一致）
 	 */
 	public String requireVerifiedTenant(String appId, String requestTenantId) {
+		return requireVerifiedTenant(appId, requestTenantId,
+				com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum.WX_MA.getCode());
+	}
+
+	/**
+	 * @param platformType WX_MA / ALI_MINI；绑定记录必须与平台类型一致
+	 * @return 已验证的租户 ID（与权威配置严格一致）
+	 */
+	public String requireVerifiedTenant(String appId, String requestTenantId, String platformType) {
 		if (!StringUtils.hasText(appId)) {
 			throw new ArynBusinessException(403, "缺少小程序 AppID，拒绝登录");
 		}
 		if (!StringUtils.hasText(requestTenantId)) {
 			throw new ArynBusinessException(403, "缺少租户标识，拒绝登录");
 		}
-		MiniAppTenantBindingDTO binding = remoteMiniAppTenantService.requireBinding(appId, requestTenantId);
+		MiniAppTenantBindingDTO binding = remoteMiniAppTenantService.requireBinding(appId, requestTenantId,
+				platformType);
 		if (binding == null || !Boolean.TRUE.equals(binding.getReady())
-				|| !requestTenantId.equals(binding.getTenantId())) {
+				|| !requestTenantId.equals(binding.getTenantId())
+				|| !platformType.equals(binding.getPlatformType())) {
 			throw new ArynBusinessException(403, "小程序与租户配置不一致");
 		}
 		return binding.getTenantId();

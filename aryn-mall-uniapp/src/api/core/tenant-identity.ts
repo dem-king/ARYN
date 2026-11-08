@@ -82,17 +82,52 @@ function identityOrThrow(): Readonly<TenantBuildIdentity> {
   return tenantBuildIdentity
 }
 
+/**
+ * 运行容器平台判定：条件编译只影响构建产物，单测在 node 环境运行，
+ * 因此依赖 uni 运行时而非 #ifdef 决定取哪个 AppID。
+ */
+function isAlipayMiniRuntime(): boolean {
+  const buildPlatform = (globalThis as any).process?.env?.UNI_PLATFORM
+  if (buildPlatform === 'mp-alipay') {
+    return true
+  }
+  if (buildPlatform === 'mp-weixin') {
+    return false
+  }
+  if (typeof uni === 'undefined' || typeof uni.getSystemInfoSync !== 'function') {
+    return false
+  }
+  try {
+    return uni.getSystemInfoSync().uniPlatform === 'mp-alipay'
+  }
+  catch {
+    return false
+  }
+}
+
+/** 当前运行平台对应的租户 AppID：微信取 wxAppId，支付宝取 aliAppId。 */
+function platformAppId(identity: Readonly<TenantBuildIdentity>): string {
+  return isAlipayMiniRuntime() ? (identity.aliAppId || '') : identity.wxAppId
+}
+
+function platformEnvAppId(): string {
+  return isAlipayMiniRuntime()
+    ? (import.meta.env.VITE_TENANT_ALI_APPID || '')
+    : import.meta.env.VITE_TENANT_WX_APPID
+}
+
 /** 本地一致性断言：generated identity ↔ import.meta.env，任何漂移立即拒绝（不发请求）。 */
 function assertLocalIdentity(): void {
   const identity = identityOrThrow()
   const envTenantId = import.meta.env.VITE_TENANT_ID
-  const envAppId = import.meta.env.VITE_TENANT_WX_APPID
+  const expectedAppId = platformAppId(identity)
+  const envAppId = platformEnvAppId()
   const envOpenBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
   const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL
   if (envTenantId !== identity.tenantId) {
     throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.tenantIdMismatch'), identity.buildId)
   }
-  if (envAppId !== identity.wxAppId) {
+  if (!expectedAppId || envAppId !== expectedAppId) {
     throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.appIdMismatch'), identity.buildId)
   }
   if (envOpenBoot !== identity.openBoot) {
@@ -100,6 +135,21 @@ function assertLocalIdentity(): void {
   }
   if (envApiBaseUrl !== identity.apiBaseUrl) {
     throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.apiBaseUrlMismatch'), identity.buildId)
+  }
+  if (isAlipayMiniRuntime()) {
+    const alipayApi = (globalThis as any).my
+    if (alipayApi && typeof alipayApi.getAppIdSync === 'function') {
+      let realAppId = ''
+      try {
+        realAppId = alipayApi.getAppIdSync()?.appId || ''
+      }
+      catch {
+        realAppId = ''
+      }
+      if (realAppId !== identity.aliAppId) {
+        throw new TenantGuardError('device-mismatch', translate('app.tenantGuard.deviceMismatch', { real: realAppId || 'unknown' }), identity.buildId)
+      }
+    }
   }
   // #ifdef MP-WEIXIN
   // 真机/开发者工具读取运行容器 AppID；vitest（node 环境）里 #ifdef 不剥离，
@@ -124,6 +174,11 @@ function bindingHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'tenant-id': identity.tenantId,
   }
+  if (isAlipayMiniRuntime()) {
+    headers['app-id'] = identity.aliAppId
+    headers['platform-type'] = 'ALI_MINI'
+    return headers
+  }
   // #ifdef MP-WEIXIN
   headers['app-id'] = identity.wxAppId
   headers['platform-type'] = 'WX_MA'
@@ -144,7 +199,7 @@ async function runBindingCheck(): Promise<void> {
   const identity = identityOrThrow()
   try {
     const binding = await preflightTenantBinding(bindingHeaders())
-    if (!binding.ready || binding.appId !== identity.wxAppId || binding.tenantId !== identity.tenantId) {
+    if (!binding.ready || binding.appId !== platformAppId(identity) || binding.tenantId !== identity.tenantId) {
       throw new TenantGuardError('binding-blocked', translate('app.tenantGuard.bindingMismatch'), identity.buildId)
     }
     setState('ready')
@@ -208,7 +263,7 @@ export async function refreshBindingOnShow(): Promise<void> {
   const identity = identityOrThrow()
   try {
     const binding = await preflightTenantBinding(bindingHeaders())
-    if (!binding.ready || binding.appId !== identity.wxAppId || binding.tenantId !== identity.tenantId) {
+    if (!binding.ready || binding.appId !== platformAppId(identity) || binding.tenantId !== identity.tenantId) {
       setState('blocked')
       bindingError = new TenantGuardError('binding-blocked', translate('app.tenantGuard.bindingChanged'), identity.buildId)
     }

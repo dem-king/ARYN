@@ -11,6 +11,8 @@
     <sql id="socialUserColumns">
         social_user.id,
         social_user.social_account_id,
+        social_user.platform_type,
+        social_user.identity_mode,
         social_user.app_id,
         social_user.open_id,
         social_user.session_key,

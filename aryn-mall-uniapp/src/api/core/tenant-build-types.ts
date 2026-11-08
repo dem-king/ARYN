@@ -8,6 +8,8 @@ export interface TenantBuildIdentity {
   key: string
   tenantId: string
   wxAppId: string
+  /** 支付宝小程序 AppID；未配置为空串，MP-ALIPAY 租户构建会 fail-closed。 */
+  aliAppId: string
   name: string
   profile: 'production' | 'staging'
   deployment: 'boot' | 'cloud'

@@ -172,6 +172,11 @@ class ReplenishImportClassifierTest {
 		// 全角/半角与空白差异不算变更
 		assertEquals(SharedCartImportRow.RESULT_OK,
 				ReplenishImportClassifier.classify(vo, "550ml × 24/箱", "5").resultType());
+		// 500ml 与 1500ml、1kg 与 11kg 是真实规格差异，不能因子串包含被放行
+		assertEquals(SharedCartImportRow.RESULT_SPEC_CHANGED,
+				ReplenishImportClassifier.classify(matched(100, 1, 1, "1500ml/瓶"), "500ml/瓶", "5").resultType());
+		assertEquals(SharedCartImportRow.RESULT_SPEC_CHANGED,
+				ReplenishImportClassifier.classify(matched(100, 1, 1, "11kg/袋"), "1kg/袋", "5").resultType());
 	}
 
 	@Test

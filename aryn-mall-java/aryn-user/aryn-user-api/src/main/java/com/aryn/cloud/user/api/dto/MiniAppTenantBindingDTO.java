@@ -24,6 +24,16 @@ public class MiniAppTenantBindingDTO implements Serializable {
 
 	private String tenantId;
 
+	/**
+	 * 平台类型：WX_MA / ALI_MINI。
+	 */
+	private String platformType;
+
+	/**
+	 * 身份模式；ALI_MINI 为 user_id/open_id，WX_MA 为 open_id。
+	 */
+	private String identityMode;
+
 	private String accountId;
 
 	/**

@@ -312,20 +312,98 @@ describe('shared cart routing contract', () => {
     expect(detail).toContain('cart.viewerCanConfirm')
   })
 
-  it('import entry wizard registers in pages.json and shortcuts into import', () => {
+  it('import entry wizard registers in pages.json and shortcuts into direct import', () => {
     const pages = source('src/pages.json')
     expect(pages).toContain('"path": "order/shared-cart/import-entry"')
     expect(pages).toContain('"name": "shared-cart-import-entry"')
 
     const entry = source('src/sub-pages/order/shared-cart/import-entry.vue')
-    // 有进行中购物车：摘要复用后直达导入，不让用户感知"购物车"这一层
-    expect(entry).toContain('getActiveSharedCartSummary')
-    expect(entry).toContain('/sub-pages/order/shared-cart/import?cartId=')
-    // 无进行中购物车：内联创建，同船期复用口径与列表页一致
-    expect(entry).toContain('createSharedCart')
-    expect(entry).toContain('adoptedExisting')
-    // 有效期统一由服务端按创建时刻 +24h 决定，前端不得传 expiresAt
+    // 直下单模式（2026-11-07）：向导只收集配送目标，不创建/复用共享购物车
+    expect(entry).not.toContain('createSharedCart')
+    expect(entry).not.toContain('getActiveSharedCartSummary')
+    // 配送目标经 directImportOrderStore 交给结算页（scene=2 船供 / scene=3 岸上）
+    expect(entry).toContain('directImportOrderStore.begin')
+    expect(entry).toContain('/sub-pages/order/shared-cart/import?mode=direct')
+    // 有效期概念已随建车链路移除；保留禁词防回归
     expect(entry).not.toContain('expiresAt')
+  })
+
+  it('direct import endpoints stay cart-free and confirm never writes cart items', () => {
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppReplenishImportController.java`)
+    expect(controller).toContain('@RequestMapping("/app/replenish-import")')
+    expect(controller).toContain('@PostMapping("/preview")')
+    expect(controller).toContain('/imports/{importId}/confirm')
+
+    // 确认的终点是复核清单（结算页下单），不是补给单明细：沾到 SharedCartItem 即违约
+    const service = repoSource(`${ORDER_BIZ}/service/impl/ReplenishDirectImportServiceImpl.java`)
+    expect(service).not.toContain('SharedCartItem')
+    expect(service).not.toContain('sharedCartItemMapper')
+
+    // 场景契约：岸上企业采购 scene=3 必须经 HTTP 结算/下单 DTO 放行（共享车 service 直调不受限）
+    const createDto = repoSource(`${ORDER_API}/api/dto/CreateOrderDTO.java`)
+    expect(createDto).toContain('@Pattern(regexp = "[123]", message = "购买场景不合法")')
+    const settleDto = repoSource(`${ORDER_API}/api/dto/SettlementOrderDTO.java`)
+    expect(settleDto).toContain('@Pattern(regexp = "[123]", message = "购买场景不合法")')
+  })
+
+  it('direct import handoff is bound to one checkout and survives refresh', () => {
+    const entry = source('src/sub-pages/order/shared-cart/import-entry.vue')
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    const confirm = source('src/sub-pages/order/order-confirm/index.vue')
+    const api = source('src/api/order/replenishImport.ts')
+
+    // 向导把本次交接 ID 与船/靠港一起交给导入页；只传 active 布尔会被普通订单继承
+    expect(entry).toContain('handoff=${encodeURIComponent(handoffId)}')
+    expect(entry).toContain('vesselId: shipContextStore.vesselId')
+    expect(entry).toContain('vesselCallId: shipContextStore.vesselCallId')
+
+    // 报告页只接受与 store 匹配的 handoff；确认后结算页 URL 必须继续携带同一个 ID
+    expect(page).toContain('directImportOrderStore.matches(handoffId.value)')
+    expect(page).toContain('handoff=${encodeURIComponent(handoffId.value)}')
+    // 空回执/部分跳过必须留在报告页说明，不能静默跳结算
+    expect(page).toContain('result.checkoutReady')
+    expect(page).toContain('result.skippedRows')
+
+    // 结算页只认匹配的 handoff；普通入口清理残留，场景统一走纯函数
+    expect(confirm).toContain('directImportOrderStore.matches(handoffParam)')
+    expect(confirm).toContain('resolveDeliveryContext')
+    expect(confirm).toContain('applyCheckoutDeliveryContext')
+    expect(confirm).toContain('directImportOrderStore.clear()')
+
+    expect(api).toContain('ReplenishDirectImportConfirmResult')
+    expect(api).toContain('checkoutReady')
+  })
+
+  it('restores a confirmed import after the app is killed before checkout', () => {
+    const entry = source('src/sub-pages/order/shared-cart/import-entry.vue')
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    const api = source('src/api/order/replenishImport.ts')
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppReplenishImportController.java`)
+
+    // 后端提供「最近可继续任务」与「已确认清单恢复」两个只读入口
+    expect(controller).toContain('@GetMapping("/latest")')
+    expect(controller).toContain('@GetMapping("/imports/{importId}/items")')
+
+    // 前端重启后先取回上次报告；已确认的任务直接展示「继续去结算」
+    expect(page).toContain('restoreDirectReport')
+    expect(page).toContain('getLatestDirectImport')
+    expect(page).toContain('resumeDirectImport')
+    expect(page).toContain('canResumeCheckout')
+    expect(page).toContain('handleResumeCheckout')
+
+    // 向导给「继续上次导入」一个恢复入口，避免用户只能重新上传
+    expect(entry).toContain('hasResumableImport')
+    expect(entry).toContain('resumeLastImport')
+
+    expect(api).toContain('getLatestDirectImport')
+    expect(api).toContain('resumeDirectImport')
+  })
+
+  it('shows freight for mall delivery (way=3), not only express', () => {
+    const item = source('src/sub-pages/order/order-confirm/components/ShopOrderItem.vue')
+    // 岸上企业导入走 way=3，运费由后端 orderFreightHandler 计算；
+    // 只判 way=1 会让用户只看到合计增加、看不到运费行
+    expect(item).toContain('localOrder.deliveryWay === \'3\'')
   })
 
   it('import entry is reachable from the home replenish card placeholder', () => {

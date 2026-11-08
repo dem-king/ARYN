@@ -11,11 +11,8 @@ import com.aryn.cloud.pay.api.entity.PayRefundOrder;
 import com.aryn.cloud.pay.api.enums.PayRefundOrderStatusEnum;
 import com.aryn.cloud.pay.handler.AbstractPayRefundOrderHandler;
 import com.aryn.cloud.pay.service.IPayRefundOrderService;
+import com.aryn.cloud.pay.service.PayEventOutboxService;
 import lombok.RequiredArgsConstructor;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -26,7 +23,7 @@ public class FreeRefundHandler extends AbstractPayRefundOrderHandler {
 
 	private final IPayRefundOrderService payRefundOrderService;
 
-	private final RocketMQTemplate rocketMQTemplate;
+	private final PayEventOutboxService outboxService;
 
 	@Override
 	public Object doRefund(PayRefundOrder payRefundOrder) {
@@ -37,11 +34,9 @@ public class FreeRefundHandler extends AbstractPayRefundOrderHandler {
 		jsonObject.put(PayConstants.EXTRA_PARAMS, payRefundOrder.getExtra());
 		jsonObject.put(PayConstants.REFUND_TRADE_NO, payRefundOrder.getRefundTradeNo());
 		jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
-		SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
-				new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
-		if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
-			throw new IllegalStateException("退款状态通知发送失败");
-		}
+		outboxService.enqueue(ArynTenantContextHolder.getTenantId(), "REFUND_SUCCESS",
+				payRefundOrder.getRefundTradeNo(), RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+				jsonObject.toJSONString());
 		return payRefundOrder;
 	}
 

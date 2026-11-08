@@ -154,6 +154,8 @@ export default {
       success: '支付成功',
       confirming: '支付结果确认中',
       confirmingDesc: '若已完成支付，系统会在几秒内自动更新；也可刷新结果或稍后到订单列表查看。',
+      closed: '支付已关闭',
+      closedDesc: '支付单已关闭，请返回订单列表重新发起支付。',
       refresh: '刷新结果',
       paymentNo: '支付编号',
       paymentMethod: '支付方式',

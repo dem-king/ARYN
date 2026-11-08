@@ -13,6 +13,16 @@ export default {
       daysClock: '{days}d {clock}',
       days: '{days}d',
     },
+    newbie: {
+      title: 'New User Perks',
+      goodsCount: '{count} items at new user price',
+      ruleHint: 'Limit per item at new user price',
+      longTerm: 'Always on',
+      perksNoRegister: 'New user price · Limit {limit} per item',
+      emptyTitle: 'No new user event yet',
+      emptyDesc: 'New offers will appear here. Browse something else first.',
+      footNote: 'Eligibility and purchase limits are confirmed at checkout',
+    },
     discount: {
       title: 'Limited Offer',
       countdownEnd: 'Ends in',

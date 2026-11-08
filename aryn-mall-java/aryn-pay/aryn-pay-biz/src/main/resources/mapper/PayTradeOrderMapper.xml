@@ -10,6 +10,7 @@
 	<update id="markPaidIfPending">
 		UPDATE pay_trade_order
 		SET pay_status = '1',
+			trade_status = 'PAID',
 			channel_order_no = #{channelOrderNo},
 			pay_success_time = #{paySuccessTime},
 			update_time = NOW()
@@ -18,4 +19,105 @@
 		  AND pay_status = '0'
 		  AND del_flag = '0'
 	</update>
+
+	<update id="markSubmitting">
+		UPDATE pay_trade_order
+		SET trade_status = 'SUBMITTING',
+			prepay_time = NOW(),
+			err_code = NULL,
+			err_msg = NULL,
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND del_flag = '0'
+		  AND (trade_status IN ('PENDING', 'UNKNOWN') OR trade_status IS NULL)
+	</update>
+
+	<update id="markPending">
+		UPDATE pay_trade_order
+		SET trade_status = 'PENDING',
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND trade_status = 'SUBMITTING'
+		  AND del_flag = '0'
+	</update>
+
+	<update id="markUnknown">
+		UPDATE pay_trade_order
+		SET trade_status = 'UNKNOWN',
+			err_code = #{errCode},
+			err_msg = #{errMsg},
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND trade_status IN ('SUBMITTING', 'PENDING', 'CLOSING')
+		  AND del_flag = '0'
+	</update>
+
+	<update id="markClosing">
+		UPDATE pay_trade_order
+		SET trade_status = 'CLOSING',
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND trade_status IN ('PENDING', 'UNKNOWN')
+		  AND del_flag = '0'
+	</update>
+
+	<update id="claimClosing">
+		UPDATE pay_trade_order
+		SET trade_status = 'CLOSING',
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND del_flag = '0'
+		  AND (trade_status IN ('PENDING', 'UNKNOWN')
+		       OR trade_status IS NULL
+		       OR (trade_status = 'CLOSING' AND update_time &lt; #{staleBefore}))
+	</update>
+
+	<update id="markClosed">
+		UPDATE pay_trade_order
+		SET trade_status = 'CLOSED',
+			close_time = NOW(),
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND pay_status = '0'
+		  AND trade_status IN ('CLOSING', 'PENDING', 'UNKNOWN')
+		  AND del_flag = '0'
+	</update>
+
+	<update id="bindRevisionIfAbsent">
+		UPDATE pay_trade_order
+		SET config_revision_id = #{revisionId},
+			update_time = NOW()
+		WHERE id = #{id}
+		  AND tenant_id = #{tenantId}
+		  AND del_flag = '0'
+		  AND (config_revision_id IS NULL OR config_revision_id = '')
+	</update>
+
+	<select id="countByRevisionId" resultType="long">
+		SELECT COUNT(*)
+		FROM pay_trade_order
+		WHERE tenant_id = #{tenantId}
+		  AND config_revision_id = #{revisionId}
+		  AND del_flag = '0'
+	</select>
+
+	<select id="countByChannelTerminal" resultType="long">
+		SELECT COUNT(*)
+		FROM pay_trade_order
+		WHERE tenant_id = #{tenantId}
+		  AND terminal_type = #{terminalType}
+		  AND trade_type LIKE CONCAT(#{tradeTypePrefix}, '%')
+		  AND del_flag = '0'
+	</select>
 </mapper>

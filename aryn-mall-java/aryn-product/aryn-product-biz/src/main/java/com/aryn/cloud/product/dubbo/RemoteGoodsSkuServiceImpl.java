@@ -5,6 +5,7 @@ import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.service.IGoodsSkuService;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,16 @@ public class RemoteGoodsSkuServiceImpl implements RemoteGoodsSkuService {
 	@Override
 	public List<GoodsSku> getSkuByIds(List<String> ids) {
 		return goodsSkuService.getSkuByIds(ids);
+	}
+
+	@Override
+	public List<GoodsSku> listBySpuIds(List<String> spuIds) {
+		if (spuIds == null || spuIds.isEmpty()) {
+			return List.of();
+		}
+		return goodsSkuService.list(Wrappers.<GoodsSku>lambdaQuery()
+			.select(GoodsSku::getId, GoodsSku::getSpuId)
+			.in(GoodsSku::getSpuId, spuIds));
 	}
 
 }

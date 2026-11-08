@@ -5,15 +5,7 @@ import type { ConversationFilterState, ServiceTab } from './service-state';
 import type { Conversation } from '#/api/message/types';
 import type { MessagePushSignal } from '#/store/message';
 
-import {
-  computed,
-  onActivated,
-  onBeforeUnmount,
-  onDeactivated,
-  onMounted,
-  ref,
-  watch,
-} from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { useAccess } from '@vben/access';
@@ -748,20 +740,6 @@ useKeepAliveRefresh(() => {
   })();
 });
 
-/** 深色令牌作用域：工作台可见时给 html 挂类，让 teleport 到 body 的弹层也变深。 */
-function attachDeskTheme() {
-  if (typeof document === 'undefined') return;
-  document.documentElement.classList.add('desk-theme');
-}
-
-function detachDeskTheme() {
-  if (typeof document === 'undefined') return;
-  document.documentElement.classList.remove('desk-theme');
-}
-
-onActivated(attachDeskTheme);
-onDeactivated(detachDeskTheme);
-
 /** 桌面通知点击：主窗口收到事件后跳工作台；独立窗口直接定位会话。 */
 function handleOpenConversationEvent(event: Event) {
   const detail = (event as CustomEvent<{ conversationId?: string }>).detail;
@@ -778,7 +756,6 @@ onMounted(async () => {
     'aryn:open-conversation',
     handleOpenConversationEvent,
   );
-  attachDeskTheme();
   // 接待状态与心跳由应用级 store 托管，页面卸载（去查订单等）不再掉线。
   presenceStore.activate();
   // 独立窗口没有 BasicLayout 启动实时通道：这里显式启动（幂等）。

@@ -37,3 +37,16 @@ export function splitPrice(value: unknown): PriceParts | null {
     decimal,
   }
 }
+
+/**
+ * 把已格式化的金额文本拆成整数/小数两段（小数位数原样保留，不补零）。
+ *
+ * 与 `splitPrice` 的区别：本函数不改写数字格式，只做「整数大、小数小」的排版拆分，
+ * 供仍沿用 `formatAmount`（去掉末尾 0）的卡片保持原有金额文案。
+ */
+export function splitAmountText(text: string): PriceParts {
+  const dot = text.indexOf('.')
+  return dot === -1
+    ? { integer: text, decimal: '' }
+    : { integer: text.slice(0, dot), decimal: text.slice(dot + 1) }
+}

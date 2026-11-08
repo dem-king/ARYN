@@ -8,6 +8,7 @@ import { getByIds } from '@/api/product/spu'
 import { getActivityById } from '@/api/promotion/groupBuyActivity'
 import { normalizeRetailGoods } from '@/components/diy/retail-normalizers'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
 import { getRecordPage, joinGroup, openGroup } from '@/sub-pages/api/promotion/groupBuyRecord'
@@ -657,12 +658,8 @@ onPageScroll(handlePageScroll)
             </view>
             <view class="price-row">
               <view class="price-main">
-                <text class="price-sym">
-                  ¥
-                </text>
-                <text class="price-val">
-                  {{ groupPriceText || '--' }}
-                </text>
+                <price-text v-if="groupPriceText" class="price-val" :value="activity?.groupPrice" />
+                <text v-else class="price-val">--</text>
                 <text class="price-label">
                   {{ t('promotion.groupBuy.groupPrice') }}
                 </text>
@@ -1060,13 +1057,9 @@ onPageScroll(handlePageScroll)
   align-items: baseline;
 }
 
-.price-sym {
-  color: var(--wot-color-theme-primary, #ff2237);
-  font-size: 20rpx;
-  font-weight: 700;
-}
-
 .price-val {
+  --price-symbol-size: 0.48em;
+
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 42rpx;
   font-weight: 800;

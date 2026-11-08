@@ -78,8 +78,8 @@ public class CreateOrderDTO {
 	@Schema(description = "是否使用全部可用积分（确认页开关；优先于 usePoints）")
 	private Boolean useMaxPoints;
 
-	@Schema(description = "购买场景：1.海员个人购买；2.船供采购")
-	@Pattern(regexp = "[12]", message = "购买场景不合法")
+	@Schema(description = "购买场景：1.海员个人购买；2.船供采购；3.岸上企业采购")
+	@Pattern(regexp = "[123]", message = "购买场景不合法")
 	private String purchaseScene;
 
 	@Schema(description = "配送船舶ID（到船配送必填）")

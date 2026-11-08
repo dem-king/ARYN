@@ -61,6 +61,12 @@ public class SocialAccountVO extends Model<SocialAccountVO> {
 	private String appSecret;
 
 	/**
+	 * 身份模式：ALI_MINI 为 user_id/open_id
+	 */
+	@Schema(description = "身份模式")
+	private String identityMode;
+
+	/**
 	 * 创建时间
 	 */
 	@Schema(description = "创建时间")

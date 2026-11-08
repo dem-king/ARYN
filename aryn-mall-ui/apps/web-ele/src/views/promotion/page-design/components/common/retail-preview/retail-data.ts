@@ -158,7 +158,11 @@ export interface RetailNewbieFloorItem {
   goodsList: RetailNewbieGoodsItem[];
   /** 每人每 SKU 限购件数（固定 1） */
   limitPerUser: number;
+  /** 长期有效：C 端不展示结束倒计时 */
+  longTerm: boolean;
   registerWithinDays: number;
+  /** 活动商品总数（goodsList 可能按楼层展示数截断，入口条件要按全量判断） */
+  totalGoods: number;
 }
 
 export interface RetailDataDependencies {
@@ -689,7 +693,9 @@ export function normalizeNewbieFloor(value: unknown): RetailNewbieFloorItem[] {
         })
         .filter((goodsItem) => Boolean(goodsItem.skuId)),
       limitPerUser: toNumber(record.limitPerUser) || 1,
+      longTerm: record.longTerm === true,
       registerWithinDays: toNumber(record.registerWithinDays),
+      totalGoods: goods.length,
     },
   ];
 }

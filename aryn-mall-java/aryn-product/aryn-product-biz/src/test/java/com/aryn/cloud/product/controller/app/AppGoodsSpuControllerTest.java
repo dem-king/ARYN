@@ -25,7 +25,7 @@ class AppGoodsSpuControllerTest {
 		IGoodsSpuService goodsSpuService = mock(IGoodsSpuService.class);
 		when(goodsSpuService.apiListByIds(List.of("goods-1", "goods-2"))).thenReturn(List.of());
 		// 被测方法不触达快捷加购/榜单服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null);
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null, null);
 
 		controller.getById(List.of("goods-1", "goods-2"));
 
@@ -43,7 +43,7 @@ class AppGoodsSpuControllerTest {
 		GoodsSpu query = new GoodsSpu();
 		when(goodsSpuService.apiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any()))
 			.thenReturn(page);
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null);
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null, null);
 
 		controller.page(page, query, new BigDecimal("1.15"), null, null, null);
 
@@ -58,7 +58,7 @@ class AppGoodsSpuControllerTest {
 		GoodsSpu query = new GoodsSpu();
 		when(goodsSpuService.apiPage(any(Page.class), any(GoodsSpu.class), isNull(), isNull(), isNull(), isNull()))
 			.thenReturn(page);
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null);
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null, null);
 
 		controller.page(page, query, null, null, null, null);
 
@@ -71,7 +71,7 @@ class AppGoodsSpuControllerTest {
 		IGoodsSpuService goodsSpuService = mock(IGoodsSpuService.class);
 		Page<GoodsSpu> page = new Page<>(1, 10);
 		when(goodsSpuService.recommendPage(page, "spu-1", List.of("spu-2"), List.of("spu-9"))).thenReturn(page);
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null);
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null, null, null);
 
 		controller.recommend(page, "spu-1", List.of("spu-2"), List.of("spu-9"));
 

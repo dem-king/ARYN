@@ -4,6 +4,7 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getById } from '@/sub-pages/api/order/orderItem'
 import { addObj } from '@/sub-pages/api/order/orderRefunds'
+import PriceText from '@/components/price-text/index.vue'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
@@ -104,7 +105,7 @@ onPageScroll(handlePageScroll)
             <wd-text custom-class="pt-1" size="12px" color="#909090" :text="state.orderItem.specsInfo" />
           </view>
           <view class="flex items-center justify-between pt-1">
-            <wd-text :text="state.orderItem.salesPrice" color="red" mode="price" prefix="￥" />
+            <price-text class="refund-item-price" :value="state.orderItem.salesPrice" symbol="￥" />
             <wd-text size="26rpx" color="inherit" :text="`x${state.orderItem.buyQuantity}`" />
           </view>
         </view>
@@ -137,6 +138,11 @@ onPageScroll(handlePageScroll)
 </template>
 
 <style lang="scss" scoped>
+/* 商品单价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
+.refund-item-price {
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
 :deep(.wd-textarea) {
   border: 1px solid var(--app-border) !important;
   border-radius: 10rpx !important;

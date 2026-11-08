@@ -1,0 +1,130 @@
+/*
+ * 通知管理页共享的语义胶囊 / 进度条 / 弱文字样式（全局，非 scoped）。
+ *
+ * 原因：列表页与详情抽屉是两个组件，各自 `\3c style scoped>` 会重复维护同一套
+ * `.nt-pill--{tone}` / `.nt-dot--{tone}` 规则，两边一旦漂移就会出现「列表里
+ * 已发布是绿点、抽屉里变成灰点」的不一致。这里抽成一份命名空间化的全局样式
+ * （`nt-` 前缀不会污染其它页面，做法与 `views/message/service/desk-tokens.css` 一致）。
+ *
+ * 对比度约定：语义色只落在**圆点 / 边框 / 浅底**上，胶囊文字一律用
+ * `--el-text-color-primary|regular`。Element Plus 的 `--el-color-*` 在浅色主题下
+ * 直接当文字色只有约 3:1，达不到 WCAG AA 的 4.5:1（改动前基线实测摘要文字
+ * 3.08:1 就是这个坑）。
+ *
+ * 弱文字同理：`--el-text-color-secondary`（#909399）在浅色卡片上只有 3.08:1，
+ * 12px 正文用它必然不达 AA。这里按主题各给一个 ≥4.5:1 的替代色。
+ */
+
+:root {
+  /* 浅色卡片（#fff）上 5.64:1 */
+  --nt-text-muted: #5f6875;
+}
+
+html.dark {
+  /* 暗色卡片（rgb(28,30,35)）上 7.42:1 */
+  --nt-text-muted: #a9adb6;
+}
+
+.nt-pill {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+  background: var(--el-fill-color-light);
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.nt-pill--primary {
+  color: var(--el-text-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-8);
+}
+
+.nt-pill--success {
+  color: var(--el-text-color-primary);
+  background: var(--el-color-success-light-9);
+  border-color: var(--el-color-success-light-8);
+}
+
+.nt-pill--warning {
+  color: var(--el-text-color-primary);
+  background: var(--el-color-warning-light-9);
+  border-color: var(--el-color-warning-light-8);
+}
+
+.nt-pill--danger {
+  color: var(--el-text-color-primary);
+  background: var(--el-color-danger-light-9);
+  border-color: var(--el-color-danger-light-8);
+}
+
+.nt-pill--info {
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-light);
+  border-color: var(--el-border-color-lighter);
+}
+
+.nt-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--el-color-info);
+  border-radius: 50%;
+}
+
+.nt-dot--primary {
+  background: var(--el-color-primary);
+}
+
+.nt-dot--success {
+  background: var(--el-color-success);
+}
+
+.nt-dot--warning {
+  background: var(--el-color-warning);
+}
+
+.nt-dot--danger {
+  background: var(--el-color-danger);
+}
+
+/* 数字列统一等宽：`0 / 1` 与 `12 / 137` 混排时宽度不抖动 */
+.nt-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-progress {
+  height: 4px;
+  overflow: hidden;
+  background: var(--el-fill-color);
+  border-radius: 999px;
+}
+
+.nt-progress__bar {
+  display: block;
+  height: 100%;
+  background: var(--el-color-primary);
+  border-radius: inherit;
+  transition: width 0.25s ease-out;
+}
+
+.nt-progress__bar.is-failed {
+  background: var(--el-color-danger);
+}
+
+/* 下拉菜单里的 destructive 动作与普通动作视觉分离（Electron 系后台通用做法） */
+.el-dropdown-menu__item.nt-danger {
+  color: var(--el-color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-progress__bar {
+    transition: none;
+  }
+}

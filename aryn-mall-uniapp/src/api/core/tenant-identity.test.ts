@@ -42,6 +42,7 @@ const TENANT_IDENTITY = Object.freeze({
   key: 'aetheryn',
   tenantId: '1590229800633634816',
   wxAppId: 'wx0a8242ea59f3e6b4',
+  aliAppId: '',
   name: '悦航购',
   profile: 'production',
   deployment: 'boot',

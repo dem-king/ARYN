@@ -69,12 +69,29 @@ describe('goods detail purchase contract', () => {
     expect(info).toContain('{{ specRow.text }}')
   })
 
-  it('delivery row switches to internal delivery wording via resolveDeliveryRow', () => {
+  it('delivery row renders via resolveDeliveryRow and 包邮 never shows on detail', () => {
     const info = source(GOODS_INFO)
     expect(info).toContain('resolveDeliveryRow({')
     expect(info).toContain('hasVesselContext: shipContextStore.hasVesselContext')
+    // 行可见性由共享层判定（普通场景仅收费商品展示），模板挂 visible 而非自行判运费
+    expect(info).toContain('v-if="deliveryRow.visible"')
+    // 「包邮」不再上商详（小象/盒马口径，与商品卡删「包邮」chip 对齐）
+    expect(info).not.toContain('product.freeShipping')
     // 与结算页同判据，不允许回退成 freightType 三元链直连
     expect(info).not.toContain('goodsSpu.freightType === \'0\' ? \'包邮\'')
+  })
+
+  it('subtitle is a fallback for the rich-text intro, never shown alongside it', () => {
+    const info = source(GOODS_INFO)
+    const showSubtitleBlock = info.slice(
+      info.indexOf('const showSubtitle'),
+      info.indexOf('const newbieLimitText'),
+    )
+    // 小象/盒马口径：商详只保留一个描述面——运营录入的副标题常是卖点前半句，
+    // 卖点富文本存在时副标题整行隐藏，两行并排必然重复
+    expect(showSubtitleBlock).toContain('introductionHtml.value.length === 0')
+    // 与商品名重复的既有守卫保持不变
+    expect(showSubtitleBlock).toContain('subtitle !== name')
   })
 
   it('detail sheet shares the same spec row and direct-add rules', () => {

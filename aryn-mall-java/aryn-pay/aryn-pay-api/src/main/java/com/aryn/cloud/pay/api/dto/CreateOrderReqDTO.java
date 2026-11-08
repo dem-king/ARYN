@@ -43,4 +43,10 @@ public class CreateOrderReqDTO implements Serializable {
 	@Schema(description = "用户ID")
 	private String userId;
 
+	/**
+	 * 客户端平台（服务端从请求头读取，仅用于小程序支付平台一致性约束）。
+	 */
+	@Schema(description = "客户端平台：WX_MA/ALI_MINI")
+	private String clientPlatform;
+
 }

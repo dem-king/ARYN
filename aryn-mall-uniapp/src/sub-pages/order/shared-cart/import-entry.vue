@@ -1,40 +1,34 @@
 <script setup lang="ts">
-import type { SharedCartCreatePayload, SharedCartSummary } from '@/api/order/sharedCart'
-
 /**
- * 导入清单下单（向导入口）。
+ * 导入清单下单（向导入口，直下单模式）。
  *
- * 场景：管事/大副线下已统计好整船采购清单（Excel），只想「传文件 → 确认 → 下单」，
- * 不关心共享购物车这个中间概念。但 Excel 里只有行数据，单据头（船舶/靠港/配送窗口）
- * 必须落在购物车上，且导入接口挂在具体购物车下 —— 所以向导做的是把
- * 「创建/复用购物车 → 进入导入」两步串成一步直达，而不是绕道列表页和详情页。
+ * 场景：管事/大副或岸上企业客户线下已统计好采购清单（Excel），
+ * 要的是「传文件 → 核对 → 下单」，不创建也不感知共享购物车这张单据。
+ * 向导只负责收集**配送目标**（船供=靠港 / 岸上=收货地址），随后进导入报告页
+ * 上传核对；确认后复核清单经 directImportOrderStore 交给结算页，
+ * 走既有下单链路直接生成订单（createWay=2）。
  *
- * 流程：
- * 1. 有进行中的购物车 → 直接跳导入页（复用，不让用户感知购物车存在）；
- * 2. 没有 → 本页内联一张轻量创建表单（船舶上下文 + 备注），创建成功后直接跳导入页；
- * 3. 创建接口自带同船期复用（adoptedExisting），并发场景不会造出第二张单。
+ * 2026-11-07 重做：不再创建/复用共享购物车（此前「创建并导入 Excel」会先建车）。
+ * 补给单多人收集流程仍在：列表页发起 → 详情页「导入 Excel」。
  *
- * 2026-11-01 视觉重构（用户截图：小程序「导入清单下单」页，要求主流现代）：
- * 切到全站冻结的「A. 现代简约」语言（白卡 + 发丝线 + 轻投影 + 中性灰 + 品牌色点状强调），
- * 同时补两处可用性缺口：
- *   · 直接进入本页时不再只读 store —— 先装载船舶上下文，有船/有靠港的用户不再被要求
- *     「再选一次」，只有真的缺上下文才落到选择器；
- *   · 把「创建后 24 小时有效 + 下一步发生什么」从一行灰色小字提成独立说明卡，
- *     并用吸底品牌 CTA 收口，首屏不再是一张孤卡 + 63.9% 的大片空白（见 before 实测）。
+ * 2026-11-01 视觉重构：全站冻结的「A. 现代简约」语言（白卡 + 发丝线 + 轻投影 +
+ * 中性灰 + 品牌色点状强调）；直接进入本页时先装载船舶上下文，有船/有靠港的
+ * 用户不再被要求「再选一次」。
  */
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createSharedCart, getActiveSharedCartSummary } from '@/api/order/sharedCart'
+import { getPage as getAddressPage } from '@/api/user/address'
 
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
-import { useAuthStore } from '@/store/authStore'
-import { useShipContextStore } from '@/store/shipContextStore'
-import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
+import { useAuthStore } from '@/store/authStore'
+import { useDirectImportOrderStore } from '@/store/directImportOrderStore'
+import { PURCHASE_SCENE_ENTERPRISE, PURCHASE_SCENE_SHIP_SUPPLY, useShipContextStore } from '@/store/shipContextStore'
+import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -48,6 +42,7 @@ definePage({
 
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
+const directImportOrderStore = useDirectImportOrderStore()
 const tenantCapabilityStore = useTenantCapabilityStore()
 const { t } = useI18n()
 const { load: loadShipContext } = useShipContextLoad()
@@ -55,19 +50,41 @@ const { load: loadShipContext } = useShipContextLoad()
 const resolving = ref(true)
 /** 纯零售租户：船供能力关闭，向导整体不可用 */
 const unsupported = ref(false)
-const summary = ref<SharedCartSummary | null>(null)
 
-/** 创建表单（与列表页同口径：收集截止由服务端按创建时刻 +24h 决定） */
+/** 岸上收货地址（地址簿行；字段口径与列表页发起弹层一致） */
+interface ShoreAddress {
+  id: string
+  recipientName?: string
+  telephone?: string
+  provinceName?: string
+  cityName?: string
+  areaName?: string
+  detailAddress?: string
+  isDefault?: string
+}
+
+/** 配送目标：ship = 送本次靠港（船供采购）；shore = 送收货地址（岸上企业采购） */
+type ImportTargetMode = 'ship' | 'shore'
+
+/** 向导表单：只收集配送目标与备注，清单在下一步上传 */
 const createState = ref({
-  submitting: false,
+  mode: 'ship' as ImportTargetMode,
   remark: '',
+  /** 岸上：已选收货地址ID */
+  addressId: '',
+  /** 岸上：地址簿候选 */
+  addresses: [] as ShoreAddress[],
+  addressLoading: false,
 })
 const shipPickerVisible = ref(false)
+const addressSheetVisible = ref(false)
 const remarkFocused = ref(false)
+/** 默认模式只在首次装载时定（有船走船供、没船走岸上），之后不覆盖用户手选 */
+let modeInitialized = false
+/** 从地址表单返回本页时重拉地址簿（新增地址后行内即时回显） */
+let returningFromAddressForm = false
 
-const canCreate = computed(() => authStore.isLoggedIn && shipContextStore.hasVesselContext)
-
-/** 船舶与靠港都已就绪（可以真正创建补给单） */
+/** 船舶与靠港都已就绪（船供目标可发） */
 const vesselReady = computed(() => shipContextStore.hasVesselContext)
 /** 有船但还没落到可用靠港：CTA / 选择行都引导去补靠港 */
 const hasVessel = computed(() => !!shipContextStore.vesselId)
@@ -123,6 +140,55 @@ const vesselTagText = computed(() => {
   return t('sharedCart.importEntry.vesselPending')
 })
 
+/** 当前补给目标是否为岸上企业（按收货地址发起） */
+const isShoreMode = computed(() => createState.value.mode === 'shore')
+
+/** 上次导入仍可继续（待确认或已确认），且交接未过期 */
+const hasResumableImport = computed(() =>
+  directImportOrderStore.active
+  && !!directImportOrderStore.importId
+  && !directImportOrderStore.isExpired,
+)
+
+/** 回到上次导入：已确认任务在报告页可直接「继续去结算」 */
+function resumeLastImport() {
+  const handoffId = directImportOrderStore.handoffId
+  if (!directImportOrderStore.matches(handoffId)) {
+    uni.showToast({ title: t('sharedCart.importPage.handoffExpired'), icon: 'none' })
+    return
+  }
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/import?mode=direct&handoff=${encodeURIComponent(handoffId)}`,
+  })
+}
+
+/** 卡片副标题按模式切换：挂靠港补给单 vs 按地址发起的采购单 */
+const sectionDescText = computed(() =>
+  isShoreMode.value
+    ? t('sharedCart.importEntry.sectionDescShore')
+    : t('sharedCart.importEntry.sectionDesc'))
+
+const selectedAddress = computed(() =>
+  createState.value.addresses.find(item => item.id === createState.value.addressId) ?? null)
+
+/** 岸上行展示：省市区+详址拼一行，与地址快照口径一致 */
+const addressLineText = computed(() => {
+  const addr = selectedAddress.value
+  if (!addr)
+    return ''
+  return [addr.provinceName, addr.cityName, addr.areaName, addr.detailAddress]
+    .filter(Boolean)
+    .join('')
+})
+
+const addressTitle = computed(() =>
+  selectedAddress.value?.recipientName || t('sharedCart.importEntry.chooseAddress'))
+
+const addressTagText = computed(() =>
+  selectedAddress.value
+    ? t('sharedCart.importEntry.vesselReady')
+    : t('sharedCart.importEntry.vesselPending'))
+
 const remarkLength = computed(() => createState.value.remark.length)
 
 /** 说明卡三步：与导入页的真实规则同源（格式/行数上限、匹配口径、核对后并入） */
@@ -148,20 +214,72 @@ function goCartList() {
   uni.navigateTo({ url: '/sub-pages/order/shared-cart/list' })
 }
 
-function goImport(cartId: string) {
-  // redirectTo：导入页接管返回栈，返回键直接回首页，不在向导空壳上停留
-  uni.redirectTo({ url: `/sub-pages/order/shared-cart/import?cartId=${cartId}` })
+/** 进入直下单导入页：handoff 随 URL 传递，报告页确认后结算页只认这一次交接 */
+function goDirectImport(handoffId: string) {
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/import?mode=direct&handoff=${encodeURIComponent(handoffId)}`,
+  })
 }
 
 function openShipPicker() {
   shipPickerVisible.value = true
 }
 
+/** 拉地址簿候选并预选默认地址（岸上模式；口径与列表页发起弹层一致） */
+function loadShoreAddresses() {
+  createState.value.addressLoading = true
+  getAddressPage({ current: 1, size: 50 })
+    .then((res) => {
+      const list: ShoreAddress[] = res?.records ?? []
+      createState.value.addresses = list
+      // 已选地址仍有效则保留；否则回落默认地址，再回落第一条
+      const stillValid = list.some(item => item.id === createState.value.addressId)
+      if (!stillValid) {
+        const preferred = list.find(item => item.isDefault === '1') ?? list[0]
+        createState.value.addressId = preferred?.id ?? ''
+      }
+    })
+    .catch(() => {
+      // 拉失败不清空已有候选（重开弹层时还能用上一次的），只保留当前选择
+    })
+    .finally(() => {
+      createState.value.addressLoading = false
+    })
+}
+
+/** 切换补给目标：岸上懒加载地址；船供缺上下文时直接弹选择器 */
+function switchMode(mode: ImportTargetMode) {
+  if (createState.value.mode === mode)
+    return
+  createState.value.mode = mode
+  modeInitialized = true
+  if (mode === 'shore' && createState.value.addresses.length === 0)
+    loadShoreAddresses()
+  if (mode === 'ship' && !shipContextStore.hasVesselContext)
+    shipPickerVisible.value = true
+}
+
+function openAddressSheet() {
+  if (createState.value.addresses.length === 0)
+    loadShoreAddresses()
+  addressSheetVisible.value = true
+}
+
+function chooseAddress(id: string) {
+  createState.value.addressId = id
+  addressSheetVisible.value = false
+}
+
+function toAddressForm() {
+  returningFromAddressForm = true
+  uni.navigateTo({ url: '/sub-pages/user/address/form' })
+}
+
 function clearRemark() {
   createState.value.remark = ''
 }
 
-async function resolveTargetCart() {
+async function resolveContext() {
   if (!authStore.isLoggedIn) {
     goLogin()
     return
@@ -176,63 +294,74 @@ async function resolveTargetCart() {
   // 本页可能被直接打开（深链 / 登录回跳 / 首页卡片），store 冷启动是空的；
   // 先按用户真实船舶/靠港装载，避免明明有船却让用户再选一次。
   await loadShipContext().catch(() => {})
-  try {
-    summary.value = await getActiveSharedCartSummary(shipContextStore.vesselCallId || undefined)
-  }
-  catch {
-    // 摘要失败不阻塞向导：创建接口兜底同船期复用，重复单在服务端被挡住
-    summary.value = null
-  }
-  // 已有进行中的补给单：直接复用进导入，用户无需感知"购物车"这一层
-  if (summary.value?.cart?.id) {
-    uni.showToast({ title: t('sharedCart.importEntry.toastExisting'), icon: 'none' })
-    goImport(summary.value.cart.id)
-    return
+  // 默认配送目标只定一次：有船走船供，没船就地走收货地址
+  if (!modeInitialized) {
+    createState.value.mode = shipContextStore.vesselId ? 'ship' : 'shore'
+    modeInitialized = true
+    if (createState.value.mode === 'shore' && createState.value.addresses.length === 0)
+      loadShoreAddresses()
   }
   resolving.value = false
 }
 
 function submitCreate() {
-  if (createState.value.submitting)
+  if (isShoreMode.value) {
+    submitShoreImport()
     return
-  // 上下文缺失时先补齐船舶/靠港，而不是一句无法执行的提示；
-  // 未绑船的岸上客户没有船可选，引导到列表页按收货地址发起（创建后再回详情导入）
-  if (!canCreate.value) {
-    if (!shipContextStore.vesselId) {
-      uni.showToast({ title: t('sharedCart.importEntry.toastNeedAddress'), icon: 'none' })
-      goCartList()
-      return
-    }
+  }
+  submitShipImport()
+}
+
+/** 船供：配送目标是本次靠港；上下文缺失时先补齐，而不是一句无法执行的提示 */
+function submitShipImport() {
+  // 未绑船不再踢回列表页：就地切到收货地址模式，同一条导入链路照样走通
+  if (!shipContextStore.vesselId) {
+    switchMode('shore')
+    uni.showToast({ title: t('sharedCart.importEntry.toastSwitchShore'), icon: 'none' })
+    return
+  }
+  if (!shipContextStore.vesselCallId) {
     shipPickerVisible.value = true
     return
   }
-  createState.value.submitting = true
-  const payload: SharedCartCreatePayload = {
+  // 靠港与备注写入交接；结算页按 handoff 锁定 way=4/scene=2。
+  // 必须把 vesselId/vesselCallId 一起存下：shipContextStore 不持久化，
+  // H5 刷新结算页后仍要能恢复配送目标，不能只依赖全局船舶上下文。
+  directImportOrderStore.begin({
+    scene: PURCHASE_SCENE_SHIP_SUPPLY,
+    remark: createState.value.remark || undefined,
     vesselId: shipContextStore.vesselId,
     vesselCallId: shipContextStore.vesselCallId,
-    remark: createState.value.remark || undefined,
+    vesselName: shipContextStore.vesselName,
+    portName: shipContextStore.portName,
+    berth: shipContextStore.berth,
+  })
+  goDirectImport(directImportOrderStore.handoffId)
+}
+
+/** 岸上：收货地址是配送终点，必选；归属与配送范围由结算/下单服务端校验 */
+function submitShoreImport() {
+  if (!createState.value.addressId) {
+    uni.showToast({ title: t('sharedCart.list.addressRequired'), icon: 'none' })
+    openAddressSheet()
+    return
   }
-  createSharedCart(payload)
-    .then((cart) => {
-      // 同一船舶已有进行中的采购时，服务端复用该购物车而非新建（与列表页同口径提示）
-      uni.showToast({
-        title: cart?.adoptedExisting
-          ? t('sharedCart.importEntry.toastAdopted')
-          : t('sharedCart.importEntry.toastCreated'),
-        icon: 'none',
-      })
-      if (cart?.id) {
-        goImport(cart.id)
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      createState.value.submitting = false
-    })
+  // 地址随 handoff 带给结算页预选；结算页按场景锁定 way=3/scene=3
+  directImportOrderStore.begin({
+    scene: PURCHASE_SCENE_ENTERPRISE,
+    userAddressId: createState.value.addressId,
+    remark: createState.value.remark || undefined,
+  })
+  goDirectImport(directImportOrderStore.handoffId)
 }
 
 onShow(() => {
-  void resolveTargetCart()
+  // 从地址表单返回：重拉地址簿，新增地址后行内即时回显
+  if (returningFromAddressForm) {
+    returningFromAddressForm = false
+    loadShoreAddresses()
+  }
+  void resolveContext()
 })
 
 // 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
@@ -286,17 +415,25 @@ onPageScroll(handlePageScroll)
         <!-- 流程指示：让用户一眼知道现在第几步、下一步做什么 -->
         <view class="ie-steps">
           <view class="ie-step ie-step--active">
-            <text class="ie-step__num">1</text>
-            <text class="ie-step__label">{{ t('sharedCart.importEntry.stepInfo') }}</text>
+            <text class="ie-step__num">
+              1
+            </text>
+            <text class="ie-step__label">
+              {{ t('sharedCart.importEntry.stepInfo') }}
+            </text>
           </view>
           <view class="ie-step__line" />
           <view class="ie-step">
-            <text class="ie-step__num">2</text>
-            <text class="ie-step__label">{{ t('sharedCart.importEntry.stepUpload') }}</text>
+            <text class="ie-step__num">
+              2
+            </text>
+            <text class="ie-step__label">
+              {{ t('sharedCart.importEntry.stepUpload') }}
+            </text>
           </view>
         </view>
 
-        <!-- 本次补给信息：船舶/靠港上下文 + 备注，创建补给单的唯二输入 -->
+        <!-- 本次补给信息：补给目标（靠港/收货地址）+ 备注，创建采购单的唯二输入 -->
         <view class="ie-card">
           <view class="ie-card__head">
             <view class="ie-card__icon ie-card__icon--brand">
@@ -307,48 +444,118 @@ onPageScroll(handlePageScroll)
                 {{ t('sharedCart.importEntry.sectionTitle') }}
               </text>
               <text class="ie-card__desc">
-                {{ t('sharedCart.importEntry.sectionDesc') }}
+                {{ sectionDescText }}
               </text>
             </view>
           </view>
 
-          <!-- 船舶与靠港：整行可点，打开选择器；已选/待选一眼可辨 -->
-          <view
-            class="ie-vessel"
-            hover-class="ie-vessel--pressed"
-            :hover-stay-time="80"
-            @tap="openShipPicker"
-          >
-            <view class="ie-vessel__icon">
-              <text class="i-carbon:location ie-vessel__glyph" />
+          <!-- 补给目标：靠港（船供整车）或收货地址（岸上企业），二选一 -->
+          <view class="ie-mode">
+            <view
+              class="ie-mode__item"
+              :class="{ 'ie-mode__item--on': !isShoreMode }"
+              hover-class="ie-mode__item--pressed"
+              :hover-stay-time="80"
+              @tap="switchMode('ship')"
+            >
+              <text class="ie-mode__title">
+                {{ t('sharedCart.list.typeShip') }}
+              </text>
+              <text class="ie-mode__desc">
+                {{ t('sharedCart.list.typeShipDesc') }}
+              </text>
             </view>
-            <view class="ie-vessel__body">
-              <view class="ie-vessel__title-row">
-                <text class="ie-vessel__title">
-                  {{ vesselTitle }}
+            <view
+              class="ie-mode__item"
+              :class="{ 'ie-mode__item--on': isShoreMode }"
+              hover-class="ie-mode__item--pressed"
+              :hover-stay-time="80"
+              @tap="switchMode('shore')"
+            >
+              <text class="ie-mode__title">
+                {{ t('sharedCart.list.typeShore') }}
+              </text>
+              <text class="ie-mode__desc">
+                {{ t('sharedCart.list.typeShoreDesc') }}
+              </text>
+            </view>
+          </view>
+
+          <!-- 船供：船舶与靠港，整行可点打开选择器；已选/待选一眼可辨 -->
+          <template v-if="!isShoreMode">
+            <view
+              class="ie-vessel"
+              hover-class="ie-vessel--pressed"
+              :hover-stay-time="80"
+              @tap="openShipPicker"
+            >
+              <view class="ie-vessel__icon">
+                <text class="i-carbon:location ie-vessel__glyph" />
+              </view>
+              <view class="ie-vessel__body">
+                <view class="ie-vessel__title-row">
+                  <text class="ie-vessel__title">
+                    {{ vesselTitle }}
+                  </text>
+                  <view class="ie-vessel__tag" :class="{ 'ie-vessel__tag--ready': vesselReady }">
+                    <view class="ie-vessel__dot" />
+                    <text>{{ vesselTagText }}</text>
+                  </view>
+                </view>
+                <text class="ie-vessel__sub">
+                  {{ vesselSubtitle }}
                 </text>
-                <view class="ie-vessel__tag" :class="{ 'ie-vessel__tag--ready': vesselReady }">
-                  <view class="ie-vessel__dot" />
-                  <text>{{ vesselTagText }}</text>
+                <view v-if="deliveryWindowText" class="ie-vessel__meta">
+                  <text class="i-carbon:time ie-vessel__meta-icon" />
+                  <text>{{ t('sharedCart.importEntry.deliveryWindow') }} {{ deliveryWindowText }}</text>
                 </view>
               </view>
-              <text class="ie-vessel__sub">
-                {{ vesselSubtitle }}
-              </text>
-              <view v-if="deliveryWindowText" class="ie-vessel__meta">
-                <text class="i-carbon:time ie-vessel__meta-icon" />
-                <text>{{ t('sharedCart.importEntry.deliveryWindow') }} {{ deliveryWindowText }}</text>
-              </view>
+              <text class="i-carbon:chevron-right ie-vessel__chevron" />
             </view>
-            <text class="i-carbon:chevron-right ie-vessel__chevron" />
-          </view>
 
-          <view v-if="!vesselReady" class="ie-vessel-hint">
-            <text class="i-carbon:information ie-vessel-hint__icon" />
-            <text class="ie-vessel-hint__text">
-              {{ t('sharedCart.importEntry.vesselRequiredHint') }}
-            </text>
-          </view>
+            <view v-if="!vesselReady" class="ie-vessel-hint">
+              <text class="i-carbon:information ie-vessel-hint__icon" />
+              <text class="ie-vessel-hint__text">
+                {{ t('sharedCart.importEntry.vesselRequiredHint') }}
+              </text>
+            </view>
+          </template>
+
+          <!-- 岸上：收货地址行，整行可点打开地址弹层（配送终点与范围校验都以所选地址为准） -->
+          <template v-else>
+            <view
+              class="ie-vessel"
+              hover-class="ie-vessel--pressed"
+              :hover-stay-time="80"
+              @tap="openAddressSheet"
+            >
+              <view class="ie-vessel__icon">
+                <text class="i-carbon:location ie-vessel__glyph" />
+              </view>
+              <view class="ie-vessel__body">
+                <view class="ie-vessel__title-row">
+                  <text class="ie-vessel__title">
+                    {{ addressTitle }}
+                  </text>
+                  <view class="ie-vessel__tag" :class="{ 'ie-vessel__tag--ready': !!selectedAddress }">
+                    <view class="ie-vessel__dot" />
+                    <text>{{ addressTagText }}</text>
+                  </view>
+                </view>
+                <text v-if="addressLineText" class="ie-vessel__sub">
+                  {{ addressLineText }}
+                </text>
+              </view>
+              <text class="i-carbon:chevron-right ie-vessel__chevron" />
+            </view>
+
+            <view v-if="!selectedAddress" class="ie-vessel-hint">
+              <text class="i-carbon:information ie-vessel-hint__icon" />
+              <text class="ie-vessel-hint__text">
+                {{ t('sharedCart.importEntry.shoreRequiredHint') }}
+              </text>
+            </view>
+          </template>
 
           <!-- 备注：标签 + 计数 + 清除态；聚焦时描边点亮，标明这是可输入区 -->
           <view class="ie-remark">
@@ -413,12 +620,30 @@ onPageScroll(handlePageScroll)
             :key="index"
             class="ie-guide-step"
           >
-            <text class="ie-guide-step__num">{{ index + 1 }}</text>
+            <text class="ie-guide-step__num">
+              {{ index + 1 }}
+            </text>
             <view class="ie-guide-step__body">
-              <text class="ie-guide-step__title">{{ step.title }}</text>
-              <text class="ie-guide-step__desc">{{ step.desc }}</text>
+              <text class="ie-guide-step__title">
+                {{ step.title }}
+              </text>
+              <text class="ie-guide-step__desc">
+                {{ step.desc }}
+              </text>
             </view>
           </view>
+        </view>
+
+        <!-- 上次导入可继续：待确认回报告页，已确认可直接恢复结算 -->
+        <view
+          v-if="hasResumableImport"
+          class="ie-all-link ie-all-link--resume"
+          hover-class="ie-all-link--pressed"
+          :hover-stay-time="80"
+          @tap="resumeLastImport"
+        >
+          <text>{{ t('sharedCart.importEntry.continueLastImport') }}</text>
+          <text class="i-carbon:chevron-right ie-all-link__icon" />
         </view>
 
         <!-- 次级出口：给已经了解规则、想先看单据的用户 -->
@@ -439,20 +664,89 @@ onPageScroll(handlePageScroll)
       <view class="ie-footer">
         <view
           class="ie-footer__primary"
-          :class="{ 'ie-footer__primary--disabled': createState.submitting }"
           hover-class="ie-footer__primary--pressed"
           :hover-stay-time="80"
           @tap="submitCreate"
         >
           <text class="i-carbon:upload ie-footer__icon" />
           <text class="ie-footer__label">
-            {{ createState.submitting ? t('sharedCart.importEntry.submitting') : t('sharedCart.importEntry.createAndImport') }}
+            {{ t('sharedCart.importEntry.startImport') }}
           </text>
         </view>
       </view>
     </template>
 
     <ShipContextPicker v-model="shipPickerVisible" />
+
+    <!-- 收货地址弹层：点行即选中并收起，新增地址跳地址表单 -->
+    <wd-popup
+      v-model="addressSheetVisible"
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+    >
+      <view class="ie-sheet">
+        <text class="ie-sheet__title">
+          {{ t('sharedCart.list.shippingAddress') }}
+        </text>
+        <view v-if="createState.addressLoading && createState.addresses.length === 0" class="ie-sheet__state">
+          {{ t('sharedCart.list.addressLoading') }}
+        </view>
+        <view v-else-if="createState.addresses.length === 0" class="ie-sheet__state ie-sheet__state--empty">
+          <text class="ie-sheet__state-text">
+            {{ t('sharedCart.list.noAddress') }}
+          </text>
+          <view
+            class="ie-sheet__add"
+            hover-class="ie-sheet__add--pressed"
+            :hover-stay-time="80"
+            @tap="toAddressForm"
+          >
+            {{ t('sharedCart.list.addAddress') }}
+          </view>
+        </view>
+        <scroll-view v-else scroll-y class="ie-sheet__list">
+          <view
+            v-for="item in createState.addresses"
+            :key="item.id"
+            class="ie-sheet__addr"
+            :class="{ 'ie-sheet__addr--on': item.id === createState.addressId }"
+            hover-class="ie-sheet__addr--pressed"
+            :hover-stay-time="80"
+            @tap="chooseAddress(item.id)"
+          >
+            <view class="ie-sheet__addr-body">
+              <view class="ie-sheet__addr-line">
+                <text class="ie-sheet__addr-name">
+                  {{ item.recipientName }}
+                </text>
+                <text class="ie-sheet__addr-phone">
+                  {{ item.telephone }}
+                </text>
+                <text v-if="item.isDefault === '1'" class="ie-sheet__addr-default">
+                  {{ t('sharedCart.list.defaultAddress') }}
+                </text>
+              </view>
+              <text class="ie-sheet__addr-detail">
+                {{ item.provinceName }}{{ item.cityName }}{{ item.areaName }}{{ item.detailAddress }}
+              </text>
+            </view>
+            <text
+              class="i-carbon:checkmark-filled ie-sheet__addr-check"
+              :class="{ 'ie-sheet__addr-check--on': item.id === createState.addressId }"
+            />
+          </view>
+          <view
+            class="ie-sheet__add"
+            hover-class="ie-sheet__add--pressed"
+            :hover-stay-time="80"
+            @tap="toAddressForm"
+          >
+            {{ t('sharedCart.list.addAddressInline') }}
+          </view>
+        </scroll-view>
+      </view>
+    </wd-popup>
   </view>
 </template>
 
@@ -583,6 +877,50 @@ onPageScroll(handlePageScroll)
   margin-top: 6rpx;
   font-size: 26rpx;
   line-height: 1.5;
+  color: var(--app-text-2, #666);
+}
+
+/* ------------------------------------------------------------ 补给目标切换 */
+.ie-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.ie-mode__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  padding: 20rpx 24rpx;
+  border: 1rpx solid var(--app-border, #ebeef0);
+  border-radius: 20rpx;
+  background: var(--app-card-2, #f7f8fa);
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.ie-mode__item--on {
+  border-color: var(--wot-color-theme-primary, #ff4d2e);
+  background: var(--app-card, #fff);
+}
+
+.ie-mode__item--pressed {
+  opacity: 0.85;
+}
+
+.ie-mode__title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--app-text, #333);
+}
+
+.ie-mode__item--on .ie-mode__title {
+  color: var(--wot-color-theme-primary, #ff4d2e);
+}
+
+.ie-mode__desc {
+  font-size: 22rpx;
+  line-height: 1.4;
   color: var(--app-text-2, #666);
 }
 
@@ -887,6 +1225,12 @@ onPageScroll(handlePageScroll)
   opacity: 0.6;
 }
 
+/* 继续上次导入是恢复路径，用品牌色与普通出口区分 */
+.ie-all-link--resume {
+  font-weight: 600;
+  color: var(--wot-color-theme-primary, #ff4d2e);
+}
+
 .ie-all-link__icon {
   font-size: 24rpx;
 }
@@ -942,6 +1286,132 @@ onPageScroll(handlePageScroll)
   font-weight: 600;
   color: #fff;
   text-shadow: 0 1rpx 2rpx rgb(0 0 0 / 16%);
+}
+
+/* ---------------------------------------------------------------- 收货地址弹层 */
+.ie-sheet {
+  padding: 32rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+}
+
+.ie-sheet__title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--app-text, #333);
+}
+
+.ie-sheet__state {
+  padding: 48rpx 24rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--app-text-2, #666);
+}
+
+.ie-sheet__state--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.ie-sheet__state-text {
+  max-width: 520rpx;
+}
+
+.ie-sheet__list {
+  max-height: 400rpx;
+  margin-top: 24rpx;
+}
+
+.ie-sheet__addr {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 24rpx;
+  border: 1rpx solid var(--app-border, #ebeef0);
+  border-radius: 20rpx;
+  background: var(--app-card-2, #f7f8fa);
+}
+
+.ie-sheet__addr + .ie-sheet__addr {
+  margin-top: 16rpx;
+}
+
+.ie-sheet__addr--on {
+  border-color: var(--wot-color-theme-primary, #ff4d2e);
+  background: var(--app-card, #fff);
+}
+
+.ie-sheet__addr--pressed {
+  opacity: 0.85;
+}
+
+.ie-sheet__addr-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ie-sheet__addr-line {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.ie-sheet__addr-name {
+  flex: none;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--app-text, #333);
+}
+
+.ie-sheet__addr-phone {
+  overflow: hidden;
+  font-size: 24rpx;
+  color: var(--app-text-2, #666);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ie-sheet__addr-default {
+  flex: none;
+  font-size: 20rpx;
+  color: var(--wot-color-theme-primary, #ff4d2e);
+}
+
+.ie-sheet__addr-detail {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  line-height: 1.45;
+  color: var(--app-text-2, #666);
+}
+
+.ie-sheet__addr-check {
+  flex: none;
+  font-size: 32rpx;
+  color: var(--app-border, #ebeef0);
+}
+
+.ie-sheet__addr-check--on {
+  color: var(--wot-color-theme-primary, #ff4d2e);
+}
+
+.ie-sheet__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  margin-top: 16rpx;
+  border: 1rpx dashed var(--app-border, #ebeef0);
+  border-radius: 20rpx;
+  font-size: 26rpx;
+  color: var(--wot-color-theme-primary, #ff4d2e);
+}
+
+.ie-sheet__add--pressed {
+  opacity: 0.7;
 }
 
 /* -------------------------------------------------------------------- 骨架屏 */

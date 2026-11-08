@@ -14,15 +14,14 @@ import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
+import com.aryn.cloud.pay.api.dto.PayPrepayResult;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
+import com.aryn.cloud.pay.api.enums.PayTradeStatusEnum;
 import com.aryn.cloud.pay.api.enums.PayTradeTypeEnum;
 import com.aryn.cloud.pay.handler.AbstractPayOrderHandler;
 import com.aryn.cloud.pay.service.IPayTradeOrderService;
+import com.aryn.cloud.pay.service.PayEventOutboxService;
 import lombok.RequiredArgsConstructor;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,9 +32,11 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class FreePayHandler extends AbstractPayOrderHandler {
 
+	private static final String EVENT_PAY_SUCCESS = "PAY_SUCCESS";
+
 	private final IPayTradeOrderService payTradeOrderService;
 
-	private final RocketMQTemplate rocketMQTemplate;
+	private final PayEventOutboxService outboxService;
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -44,9 +45,10 @@ public class FreePayHandler extends AbstractPayOrderHandler {
 	}
 
 	@Override
-	public Object doPay(PayTradeOrder payTradeOrder) {
-		// 发送mq支付成功消息
+	public PayPrepayResult doPay(PayTradeOrder payTradeOrder) {
+		// 零元单与业务落账在同一个事务：状态更新和事件 outbox 原子提交
 		payTradeOrder.setPayStatus(CommonConstants.YES);
+		payTradeOrder.setTradeStatus(PayTradeStatusEnum.PAID.name());
 		payTradeOrder.setPaySuccessTime(LocalDateTime.now());
 		payTradeOrderService.updateById(payTradeOrder);
 		JSONObject jsonObject = new JSONObject();
@@ -55,12 +57,9 @@ public class FreePayHandler extends AbstractPayOrderHandler {
 		jsonObject.put(PayConstants.PAY_SUCCESS_TIME, payTradeOrder.getPaySuccessTime());
 		jsonObject.put(PayConstants.EXTRA_PARAMS, payTradeOrder.getExtra());
 		jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
-		SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_NOTIFY_TOPIC,
-				new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
-		if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
-			throw new IllegalStateException("支付状态通知发送失败");
-		}
-		return payTradeOrder;
+		outboxService.enqueue(ArynTenantContextHolder.getTenantId(), EVENT_PAY_SUCCESS,
+				payTradeOrder.getOutTradeNo(), RocketMqConstants.PAY_NOTIFY_TOPIC, jsonObject.toJSONString());
+		return PayPrepayResult.alreadyPaid(payTradeOrder.getOutTradeNo());
 	}
 
 	@Override
@@ -73,7 +72,9 @@ public class FreePayHandler extends AbstractPayOrderHandler {
 		}
 		payTradeOrder = new PayTradeOrder();
 		payTradeOrder.setUserId(createOrderReqDTO.getUserId());
+		payTradeOrder.setTenantId(ArynTenantContextHolder.getTenantId());
 		payTradeOrder.setPayStatus(CommonConstants.NO);
+		payTradeOrder.setTradeStatus(PayTradeStatusEnum.PENDING.name());
 		payTradeOrder.setDescription(createOrderReqDTO.getSubject());
 		payTradeOrder.setOpenId(createOrderReqDTO.getBuyerId());
 		payTradeOrder.setOutTradeNo(createOrderReqDTO.getOutTradeNo());

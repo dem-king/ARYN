@@ -19,5 +19,6 @@ if (tenantBuild && (!process.env.VITE_TENANT_NAME || !process.env.VITE_TENANT_WX
 export default defineManifestConfig(createManifest({
   name: tenantBuild ? process.env.VITE_TENANT_NAME as string : DEFAULT_APP_NAME,
   wxAppId: tenantBuild ? process.env.VITE_TENANT_WX_APPID as string : DEFAULT_WX_APP_ID,
+  aliAppId: tenantBuild ? process.env.VITE_TENANT_ALI_APPID : undefined,
   resizable: resolveMpResizable(process.env.MP_RESIZABLE),
 }))

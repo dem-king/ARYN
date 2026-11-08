@@ -1448,6 +1448,15 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		return cart;
 	}
 
+	/** 并入明细专用的购物车行锁读取：错误文案与 {@link #requireCart} 保持一致 */
+	private SharedCart requireCartForUpdate(String tenantId, String cartId) {
+		SharedCart cart = sharedCartMapper.selectForUpdate(tenantId, cartId);
+		if (cart == null) {
+			throw new ArynBusinessException("共享购物车不存在");
+		}
+		return cart;
+	}
+
 	private SharedCartItem requireItem(String tenantId, String cartId, String itemId) {
 		SharedCartItem item = sharedCartItemMapper.selectOne(Wrappers.lambdaQuery(SharedCartItem.class)
 				.eq(SharedCartItem::getTenantId, tenantId)
@@ -2227,7 +2236,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	@Transactional(rollbackFor = Exception.class)
 	public SharedCartImportVO confirmImport(String tenantId, String userId, String cartId, String importId,
 			SharedCartImportConfirmDTO dto) {
-		SharedCart cart = requireCart(tenantId, cartId);
+		// 购物车行锁：同车不同导入任务并发并入时，任务行锁互不阻塞，
+		// 必须把 shared_cart_item 的读-改-写串行化到购物车行上，防丢失更新/撞唯一键。
+		SharedCart cart = requireCartForUpdate(tenantId, cartId);
 		requireEditable(cart);
 		requireNotExpired(cart);
 		requireConfirmer(cart, userId);
@@ -2235,7 +2246,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		// 所以只读成员不能拿"导入"当绕过 can_edit 的后门。正常配置下确认人
 		// can_edit=1（见 create/inviteMember），这里只挡住手工改小的例外。
 		requireCanEdit(cart, userId);
-		SharedCartImport job = requireImport(tenantId, cartId, importId);
+		// 行锁读取任务：并发确认必须串行化，第二个事务会看到已并入并走幂等返回，
+		// 不能在两个事务里各自 mergeIntoCartItems 把数量翻倍。
+		SharedCartImport job = requireImportForConfirm(tenantId, cartId, importId);
 		if (SharedCartImport.STATUS_IMPORTED.equals(job.getStatus())) {
 			return toImportVO(job, listImportRows(tenantId, job.getId()));
 		}
@@ -2589,6 +2602,18 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			.eq(SharedCartImport::getTenantId, tenantId)
 			.eq(SharedCartImport::getCartId, cartId)
 			.eq(SharedCartImport::getId, importId));
+		if (job == null) {
+			throw new ArynBusinessException("导入任务不存在");
+		}
+		return job;
+	}
+
+	/** 确认专用的行锁读取：错误文案与 {@link #requireImport} 保持一致 */
+	private SharedCartImport requireImportForConfirm(String tenantId, String cartId, String importId) {
+		if (!StringUtils.hasText(importId)) {
+			throw new ArynBusinessException("导入任务ID不能为空");
+		}
+		SharedCartImport job = sharedCartImportMapper.selectForConfirm(tenantId, cartId, importId);
 		if (job == null) {
 			throw new ArynBusinessException("导入任务不存在");
 		}

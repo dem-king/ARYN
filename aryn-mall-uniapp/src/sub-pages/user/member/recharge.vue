@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import type { PayCapability } from '@/sub-pages/api/pay/index'
+import type { PayPrepayResult } from '@/sub-pages/utils/pay'
 import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createRechargeOrder, getRechargeConfigList, rechargePrepay } from '@/sub-pages/api/user/recharge'
-import { prepay } from '@/sub-pages/utils/pay'
+import { getCapabilities } from '@/sub-pages/api/pay/index'
+import { detectClientPlatform, filterCapabilitiesForClientPlatform, prepay } from '@/sub-pages/utils/pay'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 
 const { handlePageScroll } = useFrostedNavbar()
@@ -32,6 +35,13 @@ const router = useRouter()
 const configList = ref<RechargeConfig[]>([])
 const selectedId = ref<string>('')
 const paying = ref(false)
+const allCapabilities = ref<PayCapability[]>([])
+const paymentType = ref<'1' | '2'>('1')
+
+const availableCapabilities = computed(() => allCapabilities.value.filter(item => item.available))
+const availableChannels = computed(() => [...new Set(availableCapabilities.value.map(item => item.channel))])
+const selectedCapability = computed(() => availableCapabilities.value.find(item => item.channel === paymentType.value))
+const noCapabilityReason = computed(() => allCapabilities.value.find(item => !item.available && item.reason)?.reason || t('labels.payUnavailable'))
 
 const selectedConfig = computed(() => configList.value.find(item => item.id === selectedId.value) || null)
 
@@ -52,6 +62,7 @@ const arrivalText = computed(() => {
 
 onLoad(() => {
   loadRechargeConfig()
+  loadCapabilities()
 })
 
 onShow(() => {
@@ -82,10 +93,73 @@ function toBalanceRecord() {
   router.push({ name: 'member-balance-record' })
 }
 
+function detectTerminalType() {
+  let terminal = '2'
+  // #ifdef MP-WEIXIN
+  terminal = '0'
+  // #endif
+  // #ifdef MP-ALIPAY
+  terminal = '0'
+  // #endif
+  // #ifdef APP-PLUS
+  terminal = '1'
+  // #endif
+  return terminal
+}
+
+async function loadCapabilities() {
+  try {
+    const platform = detectClientPlatform()
+    allCapabilities.value = filterCapabilitiesForClientPlatform(
+      (await getCapabilities(detectTerminalType(), platform)) || [],
+      platform,
+    )
+    let preferred: '1' | '2' = '1'
+    // #ifdef MP-ALIPAY
+    preferred = '2'
+    // #endif
+    if (!availableCapabilities.value.some(item => item.channel === preferred))
+      preferred = (availableCapabilities.value[0]?.channel as '1' | '2') || '1'
+    paymentType.value = preferred
+  }
+  catch (error) {
+    console.error('加载支付能力失败:', error)
+    allCapabilities.value = []
+  }
+}
+
+function rechargeResultUrl(orderNo: string) {
+  return `/sub-pages/user/member/recharge-result?orderNo=${orderNo}`
+}
+
+function buildPrepayParams(orderNo: string, tradeType: string) {
+  const params = {
+    orderNo,
+    paymentType: paymentType.value,
+    tradeType,
+    returnUrl: '',
+    quitUrl: '',
+  }
+  // #ifdef H5
+  params.returnUrl = `${window.location.origin}${rechargeResultUrl(orderNo)}`
+  params.quitUrl = `${window.location.origin}/sub-pages/user/member/recharge`
+  // #endif
+  return params
+}
+
 async function handlePay() {
   const config = selectedConfig.value
   if (!config || paying.value)
     return
+  const tradeType = selectedCapability.value?.tradeType
+  if (!tradeType) {
+    uni.showModal({
+      title: t('labels.notice'),
+      content: noCapabilityReason.value,
+      showCancel: false,
+    })
+    return
+  }
   paying.value = true
   globalLoading.loading(t('accountMember.recharge.creatingOrder'))
   try {
@@ -94,8 +168,8 @@ async function handlePay() {
     if (!orderNo)
       throw new Error(t('accountMember.recharge.createOrderFailed'))
     // 创建订单后立即发起支付，避免只建单不入账
-    const response = await rechargePrepay(buildPrepayParams(orderNo))
-    await prepay(response.payParams, Number(config.rechargeAmount), `/sub-pages/user/member/recharge-result?orderNo=${orderNo}`, '1')
+    const response = await rechargePrepay(buildPrepayParams(orderNo, tradeType))
+    await prepay(response.payParams as PayPrepayResult, Number(config.rechargeAmount), rechargeResultUrl(orderNo))
   }
   catch (error) {
     // 错误提示由请求层全局拦截器统一弹出
@@ -105,28 +179,6 @@ async function handlePay() {
     paying.value = false
     globalLoading.close()
   }
-}
-
-function buildPrepayParams(orderNo: string) {
-  const params = {
-    orderNo,
-    paymentType: '1',
-    tradeType: 'WX_JSAPI_PAY',
-    returnUrl: '',
-    quitUrl: '',
-  }
-  // #ifdef MP-WEIXIN
-  params.tradeType = 'WX_JSAPI_PAY'
-  // #endif
-  // #ifdef H5
-  params.tradeType = 'WX_H5_PAY'
-  params.returnUrl = `${window.location.origin}/sub-pages/user/member/recharge-result?orderNo=${orderNo}`
-  params.quitUrl = `${window.location.origin}/sub-pages/user/member/recharge`
-  // #endif
-  // #ifdef APP-PLUS
-  params.tradeType = 'WX_APP_PAY'
-  // #endif
-  return params
 }
 
 // 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
@@ -195,6 +247,33 @@ onPageScroll(handlePageScroll)
       </view>
       <view v-if="configList.length" class="section__tip">
         {{ t('accountMember.recharge.planTip') }}
+      </view>
+    </view>
+
+    <view v-if="configList.length" class="section">
+      <view class="section__title">
+        {{ t('order.pay.selectPayment') }}
+      </view>
+      <view v-if="availableChannels.length" class="pay-methods">
+        <view
+          v-for="channel in availableChannels"
+          :key="channel"
+          class="pay-method"
+          :class="{ 'pay-method--active': paymentType === channel }"
+          @click="paymentType = channel === '2' ? '2' : '1'"
+        >
+          <image
+            :src="channel === '1' ? '/static/pay/wxpay.svg' : '/static/pay/alipay.svg'"
+            mode="scaleToFill"
+            class="pay-method__icon"
+          />
+          <text class="pay-method__label">
+            {{ channel === '1' ? t('order.payType.wechat') : t('order.payType.alipay') }}
+          </text>
+        </view>
+      </view>
+      <view v-else class="section__tip">
+        {{ noCapabilityReason }}
       </view>
     </view>
   </view>
@@ -291,6 +370,37 @@ onPageScroll(handlePageScroll)
     color: #fff;
     font-size: 22rpx;
   }
+}
+
+.pay-methods {
+  display: flex;
+  gap: 20rpx;
+  padding: 0 4rpx;
+}
+
+.pay-method {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 20rpx 28rpx;
+  border: 2rpx solid var(--app-border, #e5e7eb);
+  border-radius: 16rpx;
+  background: var(--app-card, #fff);
+}
+
+.pay-method--active {
+  border-color: var(--theme-color-primary, #4d7fff);
+  background: rgba(77, 127, 255, 0.06);
+}
+
+.pay-method__icon {
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.pay-method__label {
+  font-size: 26rpx;
+  color: var(--app-text);
 }
 
 .section {

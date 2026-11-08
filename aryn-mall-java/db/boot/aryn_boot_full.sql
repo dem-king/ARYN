@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-05
+-- 生成日期: 2026-11-08
 
 -- ============================================================================
 -- 创建数据库
@@ -88,6 +88,18 @@ DROP TABLE IF EXISTS `distribution_coupon_pack_item`;
 DROP TABLE IF EXISTS `distribution_coupon_exchange`;
 -- 类目角标配置化（205goods_category_badge_config.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS `goods_category_badge`;
+-- 支付安全配置底座（209pay_credential_vault_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `pay_config_revision`;
+DROP TABLE IF EXISTS `pay_config_material`;
+-- 支付交易闭环（210payment_closure_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `pay_event_outbox`;
+-- 清单直下单导入（213replenish_direct_import_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `replenish_direct_import`;
+DROP TABLE IF EXISTS `replenish_direct_import_row`;
+-- SPU 社证统计（214spu_sales_stat_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `stat_daily_spu_sales`;
+-- SKU 每日价格快照（216goods_sku_price_daily_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `goods_sku_price_daily`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -30665,5 +30677,1049 @@ SELECT
     WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge'
       AND column_name IN ('icon_url', 'badge_height', 'border_radius')) AS badge_style_columns_ready,
   (SELECT COUNT(*) FROM `goods_category_badge`) AS badge_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 支付安全配置底座（加密材料/身份版本）
+-- Source: db/boot/209pay_credential_vault_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 支付安全配置底座（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：2026-11-06《支付管理后台自助配置与交易闭环完善方案》P0 任务 2–4。
+--   1) pay_config 只保留稳定路由与启用状态；
+--   2) pay_config_revision 冻结渠道/商户/应用/环境身份，历史交易不再受换商户影响；
+--   3) pay_config_material 只保存 AES-256-GCM 密文，明文不落库、不回显；
+--   4) pay_trade_order 记录发起支付时的身份版本，回调/查单/退款按原交易身份取材料。
+--
+-- 幂等：列/索引均先查 information_schema；新表使用 IF NOT EXISTS；菜单 INSERT IGNORE。
+-- 禁止：DROP/TRUNCATE 任何支付或退款记录；旧明文字段保留，迁移成功后的清理由
+--       发布流程单独批准，不在本脚本内自动删除。
+-- 执行：mysql -u root -p aryn_boot < 209pay_credential_vault_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ----------------------------------------------------------------------------
+-- 一、迁移前置检查（必须返回空集；发现冲突请人工核对后重跑）
+-- ----------------------------------------------------------------------------
+-- 同一租户同一渠道+终端只允许一个路由；历史数据若重复，唯一索引会中止。
+SELECT tenant_id, `type`, terminal_type, COUNT(*) AS duplicate_count
+FROM pay_config
+WHERE del_flag = '0'
+GROUP BY tenant_id, `type`, terminal_type
+HAVING COUNT(*) > 1;
+
+-- 旧支付单若已经绑定身份版本，但版本记录缺失，必须先人工修复，不能自动覆盖。
+-- 首次执行时版本表尚不存在，用动态 SQL 跳过检查。
+SET @revision_table_exists := (SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema = DATABASE() AND table_name = 'pay_config_revision');
+SET @check_sql := IF(@revision_table_exists = 1,
+  'SELECT t.tenant_id, t.out_trade_no, t.config_revision_id
+   FROM pay_trade_order t
+   LEFT JOIN pay_config_revision r
+     ON r.id = t.config_revision_id AND r.tenant_id = t.tenant_id AND r.del_flag = ''0''
+   WHERE t.del_flag = ''0''
+     AND t.config_revision_id IS NOT NULL
+     AND t.config_revision_id <> ''''
+     AND r.id IS NULL
+   LIMIT 100',
+  'SELECT 1');
+PREPARE stmt FROM @check_sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 二、pay_config：启用状态、活动身份版本、并发版本号
+-- ----------------------------------------------------------------------------
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_config' AND column_name = 'enabled');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_config ADD COLUMN `enabled` char(2) NOT NULL DEFAULT ''0'' COMMENT ''是否启用：0.停用；1.启用；'' AFTER public_key_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_config' AND column_name = 'active_revision_id');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_config ADD COLUMN `active_revision_id` varchar(32) NULL DEFAULT NULL COMMENT ''当前生效的身份版本ID'' AFTER `enabled`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_config' AND column_name = 'config_version');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_config ADD COLUMN `config_version` int NOT NULL DEFAULT 0 COMMENT ''并发版本号，启用/停用时做乐观锁'' AFTER active_revision_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 三、pay_config_revision：不可变支付身份版本
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `pay_config_revision` (
+  `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+  `config_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '支付配置路由ID',
+  `revision_no` int NOT NULL COMMENT '版本序号',
+  `channel` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '支付渠道：1.微信；2.支付宝；',
+  `terminal_type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '支付端类型',
+  `app_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '应用ID',
+  `mch_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '商户号/收款方PID',
+  `environment` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'prod' COMMENT '环境：prod/sandbox',
+  `wx_public_key_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '微信支付公钥ID',
+  `material_refs` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '材料引用 JSON：用途 -> 材料ID',
+  `identity_hash` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '身份+材料指纹，用于迁移幂等',
+  `check_status` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '本地检查：0.未检查；1.通过；2.失败',
+  `check_summary` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL COMMENT '本地检查摘要，不含密钥内容',
+  `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_pay_config_revision_no` (`tenant_id`, `config_id`, `revision_no`) USING BTREE,
+  UNIQUE KEY `uk_pay_config_revision_identity` (`tenant_id`, `config_id`, `identity_hash`) USING BTREE,
+  KEY `idx_pay_config_revision_merchant` (`tenant_id`, `channel`, `app_id`, `mch_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '支付身份版本' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------------------------------------------------------
+-- 四、pay_config_material：支付材料密文
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `pay_config_material` (
+  `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+  `config_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '支付配置路由ID',
+  `purpose` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '材料用途',
+  `ciphertext` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '密文（Base64）',
+  `nonce` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT 'GCM nonce（Base64）',
+  `key_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '加密密钥ID',
+  `algorithm` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '加密算法',
+  `fingerprint` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '明文 SHA-256 指纹',
+  `content_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '内容类型：PEM/DER/RAW',
+  `cert_serial_no` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '证书序列号',
+  `cert_not_before` datetime NULL DEFAULT NULL COMMENT '证书生效时间',
+  `cert_not_after` datetime NULL DEFAULT NULL COMMENT '证书到期时间',
+  `byte_size` int NULL DEFAULT NULL COMMENT '明文字节数',
+  `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_pay_config_material_config` (`tenant_id`, `config_id`, `purpose`) USING BTREE,
+  KEY `idx_pay_config_material_fingerprint` (`tenant_id`, `config_id`, `fingerprint`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '支付材料密文' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------------------------------------------------------
+-- 五、pay_trade_order：冻结发起支付时的身份版本
+-- ----------------------------------------------------------------------------
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND column_name = 'config_revision_id');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_trade_order ADD COLUMN `config_revision_id` varchar(32) NULL DEFAULT NULL COMMENT ''发起支付时冻结的支付身份版本ID'' AFTER user_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND index_name = 'idx_pay_trade_order_revision');
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE pay_trade_order ADD INDEX `idx_pay_trade_order_revision` (`tenant_id`, `config_revision_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 六、支付配置按钮权限（启用/检查/上传资料/迁移为独立权限）
+--   固定 ID，INSERT IGNORE；授权按现有“支付配置修改”权限推导，不扩大无关角色权限。
+-- ----------------------------------------------------------------------------
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2140000000000000301','上传支付资料','pay:payconfig:material',NULL,NULL,'1531445896986435585','','',6,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000302','启用停用支付渠道','pay:payconfig:enable',NULL,NULL,'1531445896986435585','','',7,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000303','检查支付资料','pay:payconfig:check',NULL,NULL,'1531445896986435585','','',8,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000304','迁移旧支付配置','pay:payconfig:migrate',NULL,NULL,'1531445896986435585','','',9,'1',NOW(),'0','0','app_base','system');
+
+-- 6.1 已分配支付配置菜单的租户补授（含父容器，避免树构建丢失入口）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', m.`id`)), receiver.`tenant_id`, m.`id`, NOW(), 'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` IN ('1531445896986435585', '1531446010039705602')) receiver
+JOIN `sys_menu` m
+  ON m.`id` IN ('1531445896986435585',
+                '2140000000000000301','2140000000000000302','2140000000000000303','2140000000000000304')
+ AND m.`del_flag` = '0';
+
+-- 6.2 已拥有“支付配置修改”按钮的角色补授
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', m.`id`)), receiver.`role_id`, m.`id`, NOW(), receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` = '1531446010039705602') receiver
+JOIN `sys_menu` m
+  ON m.`id` IN ('2140000000000000301','2140000000000000302','2140000000000000303','2140000000000000304')
+ AND m.`del_flag` = '0';
+
+-- 自检：四个权限均已注册
+SELECT COUNT(*) AS pay_credential_permissions
+FROM `sys_menu`
+WHERE `id` IN ('2140000000000000301','2140000000000000302','2140000000000000303','2140000000000000304')
+  AND `del_flag` = '0';
+
+-- 注意：菜单/权限在登录时快照，执行后需清理 Redis `menu_cache::*` 并重新登录。
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 支付交易闭环（生命周期/事件 outbox）
+-- Source: db/boot/210payment_closure_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 支付交易闭环（Boot 单体模式）：生命周期、事件 outbox
+--
+-- 目标库：aryn_boot
+-- 背景：2026-11-06 支付方案 P1 任务 7。
+--   1) pay_trade_order 增加 trade_status 生命周期；旧 pay_status 仅做 0/1 兼容投影；
+--   2) pay_event_outbox 与支付/退款落账同事务写入，提交后异步重投；
+--   3) 存量已支付单回填 PAID，其余回填 PENDING，由取消门禁查单收敛。
+--
+-- 幂等：列/索引先查 information_schema；新表 IF NOT EXISTS；不删除任何资金记录。
+-- 执行：mysql -u root -p aryn_boot < 210payment_closure_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND column_name = 'trade_status');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_trade_order ADD COLUMN `trade_status` varchar(16) NOT NULL DEFAULT ''PENDING'' COMMENT ''生命周期：SUBMITTING/PENDING/CLOSING/UNKNOWN/CLOSED/PAID'' AFTER config_revision_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND column_name = 'prepay_time');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_trade_order ADD COLUMN `prepay_time` datetime NULL DEFAULT NULL COMMENT ''预支付提交时间'' AFTER trade_status',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND column_name = 'close_time');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_trade_order ADD COLUMN `close_time` datetime NULL DEFAULT NULL COMMENT ''渠道关单时间'' AFTER prepay_time',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'pay_trade_order' AND index_name = 'idx_pay_trade_order_status');
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE pay_trade_order ADD INDEX `idx_pay_trade_order_status` (`tenant_id`, `trade_status`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 存量状态回填：已支付必须为 PAID；其余保守标记 PENDING，由查单/关单门禁收敛。
+UPDATE pay_trade_order
+SET trade_status = 'PAID'
+WHERE pay_status = '1' AND trade_status <> 'PAID' AND del_flag = '0';
+
+UPDATE pay_trade_order
+SET trade_status = 'PENDING'
+WHERE pay_status <> '1' AND (trade_status IS NULL OR trade_status = '') AND del_flag = '0';
+
+CREATE TABLE IF NOT EXISTS `pay_event_outbox` (
+  `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+  `event_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '事件唯一ID',
+  `event_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT 'PAY_SUCCESS/REFUND_SUCCESS',
+  `business_key` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单号/退款单号',
+  `topic` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '投递 Topic',
+  `payload` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '非敏感消息负载 JSON',
+  `status` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '0.待投递；1.已投递；2.死信；3.投递中',
+  `attempts` int NOT NULL DEFAULT 0 COMMENT '已尝试次数',
+  `next_retry_time` datetime NOT NULL COMMENT '下次重试时间',
+  `last_error` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '最近失败原因',
+  `create_time` datetime NULL DEFAULT NULL,
+  `update_time` datetime NULL DEFAULT NULL,
+  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_pay_event_outbox_event` (`event_id`) USING BTREE,
+  KEY `idx_pay_event_outbox_due` (`status`, `next_retry_time`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '支付事件 outbox' ROW_FORMAT = DYNAMIC;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 订单支付提交门禁
+-- Source: db/boot/211order_pay_submit_gate_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 订单支付提交门禁（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：2026-11-06 支付方案 P1 任务 7。
+--   「取消订单」与「首次预支付」必须争用同一持久化门禁：
+--   - 预支付先短事务写入 pay_submitting=1，再调用渠道；
+--   - 取消只允许 pay_submitting=0 的订单推进，避免本地未建支付单时释放库存；
+--   - 进程崩溃留下的提交标记超过 2 分钟视为过期，由取消门禁忽略。
+--
+-- 幂等：列/索引先查 information_schema；不删除任何订单/资金记录。
+-- 执行：mysql -u root -p aryn_boot < 211order_pay_submit_gate_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'order_info' AND column_name = 'pay_submitting');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE order_info ADD COLUMN `pay_submitting` char(2) NOT NULL DEFAULT ''0'' COMMENT ''支付提交门禁：0.空闲；1.提交中'' AFTER pay_status',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'order_info' AND column_name = 'pay_submit_time');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE order_info ADD COLUMN `pay_submit_time` datetime NULL DEFAULT NULL COMMENT ''支付提交时间'' AFTER pay_submitting',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_info' AND index_name = 'idx_order_info_pay_submitting');
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE order_info ADD INDEX `idx_order_info_pay_submitting` (`tenant_id`, `pay_submitting`, `pay_submit_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 支付宝小程序身份模式
+-- Source: db/boot/212alipay_mini_identity_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 支付宝小程序身份模式（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：2026-11-06 支付方案 P2 支付宝小程序。
+--   1) social_account 增加 identity_mode：ALI_MINI 必须显式配置 user_id/open_id；
+--   2) social_user 增加 platform_type/identity_mode：区分微信 open_id 与支付宝身份，
+--      防止把微信 openid 当作支付宝买家；
+--   3) pay_config_revision 增加 buyer_identity_mode：支付身份版本冻结买家字段模式。
+--
+-- 幂等：列/索引先查 information_schema；不删除任何资金/身份记录。
+-- 回填：历史 social_user 全部来自微信小程序，回填 platform_type=WX_MA、identity_mode=open_id。
+-- 执行：mysql -u root -p aryn_boot < 212alipay_mini_identity_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ----------------------------------------------------------------------------
+-- 一、social_account：三方账号身份模式
+-- ----------------------------------------------------------------------------
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'social_account' AND column_name = 'identity_mode');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE social_account ADD COLUMN `identity_mode` varchar(16) NULL DEFAULT NULL COMMENT ''身份模式：ALI_MINI 为 user_id/open_id'' AFTER app_secret',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 二、social_user：平台类型与身份模式
+-- ----------------------------------------------------------------------------
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'social_user' AND column_name = 'platform_type');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE social_user ADD COLUMN `platform_type` varchar(16) NULL DEFAULT NULL COMMENT ''平台类型：WX_MA / ALI_MINI'' AFTER social_account_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'social_user' AND column_name = 'identity_mode');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE social_user ADD COLUMN `identity_mode` varchar(16) NULL DEFAULT NULL COMMENT ''身份模式：WX_MA=open_id；ALI_MINI=user_id/open_id'' AFTER platform_type',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+UPDATE social_user
+SET platform_type = 'WX_MA'
+WHERE (platform_type IS NULL OR platform_type = '')
+  AND open_id IS NOT NULL
+  AND open_id <> '';
+
+UPDATE social_user
+SET identity_mode = 'open_id'
+WHERE (identity_mode IS NULL OR identity_mode = '')
+  AND platform_type = 'WX_MA';
+
+-- 支付宝 buyer_open_id 官方上限 128，原 open_id 列宽 100 不足；仅放宽不缩窄。
+SET @col_len := (SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'social_user' AND column_name = 'open_id');
+SET @ddl := IF(@col_len < 128,
+  'ALTER TABLE social_user MODIFY COLUMN `open_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT ''openid/支付宝买家身份''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_len := (SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'user_info' AND column_name = 'open_id');
+SET @ddl := IF(@col_len < 128,
+  'ALTER TABLE user_info MODIFY COLUMN `open_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT ''平台用户唯一ID（openid / alipay userId 等）''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'social_user' AND index_name = 'idx_social_user_platform_user');
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE social_user ADD INDEX `idx_social_user_platform_user` (`tenant_id`, `platform_type`, `mall_user_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'social_user' AND index_name = 'idx_social_user_app_identity');
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE social_user ADD INDEX `idx_social_user_app_identity` (`tenant_id`, `app_id`, `identity_mode`, `open_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 三、pay_config_revision：支付宝小程序买家身份模式
+-- ----------------------------------------------------------------------------
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'pay_config_revision' AND column_name = 'buyer_identity_mode');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE pay_config_revision ADD COLUMN `buyer_identity_mode` varchar(16) NULL DEFAULT NULL COMMENT ''支付宝小程序买家身份模式：user_id/open_id'' AFTER wx_public_key_id',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 清单直下单导入（不挂共享购物车）
+-- Source: db/boot/213replenish_direct_import_incremental.sql
+-- ============================================================================
+-- 清单直下单导入（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：可重复执行；不 DROP/TRUNCATE；不覆盖已有业务数据；仅新增两张表与索引。
+--
+-- 背景（2026-11-07 · 「导入清单下单」不挂共享购物车）：
+--   「导入清单下单」向导改为：选定靠港（船供）或收货地址（岸上）→ 上传 Excel →
+--   服务端解析落行 → 报告页人工处置 → 确认返回**已复核的 SKU 清单**，
+--   由前端带进结算页走既有下单链路（createWay=2）直接生成订单。
+--   全程不产生补给单/共享购物车单据。
+--
+--   与 shared_cart_import / shared_cart_import_row（80 号脚本）的区别：
+--   那两张表服务于「并入补给单明细」（cart_id NOT NULL，确认写 shared_cart_item）；
+--   本表服务于「解析 → 复核 → 出清单」，没有单据归属，确认不写购物车。
+--   解析口径（ReplenishImportExcel / ReplenishImportClassifier / 商品域匹配）与
+--   防篡改确认契约（行号→处置动作，服务端落行为准）完全同源。
+--
+-- 语义约定：
+--   import.status     1待确认（已解析出报告） 2已确认（复核清单已产出） 3已取消
+--   row.result_type   OK匹配成功 / UNMATCHED未匹配 / SPEC_CHANGED规格变更 /
+--                     OVER_STOCK超库存 / INVALID_QTY数量异常 / OFF_SHELF已下架 /
+--                     NOT_FILLED未填数量（客户本次不采购，非错误）
+--   row.resolved_action  ACCEPT_SPEC确认新规格 / ADJUST_QTY调整数量 /
+--                        REPLACE_SKU人工补选 / SKIP跳过（null=未处置，确认时按跳过处理）
+--   数量口径：planned_quantity = Excel 数量列解析值，确认复核后与 resolved_quantity 同值；
+--             同 SKU 多行合并数量后进复核清单；不参与换算（库存按 sku.stock 直比）。
+--
+-- 执行：mysql -u root -p aryn_boot < 213replenish_direct_import_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------------------------
+-- 一、导入任务（一次上传 = 一个任务，报告可反复取回）
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `replenish_direct_import` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `file_name` varchar(255) DEFAULT NULL COMMENT '上传文件名',
+  `file_size` bigint DEFAULT NULL COMMENT '文件字节数',
+  `file_sha256` char(64) DEFAULT NULL COMMENT '文件内容摘要',
+  `total_rows` int NOT NULL DEFAULT 0 COMMENT '解析出的数据行数（不含表头）',
+  `matched_rows` int NOT NULL DEFAULT 0 COMMENT '匹配成功行数',
+  `unmatched_rows` int NOT NULL DEFAULT 0 COMMENT '未匹配行数',
+  `spec_changed_rows` int NOT NULL DEFAULT 0 COMMENT '规格变更行数',
+  `over_stock_rows` int NOT NULL DEFAULT 0 COMMENT '超库存行数',
+  `invalid_rows` int NOT NULL DEFAULT 0 COMMENT '数量/格式异常行数',
+  `off_shelf_rows` int NOT NULL DEFAULT 0 COMMENT '已下架商品行数',
+  `not_filled_rows` int NOT NULL DEFAULT 0 COMMENT '未填数量行数（客户本次不采购，非错误）',
+  `confirmed_rows` int NOT NULL DEFAULT 0 COMMENT '确认后复核通过的明细项数（同 SKU 合并后）',
+  `skipped_rows` int NOT NULL DEFAULT 0 COMMENT '确认时跳过或未处置的行数',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待确认 2已确认 3已取消',
+  `operator_user_id` varchar(32) NOT NULL COMMENT '上传操作人（确认/取回校验归属）',
+  `confirmed_time` datetime DEFAULT NULL COMMENT '确认时间',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_replenish_direct_import_operator` (`tenant_id`,`operator_user_id`,`status`),
+  KEY `idx_replenish_direct_import_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='清单直下单导入任务';
+
+-- ---------------------------------------------------------------------------
+-- 二、导入解析行（服务端落库，确认时按行处置重新校验，不信任客户端回传内容）
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `replenish_direct_import_row` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `import_id` varchar(32) NOT NULL COMMENT '导入任务ID',
+  `row_no` int NOT NULL DEFAULT 0 COMMENT '行号（从1开始，不含表头）',
+  `raw_code` varchar(64) DEFAULT NULL COMMENT 'Excel 商品编码原文',
+  `raw_name` varchar(255) DEFAULT NULL COMMENT 'Excel 品名原文',
+  `raw_spec` varchar(128) DEFAULT NULL COMMENT 'Excel 规格原文',
+  `raw_quantity` int DEFAULT NULL COMMENT 'Excel 数量原文',
+  `raw_remark` varchar(255) DEFAULT NULL COMMENT 'Excel 备注原文',
+  `match_type` varchar(16) DEFAULT NULL COMMENT '匹配方式：CODE编码 / NAME品名 / AMBIGUOUS多规格待选 / NONE未命中',
+  `matched_sku_id` varchar(32) DEFAULT NULL COMMENT '匹配到的SKU ID',
+  `matched_spu_id` varchar(32) DEFAULT NULL COMMENT '匹配到的SPU ID',
+  `matched_name` varchar(255) DEFAULT NULL COMMENT '匹配到的商品名',
+  `matched_spec` varchar(255) DEFAULT NULL COMMENT '匹配到的规格描述',
+  `matched_price` decimal(10,2) DEFAULT NULL COMMENT '匹配时的售价快照（仅展示）',
+  `matched_stock` int DEFAULT NULL COMMENT '匹配时的库存快照（仅展示）',
+  `planned_quantity` int DEFAULT NULL COMMENT '本次采购数量（确认复核后与 resolved_quantity 同值）',
+  `suggested_quantity` int DEFAULT NULL COMMENT '服务端建议数量（超库存调减/数量异常就近取整）',
+  `result_type` varchar(24) NOT NULL DEFAULT 'UNMATCHED' COMMENT '结果：OK/UNMATCHED/SPEC_CHANGED/OVER_STOCK/INVALID_QTY/OFF_SHELF/NOT_FILLED',
+  `result_message` varchar(500) DEFAULT NULL COMMENT '结果说明（给用户看）',
+  `resolved_action` varchar(24) DEFAULT NULL COMMENT '用户处置：ACCEPT_SPEC/ADJUST_QTY/REPLACE_SKU/SKIP',
+  `resolved_sku_id` varchar(32) DEFAULT NULL COMMENT '人工补选后的SKU ID',
+  `resolved_quantity` int DEFAULT NULL COMMENT '调整后的数量',
+  `resolved_time` datetime DEFAULT NULL COMMENT '处置时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_replenish_direct_import_row` (`tenant_id`,`import_id`,`row_no`),
+  KEY `idx_replenish_direct_import_row_result` (`tenant_id`,`import_id`,`result_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='清单直下单导入解析行';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- SPU 社证统计 T+1 快照（月下单人数/回头客/回购率底表）
+-- Source: db/boot/214spu_sales_stat_incremental.sql
+-- ============================================================================
+-- SPU 社证统计 T+1 快照（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：可重复执行（CREATE TABLE IF NOT EXISTS）；不 DROP/TRUNCATE；不覆盖已有业务数据。
+--
+-- 背景（2026-11-08 · 「商品卡营销标签」P2，见
+--       docs/50-需求文档/2026-11-08-商品卡营销标签/README.md）：
+--   商品卡新增社证文案「月N+人已下单 / 月回头客N+人 / X%人回购」（对标盒马/小象）。
+--   列表页 20 个商品 × 实时 COUNT(DISTINCT) 扫订单大表是灾难，且社证数字不需要实时性，
+--   因此 T+1 离线聚合：spuSalesStatJobHandler 每日按租户把近 30 天窗口的
+--   去重买家数/复购买家数/回购率写一行快照，C 端只读最新一期（O(1) 点查）。
+--
+--   聚合口径与热销榜/常购清单同源（OrderItemMapper#selectGoodsSalesRank 注释）：
+--     order_info.status IN ('2','3','4')（已过支付环节，含货到付款）、
+--     订单与明细均未删除、窗口按 order_info.create_time 近 30 天；
+--     回购判定 = 同一 (用户,SPU) 的不同订单数 ≥ 2（同一订单买多件不算回购）。
+--   表按 SPU 维度聚合（卡面只有 SPU 维度；SKU 级诉求出现前不加维度）。
+--
+--   展示门槛/取整（ buyers≥1000、回购率≥30%、floor 到千/万位加「+」）在
+--   product-biz SocialProofFormatter 收口，不落库——改门槛不动数据。
+--
+-- 白名单：本表须登记进 aryn-boot application.yml 的 hx.tenant.tables（拦截器注入租户）。
+--
+-- 执行：mysql -u root -p aryn_boot < 214spu_sales_stat_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS `stat_daily_spu_sales` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `stat_date` date NOT NULL COMMENT '统计快照日（窗口截至当日，T+1 写昨天）',
+  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
+  `buyer_cnt` int NOT NULL DEFAULT 0 COMMENT '近30天有效订单去重买家数',
+  `repeat_buyer_cnt` int NOT NULL DEFAULT 0 COMMENT '近30天不同订单数≥2的去重买家数',
+  `repurchase_rate` decimal(5,2) NOT NULL DEFAULT 0 COMMENT '回购率%=repeat/buyer*100',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_stat_daily_spu_sales` (`tenant_id`,`spu_id`,`stat_date`),
+  KEY `idx_stat_daily_spu_sales_date` (`tenant_id`,`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='SPU社证统计T+1快照（月N+人已下单/月回头客/X%人回购底表，口径见脚本头注释，口径即展示承诺变更须评审）';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- SPU 社证统计定时任务注册
+-- Source: db/boot/215spu_sales_stat_job.sql
+-- ============================================================================
+-- SPU 社证统计定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-08 · 「商品卡营销标签」P2）：
+--   `SpuSalesStatJobHandler`（@XxlJob("spuSalesStatJobHandler")）每日 02:30
+--   按租户把近 30 天窗口的去重买家数/复购买家数/回购率写进 stat_daily_spu_sales
+--   （214 号脚本建表，boot 库 aryn_boot）；参数 days 可回填最近 N 天（1-90，
+--   首次部署建议传 14 预铺「近14天」社证底数，正常调度留空=只统计昨天）。
+-- 注册：按 executor_handler 判重（NOT EXISTS），已注册则跳过；可重复执行。
+-- 注意：执行器分组沿用基线 3aryn_boot_job.sql（job_group=1）；若部署为独立执行器，
+--       请在 xxl-job 管理台把任务改挂到对应执行器分组。
+-- 执行：mysql -u root -p aryn_boot_job < 215spu_sales_stat_job.sql
+
+USE `aryn_boot_job`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- SPU 社证统计：每日 02:30（Cron 0 30 2 * * ?），T+1 统计昨天、支持参数回填
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, 'SPU社证统计（月下单人数/回头客/回购率 T+1 快照）', NOW(), NOW(), 'admin', '',
+       'CRON', '0 30 2 * * ?', 'DO_NOTHING', 'FIRST',
+       'spuSalesStatJobHandler', '', 'SERIAL_EXECUTION', 1800,
+       1, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'spuSalesStatJobHandler'
+);
+
+-- 自检：应返回 1
+SELECT COUNT(*) AS registered
+FROM `xxl_job_info`
+WHERE `executor_handler` = 'spuSalesStatJobHandler';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- SKU 每日价格快照（近N天最低价判定底表）
+-- Source: db/boot/216goods_sku_price_daily_incremental.sql
+-- ============================================================================
+-- SKU 每日价格快照（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：可重复执行（CREATE TABLE IF NOT EXISTS）；不 DROP/TRUNCATE；不覆盖已有业务数据。
+--
+-- 背景（2026-11-08 · 「商品卡营销标签」P3，见
+--       docs/50-需求文档/2026-11-08-商品卡营销标签/README.md）：
+--   商品卡新增价格声明「近14天最低价」（对标小象）：合规自证的前提是
+--   「折减基准价可回溯」——当前价是否为近 N 天最低，必须有逐日价格历史可查。
+--   因此 skuPriceDailySnapshotJobHandler 每日 01:30 按租户对全部在售 SKU 写一行快照，
+--   C 端 card-tags 页级一次 GROUP BY 聚合出「窗口最低价/变价次数/当日价」判标。
+--
+--   快照价口径（即合规证据，禁止随意变更）：sale_price = MIN(标价, 出清生效价, 秒杀价)，
+--   即当日「非个性化到手价」——出清价复用专区同源口径（SKU 覆盖 + 系统活动最终价 +
+--   倒挂过滤），秒杀价经 RemoteCardMarketingService.batchActiveSeckill 批量拉取、
+--   失败降级仅本地价；会员价/新人价是 user-scoped 身份价，无法全局快照，不计入口径。
+--   口径变更必须走需求评审，禁止 Job 顺手改（表注释与需求文档双重固化）。
+--
+-- 白名单：本表须登记进 aryn-boot application.yml 的 hx.tenant.tables（拦截器注入租户）。
+--
+-- 执行：mysql -u root -p aryn_boot < 216goods_sku_price_daily_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS `goods_sku_price_daily` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
+  `sku_id` varchar(32) NOT NULL COMMENT '商品SKU ID',
+  `stat_date` date NOT NULL COMMENT '快照日',
+  `sale_price` decimal(10,2) NOT NULL COMMENT '非个性化到手价=MIN(标价,出清生效价,秒杀价)；会员/新人价不计入（user-scoped）',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_sku_date` (`tenant_id`,`sku_id`,`stat_date`),
+  KEY `idx_tenant_date` (`tenant_id`,`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='SKU每日价格快照：近N天最低价判定底表，口径即合规证据禁止随意变更';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- SKU 价格快照定时任务注册
+-- Source: db/boot/217sku_price_daily_snapshot_job.sql
+-- ============================================================================
+-- SKU 价格快照定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-08 · 「商品卡营销标签」P3）：
+--   `SkuPriceDailySnapshotJobHandler`（@XxlJob("skuPriceDailySnapshotJobHandler")）每日 01:30
+--   按租户对全部在售 SKU 写当日价格快照（216 号脚本建表，boot 库 aryn_boot）。
+--   价格是时点数据无法回填历史，不支持参数回填——快照表从部署日起逐日积累，
+--   「近N天最低价」随窗口自然灰度放量（首日表空自然不出标）。
+-- 注册：按 executor_handler 判重（NOT EXISTS），已注册则跳过；可重复执行。
+-- 注意：执行器分组沿用基线 3aryn_boot_job.sql（job_group=1）；若部署为独立执行器，
+--       请在 xxl-job 管理台把任务改挂到对应执行器分组。
+-- 执行：mysql -u root -p aryn_boot_job < 217sku_price_daily_snapshot_job.sql
+
+USE `aryn_boot_job`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- SKU 价格快照：每日 01:30（Cron 0 30 1 * * ?），写当日非个性化到手价
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, 'SKU价格快照（近N天最低价判定底表，每日01:30）', NOW(), NOW(), 'admin', '',
+       'CRON', '0 30 1 * * ?', 'DO_NOTHING', 'FIRST',
+       'skuPriceDailySnapshotJobHandler', '', 'SERIAL_EXECUTION', 1800,
+       1, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'skuPriceDailySnapshotJobHandler'
+);
+
+-- 自检：应返回 1
+SELECT COUNT(*) AS registered
+FROM `xxl_job_info`
+WHERE `executor_handler` = 'skuPriceDailySnapshotJobHandler';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商品名称规格化回填（974 段前 302 个种子商品追加规格后缀）
+-- Source: db/boot/218spu_name_spec_backfill_incremental.sql
+-- ============================================================================
+-- 商品名称规格化回填（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：可重复执行（每条 UPDATE 带 name=旧名 条件，二次执行 0 行变更；不会误改
+--       名称已被人工调整过的商品）；不 DROP/TRUNCATE；不覆盖价格等业务数据。
+--
+-- 背景（2026-11-08 · 商品规格调研回填）：
+--   974 段前 302 个商品（9740000000000000001 ~ 9740000000000000302）为早期种子，
+--   名称普遍不带规格（如「烟台红富士苹果」「维达抽纸」「可口可乐」），用户无法
+--   判断买的是多少量；而后批 974 段（303~394）与 977 段（97700000000000000xxx）
+--   种子已带规格（如「泰国山竹1kg」「夏黑无籽葡萄 约500g/盒」「挂耳咖啡 10片装」）。
+--   本脚本对齐后批种子风格，为名称追加规格后缀（「名称 空格 规格」），共 275 条；
+--   价格不变（规格量级按既有售价设计，与价格自洽）。
+--
+--   另有 27 个商品刻意不改：名称已含规格语义或单件无歧义——
+--   李宁7号篮球 / 羽毛球拍双拍 / 计数跳绳 / 乒乓球拍双拍 / 5号排球 /
+--   真无线蓝牙耳机 / 充电宝20000mAh / 手机支架 / 护眼台灯 / 插线板6位 /
+--   手持小风扇 / 无线鼠标 / 春秋工作服套装 / ABS安全帽 / 钢头劳保鞋 /
+--   单人雨衣 / 防护护目镜 / 绝缘手套 / 双面擦窗器 / 围棋棋盘套装 /
+--   耳机收纳包 / 硅胶手机壳 / 铝合金平板支架 / 反光安全背心 / 五点式安全带 /
+--   连体防尘服 / 电工绝缘鞋。
+--
+--   随带同步刷新购物车在途行的 spu_name 快照（仅名称不一致的在途行）；
+--   订单明细 order_item 是下单时点快照，按惯例不动。
+--
+-- 执行：mysql -u root -p < 218spu_name_spec_backfill_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 商品名称追加规格后缀（275 条，幂等）
+-- ===========================================================================
+UPDATE `goods_spu` SET `name` = '烟台红富士苹果 4个装 约1.2kg' WHERE `id` = '9740000000000000001' AND `name` = '烟台红富士苹果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '海南贵妃芒 约750g/盒' WHERE `id` = '9740000000000000002' AND `name` = '海南贵妃芒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '麒麟西瓜 1个 约4kg' WHERE `id` = '9740000000000000003' AND `name` = '麒麟西瓜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '阳光玫瑰葡萄 约500g/串' WHERE `id` = '9740000000000000004' AND `name` = '阳光玫瑰葡萄' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '国产香蕉 约1kg/把' WHERE `id` = '9740000000000000005' AND `name` = '国产香蕉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '赣南脐橙 5个装 约1.2kg' WHERE `id` = '9740000000000000006' AND `name` = '赣南脐橙' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '丹东99草莓 约300g/盒' WHERE `id` = '9740000000000000007' AND `name` = '丹东99草莓' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '泰国椰青 1个 约900g' WHERE `id` = '9740000000000000008' AND `name` = '泰国椰青' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '油麦菜 约350g/份' WHERE `id` = '9740000000000000009' AND `name` = '油麦菜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '黄心土豆 约500g/份' WHERE `id` = '9740000000000000010' AND `name` = '黄心土豆' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '普罗旺斯西红柿 4个装 约600g' WHERE `id` = '9740000000000000011' AND `name` = '普罗旺斯西红柿' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '本地黄瓜 2根装 约500g' WHERE `id` = '9740000000000000012' AND `name` = '本地黄瓜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '小油菜 约300g/份' WHERE `id` = '9740000000000000013' AND `name` = '小油菜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜香菇 约200g/盒' WHERE `id` = '9740000000000000014' AND `name` = '新鲜香菇' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '嫩豆腐 400g/盒' WHERE `id` = '9740000000000000015' AND `name` = '嫩豆腐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '胡萝卜 约500g/份' WHERE `id` = '9740000000000000016' AND `name` = '胡萝卜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '猪五花肉片 300g/盒' WHERE `id` = '9740000000000000017' AND `name` = '猪五花肉片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '原切牛腩块 500g/盒' WHERE `id` = '9740000000000000018' AND `name` = '原切牛腩块' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '内蒙羔羊肉卷 250g/袋' WHERE `id` = '9740000000000000019' AND `name` = '内蒙羔羊肉卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '三黄鸡 1只 约1kg' WHERE `id` = '9740000000000000020' AND `name` = '三黄鸡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜鸡蛋 10枚/盒' WHERE `id` = '9740000000000000021' AND `name` = '鲜鸡蛋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷冻青虾仁 250g/袋' WHERE `id` = '9740000000000000022' AND `name` = '冷冻青虾仁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冰鲜三文鱼柳 200g/份' WHERE `id` = '9740000000000000023' AND `name` = '冰鲜三文鱼柳' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜活花蛤 约500g/份' WHERE `id` = '9740000000000000024' AND `name` = '鲜活花蛤' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '老面馒头 4个装 约320g' WHERE `id` = '9740000000000000025' AND `name` = '老面馒头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜肉包 4个装 约360g' WHERE `id` = '9740000000000000026' AND `name` = '鲜肉包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '手工挂面 500g/把' WHERE `id` = '9740000000000000027' AND `name` = '手工挂面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜虾云吞 12只装 约240g' WHERE `id` = '9740000000000000028' AND `name` = '鲜虾云吞' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '葱油饼 5片装 约450g' WHERE `id` = '9740000000000000029' AND `name` = '葱油饼' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜肉水饺 500g/袋' WHERE `id` = '9740000000000000030' AND `name` = '鲜肉水饺' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '花卷 4个装 约320g' WHERE `id` = '9740000000000000031' AND `name` = '花卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '手擀面 400g/份' WHERE `id` = '9740000000000000032' AND `name` = '手擀面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷冻粗薯条 400g/袋' WHERE `id` = '9740000000000000033' AND `name` = '冷冻粗薯条' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '牛肉卷 250g/袋' WHERE `id` = '9740000000000000034' AND `name` = '牛肉卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '香煎鸡排 400g/袋' WHERE `id` = '9740000000000000035' AND `name` = '香煎鸡排' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '速冻水饺 450g/袋' WHERE `id` = '9740000000000000036' AND `name` = '速冻水饺' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鱼豆腐 250g/袋' WHERE `id` = '9740000000000000037' AND `name` = '鱼豆腐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷冻虾仁 250g/袋' WHERE `id` = '9740000000000000038' AND `name` = '冷冻虾仁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '春卷 300g/袋' WHERE `id` = '9740000000000000039' AND `name` = '春卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '台式烤肠 250g/袋 约5根' WHERE `id` = '9740000000000000040' AND `name` = '台式烤肠' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '晴王阳光玫瑰 约500g/串' WHERE `id` = '9740000000000000041' AND `name` = '晴王阳光玫瑰' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '巴氏鲜牛奶 1L/瓶' WHERE `id` = '9740000000000000042' AND `name` = '巴氏鲜牛奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '牛油果 2个装 约300g' WHERE `id` = '9740000000000000043' AND `name` = '牛油果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '有机西兰花 约400g/颗' WHERE `id` = '9740000000000000044' AND `name` = '有机西兰花' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷萃咖啡 250ml/瓶' WHERE `id` = '9740000000000000045' AND `name` = '冷萃咖啡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '全麦贝果 2个装 约220g' WHERE `id` = '9740000000000000046' AND `name` = '全麦贝果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '手打鲜虾滑 150g/袋' WHERE `id` = '9740000000000000047' AND `name` = '手打鲜虾滑' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '突尼斯软籽石榴 3个装 约600g' WHERE `id` = '9740000000000000048' AND `name` = '突尼斯软籽石榴' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '农夫山泉天然水 550ml×24瓶' WHERE `id` = '9740000000000000049' AND `name` = '农夫山泉天然水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '怡宝纯净水 555ml×24瓶' WHERE `id` = '9740000000000000050' AND `name` = '怡宝纯净水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '饮用纯净水 1.5L×12瓶' WHERE `id` = '9740000000000000051' AND `name` = '饮用纯净水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '维达抽纸 3层100抽×12包' WHERE `id` = '9740000000000000052' AND `name` = '维达抽纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '心相印卷纸 4层140g×10卷' WHERE `id` = '9740000000000000053' AND `name` = '心相印卷纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '厨房纸巾 2卷装' WHERE `id` = '9740000000000000054' AND `name` = '厨房纸巾' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '婴儿湿巾 80抽/包' WHERE `id` = '9740000000000000055' AND `name` = '婴儿湿巾' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '本色卫生纸 4层180g×8卷' WHERE `id` = '9740000000000000056' AND `name` = '本色卫生纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '伊利纯牛奶 250ml×24盒' WHERE `id` = '9740000000000000057' AND `name` = '伊利纯牛奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '特仑苏纯牛奶 250ml×24盒' WHERE `id` = '9740000000000000058' AND `name` = '特仑苏纯牛奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '蒙牛纯牛奶 250ml×24盒' WHERE `id` = '9740000000000000059' AND `name` = '蒙牛纯牛奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '简爱原味酸奶 1kg/桶' WHERE `id` = '9740000000000000060' AND `name` = '简爱原味酸奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '农夫NFC橙汁 300ml×4瓶' WHERE `id` = '9740000000000000061' AND `name` = '农夫NFC橙汁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '安慕希酸奶 205g×16盒' WHERE `id` = '9740000000000000062' AND `name` = '安慕希酸奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '椰树椰汁 245ml×24罐' WHERE `id` = '9740000000000000063' AND `name` = '椰树椰汁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鲜榨苹果汁 1L/瓶' WHERE `id` = '9740000000000000064' AND `name` = '鲜榨苹果汁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '可口可乐 500ml×24瓶' WHERE `id` = '9740000000000000065' AND `name` = '可口可乐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '雪碧 500ml×24瓶' WHERE `id` = '9740000000000000066' AND `name` = '雪碧' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '百事可乐 500ml×24瓶' WHERE `id` = '9740000000000000067' AND `name` = '百事可乐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '芬达橙味 500ml×24瓶' WHERE `id` = '9740000000000000068' AND `name` = '芬达橙味' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '元气森林气泡水 480ml×12瓶' WHERE `id` = '9740000000000000069' AND `name` = '元气森林气泡水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '屈臣氏苏打水 330ml×24瓶' WHERE `id` = '9740000000000000070' AND `name` = '屈臣氏苏打水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '可口可乐零度 500ml×24瓶' WHERE `id` = '9740000000000000071' AND `name` = '可口可乐零度' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '美年达橙味 500ml×24瓶' WHERE `id` = '9740000000000000072' AND `name` = '美年达橙味' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '红牛维生素功能饮料 250ml×12罐' WHERE `id` = '9740000000000000073' AND `name` = '红牛维生素功能饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '东鹏特饮 500ml×12瓶' WHERE `id` = '9740000000000000074' AND `name` = '东鹏特饮' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '乐虎功能饮料 380ml×12罐' WHERE `id` = '9740000000000000075' AND `name` = '乐虎功能饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '星巴克即饮咖啡 281ml×3瓶' WHERE `id` = '9740000000000000076' AND `name` = '星巴克即饮咖啡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '雀巢即饮咖啡 268ml×6瓶' WHERE `id` = '9740000000000000077' AND `name` = '雀巢即饮咖啡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '脉动维生素饮料 600ml×15瓶' WHERE `id` = '9740000000000000078' AND `name` = '脉动维生素饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '黑咖啡饮料 250ml/瓶' WHERE `id` = '9740000000000000079' AND `name` = '黑咖啡饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '维生素功能饮料 250ml×12罐' WHERE `id` = '9740000000000000080' AND `name` = '维生素功能饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '青岛啤酒经典 500ml×12罐' WHERE `id` = '9740000000000000081' AND `name` = '青岛啤酒经典' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '雪花啤酒勇闯天涯 500ml×12罐' WHERE `id` = '9740000000000000082' AND `name` = '雪花啤酒勇闯天涯' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '百威啤酒 500ml×18罐' WHERE `id` = '9740000000000000083' AND `name` = '百威啤酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '茅台迎宾酒 500ml/瓶 53度' WHERE `id` = '9740000000000000084' AND `name` = '茅台迎宾酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '五粮液浓香型 500ml/瓶 52度' WHERE `id` = '9740000000000000085' AND `name` = '五粮液浓香型' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '张裕干红葡萄酒 750ml/瓶' WHERE `id` = '9740000000000000086' AND `name` = '张裕干红葡萄酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '绍兴花雕酒 500ml/瓶' WHERE `id` = '9740000000000000087' AND `name` = '绍兴花雕酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '江小白 100ml×12瓶' WHERE `id` = '9740000000000000088' AND `name` = '江小白' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '三得利乌龙茶 500ml×24瓶' WHERE `id` = '9740000000000000089' AND `name` = '三得利乌龙茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '东方树叶绿茶 500ml×24瓶' WHERE `id` = '9740000000000000090' AND `name` = '东方树叶绿茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '康师傅冰红茶 500ml×24瓶' WHERE `id` = '9740000000000000091' AND `name` = '康师傅冰红茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '统一绿茶 500ml×24瓶' WHERE `id` = '9740000000000000092' AND `name` = '统一绿茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '西湖龙井 100g/罐' WHERE `id` = '9740000000000000093' AND `name` = '西湖龙井' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '安溪铁观音 100g/罐' WHERE `id` = '9740000000000000094' AND `name` = '安溪铁观音' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '茉莉花茶 200g/袋' WHERE `id` = '9740000000000000095' AND `name` = '茉莉花茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '立顿红茶 2g×100包' WHERE `id` = '9740000000000000096' AND `name` = '立顿红茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '香飘飘奶茶 80g×12杯' WHERE `id` = '9740000000000000097' AND `name` = '香飘飘奶茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '桂格即食燕麦片 700g/袋' WHERE `id` = '9740000000000000098' AND `name` = '桂格即食燕麦片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '阿华田可可粉 400g/罐' WHERE `id` = '9740000000000000099' AND `name` = '阿华田可可粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '南方黑芝麻糊 40g×10袋' WHERE `id` = '9740000000000000100' AND `name` = '南方黑芝麻糊' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '雀巢咖啡1+2 13g×50条' WHERE `id` = '9740000000000000101' AND `name` = '雀巢咖啡1+2' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '豆奶粉 560g/袋' WHERE `id` = '9740000000000000102' AND `name` = '豆奶粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洋槐蜂蜜 500g/瓶' WHERE `id` = '9740000000000000103' AND `name` = '洋槐蜂蜜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '山药葛根粉 300g/罐' WHERE `id` = '9740000000000000104' AND `name` = '山药葛根粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '火锅肥牛卷 250g/盒' WHERE `id` = '9740000000000000105' AND `name` = '火锅肥牛卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '羔羊肉卷 250g/盒' WHERE `id` = '9740000000000000106' AND `name` = '羔羊肉卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '火锅丸子组合 500g/袋' WHERE `id` = '9740000000000000107' AND `name` = '火锅丸子组合' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '海底捞番茄火锅底料 200g/袋' WHERE `id` = '9740000000000000108' AND `name` = '海底捞番茄火锅底料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '腌制羊肉串 400g/袋 约10串' WHERE `id` = '9740000000000000109' AND `name` = '腌制羊肉串' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '甜玉米 2根装 约700g' WHERE `id` = '9740000000000000110' AND `name` = '甜玉米' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '土豆片 约300g/份' WHERE `id` = '9740000000000000111' AND `name` = '土豆片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '火锅蘸料麻酱 200g/盒' WHERE `id` = '9740000000000000112' AND `name` = '火锅蘸料麻酱' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '五香酱牛肉 200g/袋' WHERE `id` = '9740000000000000113' AND `name` = '五香酱牛肉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '南京盐水鸭 半只 约500g' WHERE `id` = '9740000000000000114' AND `name` = '南京盐水鸭' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '德州扒鸡 1只 约550g' WHERE `id` = '9740000000000000115' AND `name` = '德州扒鸡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '卤鸡爪 200g/袋' WHERE `id` = '9740000000000000116' AND `name` = '卤鸡爪' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '涪陵榨菜 80g×10袋' WHERE `id` = '9740000000000000117' AND `name` = '涪陵榨菜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '酸甜脆萝卜 300g/袋' WHERE `id` = '9740000000000000118' AND `name` = '酸甜脆萝卜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '松花皮蛋 6枚装' WHERE `id` = '9740000000000000119' AND `name` = '松花皮蛋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '午餐肉罐头 340g/罐' WHERE `id` = '9740000000000000120' AND `name` = '午餐肉罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '砀山黄桃罐头 425g/罐' WHERE `id` = '9740000000000000121' AND `name` = '砀山黄桃罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '糖水橘子罐头 425g/罐' WHERE `id` = '9740000000000000122' AND `name` = '糖水橘子罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '菠萝罐头 425g/罐' WHERE `id` = '9740000000000000123' AND `name` = '菠萝罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '山楂罐头 425g/罐' WHERE `id` = '9740000000000000124' AND `name` = '山楂罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '午餐肉罐头 198g/罐' WHERE `id` = '9740000000000000125' AND `name` = '午餐肉罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '油浸金枪鱼罐头 150g/罐' WHERE `id` = '9740000000000000126' AND `name` = '油浸金枪鱼罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '甜玉米粒罐头 340g/罐' WHERE `id` = '9740000000000000127' AND `name` = '甜玉米粒罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '豆豉鲮鱼罐头 227g/罐' WHERE `id` = '9740000000000000128' AND `name` = '豆豉鲮鱼罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洽洽香瓜子 260g/袋' WHERE `id` = '9740000000000000129' AND `name` = '洽洽香瓜子' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '铁锅炒花生 250g/袋' WHERE `id` = '9740000000000000130' AND `name` = '铁锅炒花生' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '酒鬼花生 150g/袋' WHERE `id` = '9740000000000000131' AND `name` = '酒鬼花生' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '三只松鼠碧根果 500g/袋' WHERE `id` = '9740000000000000132' AND `name` = '三只松鼠碧根果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '每日坚果 25g×30包' WHERE `id` = '9740000000000000133' AND `name` = '每日坚果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '百草味夏威夷果 200g/袋' WHERE `id` = '9740000000000000134' AND `name` = '百草味夏威夷果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '开心果 250g/袋' WHERE `id` = '9740000000000000135' AND `name` = '开心果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '巴旦木仁 250g/袋' WHERE `id` = '9740000000000000136' AND `name` = '巴旦木仁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '乐事薯片 70g×3包' WHERE `id` = '9740000000000000137' AND `name` = '乐事薯片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '卫龙大面筋辣条 106g×3包' WHERE `id` = '9740000000000000138' AND `name` = '卫龙大面筋辣条' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '三只松鼠肉脯 200g/袋' WHERE `id` = '9740000000000000139' AND `name` = '三只松鼠肉脯' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '旺旺仙贝 400g/袋' WHERE `id` = '9740000000000000140' AND `name` = '旺旺仙贝' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '德芙巧克力 252g/盒' WHERE `id` = '9740000000000000141' AND `name` = '德芙巧克力' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '徐福记酥心糖 350g/袋' WHERE `id` = '9740000000000000142' AND `name` = '徐福记酥心糖' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '芒果干 200g/袋' WHERE `id` = '9740000000000000143' AND `name` = '芒果干' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '奥利奥夹心饼干 97g×3盒' WHERE `id` = '9740000000000000144' AND `name` = '奥利奥夹心饼干' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '全麦面包 400g/袋' WHERE `id` = '9740000000000000145' AND `name` = '全麦面包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '夹心吐司面包 320g/袋' WHERE `id` = '9740000000000000146' AND `name` = '夹心吐司面包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '麻薯面包 240g/袋' WHERE `id` = '9740000000000000147' AND `name` = '麻薯面包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '肉松吐司 300g/袋' WHERE `id` = '9740000000000000148' AND `name` = '肉松吐司' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '黄油曲奇饼干 454g/盒' WHERE `id` = '9740000000000000149' AND `name` = '黄油曲奇饼干' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '蛋黄派 480g/袋' WHERE `id` = '9740000000000000150' AND `name` = '蛋黄派' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '蒸蛋糕 400g/袋' WHERE `id` = '9740000000000000151' AND `name` = '蒸蛋糕' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '苏打饼干 400g/盒' WHERE `id` = '9740000000000000152' AND `name` = '苏打饼干' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '康师傅红烧牛肉面 105g×5包' WHERE `id` = '9740000000000000153' AND `name` = '康师傅红烧牛肉面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '统一老坛酸菜面 120g×5包' WHERE `id` = '9740000000000000154' AND `name` = '统一老坛酸菜面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '桶装方便面 128g×10桶' WHERE `id` = '9740000000000000155' AND `name` = '桶装方便面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '自热小火锅 400g/盒' WHERE `id` = '9740000000000000156' AND `name` = '自热小火锅' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '自热米饭 440g/盒' WHERE `id` = '9740000000000000157' AND `name` = '自热米饭' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '柳州螺蛳粉 335g×3袋' WHERE `id` = '9740000000000000158' AND `name` = '柳州螺蛳粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '兰州牛肉面 220g/袋' WHERE `id` = '9740000000000000159' AND `name` = '兰州牛肉面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '酸辣粉 135g×5袋' WHERE `id` = '9740000000000000160' AND `name` = '酸辣粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '海飞丝去屑洗发水 500ml/瓶' WHERE `id` = '9740000000000000161' AND `name` = '海飞丝去屑洗发水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '舒肤佳沐浴露 400ml/瓶' WHERE `id` = '9740000000000000162' AND `name` = '舒肤佳沐浴露' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '氨基酸洗面奶 100g/支' WHERE `id` = '9740000000000000163' AND `name` = '氨基酸洗面奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洋甘菊护手霜 50g×3支' WHERE `id` = '9740000000000000164' AND `name` = '洋甘菊护手霜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '云南白药牙膏 100g/支' WHERE `id` = '9740000000000000165' AND `name` = '云南白药牙膏' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '高露洁牙膏 120g/支' WHERE `id` = '9740000000000000166' AND `name` = '高露洁牙膏' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '卫生巾日用 8片/包' WHERE `id` = '9740000000000000167' AND `name` = '卫生巾日用' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '纸巾抽纸整箱 3层100抽×24包' WHERE `id` = '9740000000000000168' AND `name` = '纸巾抽纸整箱' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '蓝月亮洗衣液 1kg/瓶' WHERE `id` = '9740000000000000169' AND `name` = '蓝月亮洗衣液' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '立白洗洁精 500g/瓶' WHERE `id` = '9740000000000000170' AND `name` = '立白洗洁精' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '雕牌洗洁精 500g/瓶' WHERE `id` = '9740000000000000171' AND `name` = '雕牌洗洁精' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洗手液 500ml/瓶' WHERE `id` = '9740000000000000172' AND `name` = '洗手液' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '加厚垃圾袋 30只×5卷' WHERE `id` = '9740000000000000173' AND `name` = '加厚垃圾袋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = 'PE保鲜袋 200只/卷' WHERE `id` = '9740000000000000174' AND `name` = 'PE保鲜袋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '旋转拖把 1套 带桶' WHERE `id` = '9740000000000000175' AND `name` = '旋转拖把' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '防滑衣架 10只装' WHERE `id` = '9740000000000000176' AND `name` = '防滑衣架' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '中性笔黑色 0.5mm 12支/盒' WHERE `id` = '9740000000000000177' AND `name` = '中性笔黑色' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = 'B5笔记本 40页×2本' WHERE `id` = '9740000000000000178' AND `name` = 'B5笔记本' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = 'A4复印纸 70g 500张/包' WHERE `id` = '9740000000000000179' AND `name` = 'A4复印纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = 'Type-C数据线 1m' WHERE `id` = '9740000000000000187' AND `name` = 'Type-C数据线' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '劳保手套 12副/包' WHERE `id` = '9740000000000000194' AND `name` = '劳保手套' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = 'KN95防尘口罩 50只/盒' WHERE `id` = '9740000000000000196' AND `name` = 'KN95防尘口罩' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '烟台大樱桃 约500g/盒' WHERE `id` = '9740000000000000201' AND `name` = '烟台大樱桃' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '蒲江红心猕猴桃 6个装 约750g' WHERE `id` = '9740000000000000202' AND `name` = '蒲江红心猕猴桃' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '广西百香果 8个装 约700g' WHERE `id` = '9740000000000000203' AND `name` = '广西百香果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜冬枣 约500g/盒' WHERE `id` = '9740000000000000204' AND `name` = '新鲜冬枣' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '红心火龙果 1个 约500g' WHERE `id` = '9740000000000000205' AND `name` = '红心火龙果' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '上海青小青菜 约300g/份' WHERE `id` = '9740000000000000206' AND `name` = '上海青小青菜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜韭菜 约350g/份' WHERE `id` = '9740000000000000207' AND `name` = '新鲜韭菜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜莴笋 2根装 约800g' WHERE `id` = '9740000000000000208' AND `name` = '新鲜莴笋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜西兰花 约400g/颗' WHERE `id` = '9740000000000000209' AND `name` = '新鲜西兰花' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜杏鲍菇 约400g/份' WHERE `id` = '9740000000000000210' AND `name` = '新鲜杏鲍菇' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜猪大排 400g/份' WHERE `id` = '9740000000000000211' AND `name` = '新鲜猪大排' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '原切牛腱子肉 500g/份' WHERE `id` = '9740000000000000212' AND `name` = '原切牛腱子肉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜羊排 600g/份' WHERE `id` = '9740000000000000213' AND `name` = '新鲜羊排' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷冻鸡翅中 500g/袋' WHERE `id` = '9740000000000000214' AND `name` = '冷冻鸡翅中' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷冻带鱼段 500g/袋' WHERE `id` = '9740000000000000215' AND `name` = '冷冻带鱼段' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '速冻小笼包 12只装 约300g' WHERE `id` = '9740000000000000216' AND `name` = '速冻小笼包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '韭菜盒子 4个装 约400g' WHERE `id` = '9740000000000000217' AND `name` = '韭菜盒子' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '葱油拌面 2人份 约450g' WHERE `id` = '9740000000000000218' AND `name` = '葱油拌面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '即食豆腐脑 220g×3盒' WHERE `id` = '9740000000000000219' AND `name` = '即食豆腐脑' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冻鲅鱼段 600g/袋' WHERE `id` = '9740000000000000220' AND `name` = '冻鲅鱼段' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '奥尔良鸡肉卷 500g/袋' WHERE `id` = '9740000000000000221' AND `name` = '奥尔良鸡肉卷' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '香芋地瓜丸 300g/袋' WHERE `id` = '9740000000000000222' AND `name` = '香芋地瓜丸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '芝麻麻团 300g/袋' WHERE `id` = '9740000000000000223' AND `name` = '芝麻麻团' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '红心猕猴桃 8个装 约1kg' WHERE `id` = '9740000000000000224' AND `name` = '红心猕猴桃' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '100%椰子水 1L/盒' WHERE `id` = '9740000000000000225' AND `name` = '100%椰子水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '即食蔬菜沙拉 250g/盒' WHERE `id` = '9740000000000000226' AND `name` = '即食蔬菜沙拉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '冷萃冻干咖啡 2g×20条' WHERE `id` = '9740000000000000227' AND `name` = '冷萃冻干咖啡' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '农夫山泉婴儿水 1L×12瓶' WHERE `id` = '9740000000000000228' AND `name` = '农夫山泉婴儿水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '心相印盒抽纸 3层100抽×8盒' WHERE `id` = '9740000000000000229' AND `name` = '心相印盒抽纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '厨房湿巾 25片×3包' WHERE `id` = '9740000000000000230' AND `name` = '厨房湿巾' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '有芯卷纸 4层180g×12卷' WHERE `id` = '9740000000000000231' AND `name` = '有芯卷纸' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '光明优倍鲜牛奶 950ml/瓶' WHERE `id` = '9740000000000000232' AND `name` = '光明优倍鲜牛奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '维他奶豆奶 250ml×24盒' WHERE `id` = '9740000000000000233' AND `name` = '维他奶豆奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '味全每日C橙汁 300ml×2瓶' WHERE `id` = '9740000000000000234' AND `name` = '味全每日C橙汁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '汇源100%橙汁 1L/盒' WHERE `id` = '9740000000000000235' AND `name` = '汇源100%橙汁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '健力宝橙蜜味 330ml/罐' WHERE `id` = '9740000000000000236' AND `name` = '健力宝橙蜜味' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '百事轻怡可乐 330ml/罐' WHERE `id` = '9740000000000000237' AND `name` = '百事轻怡可乐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '外星人电解质水 600ml/瓶' WHERE `id` = '9740000000000000238' AND `name` = '外星人电解质水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '星巴克星冰乐 281ml/瓶' WHERE `id` = '9740000000000000239' AND `name` = '星巴克星冰乐' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '麦斯威尔拿铁 250ml/瓶' WHERE `id` = '9740000000000000240' AND `name` = '麦斯威尔拿铁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '中沃体质能量 600ml/瓶' WHERE `id` = '9740000000000000241' AND `name` = '中沃体质能量' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '日加满功能饮料 250ml/罐' WHERE `id` = '9740000000000000242' AND `name` = '日加满功能饮料' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '汾酒青花20 500ml/瓶' WHERE `id` = '9740000000000000243' AND `name` = '汾酒青花20' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洋河大曲 500ml/瓶' WHERE `id` = '9740000000000000244' AND `name` = '洋河大曲' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '宁夏干红葡萄酒 750ml/瓶' WHERE `id` = '9740000000000000245' AND `name` = '宁夏干红葡萄酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '古越龙山黄酒 500ml/瓶' WHERE `id` = '9740000000000000246' AND `name` = '古越龙山黄酒' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '康师傅绿茶 500ml/瓶' WHERE `id` = '9740000000000000247' AND `name` = '康师傅绿茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '今麦郎冰红茶 500ml/瓶' WHERE `id` = '9740000000000000248' AND `name` = '今麦郎冰红茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '三得利茉莉乌龙 500ml/瓶' WHERE `id` = '9740000000000000249' AND `name` = '三得利茉莉乌龙' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '农夫山泉茶π 500ml/瓶' WHERE `id` = '9740000000000000250' AND `name` = '农夫山泉茶π' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '优乐美杯装奶茶 80g/杯' WHERE `id` = '9740000000000000251' AND `name` = '优乐美杯装奶茶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '豆本豆豆奶 250ml/盒' WHERE `id` = '9740000000000000252' AND `name` = '豆本豆豆奶' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '黑芝麻核桃粉 500g/罐' WHERE `id` = '9740000000000000253' AND `name` = '黑芝麻核桃粉' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '阿胶蜜枣 250g/袋' WHERE `id` = '9740000000000000254' AND `name` = '阿胶蜜枣' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '谷饲肥牛片 300g/盒' WHERE `id` = '9740000000000000255' AND `name` = '谷饲肥牛片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '新鲜金针菇 150g/袋' WHERE `id` = '9740000000000000256' AND `name` = '新鲜金针菇' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '腌制牛肉串 400g/袋 约8串' WHERE `id` = '9740000000000000257' AND `name` = '腌制牛肉串' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '火山石烤肠 400g/袋 约6根' WHERE `id` = '9740000000000000258' AND `name` = '火山石烤肠' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '卤酱鸭头 200g/袋' WHERE `id` = '9740000000000000259' AND `name` = '卤酱鸭头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '湖南酸豆角 300g/袋' WHERE `id` = '9740000000000000260' AND `name` = '湖南酸豆角' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '糖醋糖蒜 350g/瓶' WHERE `id` = '9740000000000000261' AND `name` = '糖醋糖蒜' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '五香卤蛋 30g/枚' WHERE `id` = '9740000000000000262' AND `name` = '五香卤蛋' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '椰果罐头 200g/罐' WHERE `id` = '9740000000000000263' AND `name` = '椰果罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '杨梅罐头 245g/罐' WHERE `id` = '9740000000000000264' AND `name` = '杨梅罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '红烧猪肉罐头 340g/罐' WHERE `id` = '9740000000000000265' AND `name` = '红烧猪肉罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '鹰嘴豆罐头 400g/罐' WHERE `id` = '9740000000000000266' AND `name` = '鹰嘴豆罐头' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '原味南瓜子 250g/袋' WHERE `id` = '9740000000000000267' AND `name` = '原味南瓜子' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '琥珀核桃仁 200g/袋' WHERE `id` = '9740000000000000268' AND `name` = '琥珀核桃仁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '东北开口松子 250g/袋' WHERE `id` = '9740000000000000269' AND `name` = '东北开口松子' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '碧根果仁 250g/袋' WHERE `id` = '9740000000000000270' AND `name` = '碧根果仁' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '可比克薯片 105g/袋' WHERE `id` = '9740000000000000271' AND `name` = '可比克薯片' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '旺旺雪饼 150g/袋' WHERE `id` = '9740000000000000272' AND `name` = '旺旺雪饼' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '士力架花生夹心 51g/条' WHERE `id` = '9740000000000000273' AND `name` = '士力架花生夹心' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '溜溜梅脆青梅 80g/袋' WHERE `id` = '9740000000000000274' AND `name` = '溜溜梅脆青梅' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '豆沙面包 220g/袋' WHERE `id` = '9740000000000000275' AND `name` = '豆沙面包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '丹麦起酥面包 192g/袋' WHERE `id` = '9740000000000000276' AND `name` = '丹麦起酥面包' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '肉松戚风蛋糕 300g/盒' WHERE `id` = '9740000000000000277' AND `name` = '肉松戚风蛋糕' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '趣多多曲奇 180g/盒' WHERE `id` = '9740000000000000278' AND `name` = '趣多多曲奇' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '汤达人豚骨拉面 128g/桶' WHERE `id` = '9740000000000000279' AND `name` = '汤达人豚骨拉面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '康师傅藤椒牛肉面 103g/袋' WHERE `id` = '9740000000000000280' AND `name` = '康师傅藤椒牛肉面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '武汉热干面 250g/袋' WHERE `id` = '9740000000000000281' AND `name` = '武汉热干面' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '自热煲仔饭 360g/盒' WHERE `id` = '9740000000000000282' AND `name` = '自热煲仔饭' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '海飞丝护发素 400ml/瓶' WHERE `id` = '9740000000000000283' AND `name` = '海飞丝护发素' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '六神经典花露水 195ml/瓶' WHERE `id` = '9740000000000000284' AND `name` = '六神经典花露水' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '达克宁软膏 20g/支' WHERE `id` = '9740000000000000285' AND `name` = '达克宁软膏' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '妇炎洁洗液 380ml/瓶' WHERE `id` = '9740000000000000286' AND `name` = '妇炎洁洗液' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '84消毒液 1L/瓶' WHERE `id` = '9740000000000000287' AND `name` = '84消毒液' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '洁厕灵 500g/瓶' WHERE `id` = '9740000000000000288' AND `name` = '洁厕灵' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '盘式蚊香 10盘装' WHERE `id` = '9740000000000000289' AND `name` = '盘式蚊香' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '红色中性笔 0.5mm 12支/盒' WHERE `id` = '9740000000000000291' AND `name` = '红色中性笔' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '便利贴套装 4本装' WHERE `id` = '9740000000000000292' AND `name` = '便利贴套装' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '耐打羽毛球 12只/筒' WHERE `id` = '9740000000000000293' AND `name` = '耐打羽毛球' AND `del_flag` = '0';
+UPDATE `goods_spu` SET `name` = '不锈钢电水壶 1.7L' WHERE `id` = '9740000000000000298' AND `name` = '不锈钢电水壶' AND `del_flag` = '0';
+
+-- ===========================================================================
+-- 2. 同步刷新购物车在途行名称快照（仅改不一致的在途行，幂等）
+-- ===========================================================================
+UPDATE `shopping_cart` sc
+JOIN `goods_spu` s ON s.`id` = sc.`spu_id`
+SET sc.`spu_name` = s.`name`
+WHERE sc.`del_flag` = '0' AND sc.`spu_name` <> s.`name`;
+
+-- ===========================================================================
+-- 3. 自检：第一条断言应返回 0；第二条应仅返回刻意不改的 27 个商品
+-- ===========================================================================
+-- 断言：改动清单内「名称仍等于旧名」的行数应为 0
+SELECT COUNT(*) AS unchanged_should_be_0 FROM `goods_spu` WHERE (`id` = '9740000000000000001' AND `name` = '烟台红富士苹果') OR (`id` = '9740000000000000002' AND `name` = '海南贵妃芒') OR (`id` = '9740000000000000003' AND `name` = '麒麟西瓜') OR (`id` = '9740000000000000004' AND `name` = '阳光玫瑰葡萄') OR (`id` = '9740000000000000005' AND `name` = '国产香蕉') OR (`id` = '9740000000000000006' AND `name` = '赣南脐橙') OR (`id` = '9740000000000000007' AND `name` = '丹东99草莓') OR (`id` = '9740000000000000008' AND `name` = '泰国椰青') OR (`id` = '9740000000000000009' AND `name` = '油麦菜') OR (`id` = '9740000000000000010' AND `name` = '黄心土豆') OR (`id` = '9740000000000000011' AND `name` = '普罗旺斯西红柿') OR (`id` = '9740000000000000012' AND `name` = '本地黄瓜') OR (`id` = '9740000000000000013' AND `name` = '小油菜') OR (`id` = '9740000000000000014' AND `name` = '新鲜香菇') OR (`id` = '9740000000000000015' AND `name` = '嫩豆腐') OR (`id` = '9740000000000000016' AND `name` = '胡萝卜') OR (`id` = '9740000000000000017' AND `name` = '猪五花肉片') OR (`id` = '9740000000000000018' AND `name` = '原切牛腩块') OR (`id` = '9740000000000000019' AND `name` = '内蒙羔羊肉卷') OR (`id` = '9740000000000000020' AND `name` = '三黄鸡') OR (`id` = '9740000000000000021' AND `name` = '鲜鸡蛋') OR (`id` = '9740000000000000022' AND `name` = '冷冻青虾仁') OR (`id` = '9740000000000000023' AND `name` = '冰鲜三文鱼柳') OR (`id` = '9740000000000000024' AND `name` = '鲜活花蛤') OR (`id` = '9740000000000000025' AND `name` = '老面馒头') OR (`id` = '9740000000000000026' AND `name` = '鲜肉包') OR (`id` = '9740000000000000027' AND `name` = '手工挂面') OR (`id` = '9740000000000000028' AND `name` = '鲜虾云吞') OR (`id` = '9740000000000000029' AND `name` = '葱油饼') OR (`id` = '9740000000000000030' AND `name` = '鲜肉水饺') OR (`id` = '9740000000000000031' AND `name` = '花卷') OR (`id` = '9740000000000000032' AND `name` = '手擀面') OR (`id` = '9740000000000000033' AND `name` = '冷冻粗薯条') OR (`id` = '9740000000000000034' AND `name` = '牛肉卷') OR (`id` = '9740000000000000035' AND `name` = '香煎鸡排') OR (`id` = '9740000000000000036' AND `name` = '速冻水饺') OR (`id` = '9740000000000000037' AND `name` = '鱼豆腐') OR (`id` = '9740000000000000038' AND `name` = '冷冻虾仁') OR (`id` = '9740000000000000039' AND `name` = '春卷') OR (`id` = '9740000000000000040' AND `name` = '台式烤肠') OR (`id` = '9740000000000000041' AND `name` = '晴王阳光玫瑰') OR (`id` = '9740000000000000042' AND `name` = '巴氏鲜牛奶') OR (`id` = '9740000000000000043' AND `name` = '牛油果') OR (`id` = '9740000000000000044' AND `name` = '有机西兰花') OR (`id` = '9740000000000000045' AND `name` = '冷萃咖啡') OR (`id` = '9740000000000000046' AND `name` = '全麦贝果') OR (`id` = '9740000000000000047' AND `name` = '手打鲜虾滑') OR (`id` = '9740000000000000048' AND `name` = '突尼斯软籽石榴') OR (`id` = '9740000000000000049' AND `name` = '农夫山泉天然水') OR (`id` = '9740000000000000050' AND `name` = '怡宝纯净水') OR (`id` = '9740000000000000051' AND `name` = '饮用纯净水') OR (`id` = '9740000000000000052' AND `name` = '维达抽纸') OR (`id` = '9740000000000000053' AND `name` = '心相印卷纸') OR (`id` = '9740000000000000054' AND `name` = '厨房纸巾') OR (`id` = '9740000000000000055' AND `name` = '婴儿湿巾') OR (`id` = '9740000000000000056' AND `name` = '本色卫生纸') OR (`id` = '9740000000000000057' AND `name` = '伊利纯牛奶') OR (`id` = '9740000000000000058' AND `name` = '特仑苏纯牛奶') OR (`id` = '9740000000000000059' AND `name` = '蒙牛纯牛奶') OR (`id` = '9740000000000000060' AND `name` = '简爱原味酸奶') OR (`id` = '9740000000000000061' AND `name` = '农夫NFC橙汁') OR (`id` = '9740000000000000062' AND `name` = '安慕希酸奶') OR (`id` = '9740000000000000063' AND `name` = '椰树椰汁') OR (`id` = '9740000000000000064' AND `name` = '鲜榨苹果汁') OR (`id` = '9740000000000000065' AND `name` = '可口可乐') OR (`id` = '9740000000000000066' AND `name` = '雪碧') OR (`id` = '9740000000000000067' AND `name` = '百事可乐') OR (`id` = '9740000000000000068' AND `name` = '芬达橙味') OR (`id` = '9740000000000000069' AND `name` = '元气森林气泡水') OR (`id` = '9740000000000000070' AND `name` = '屈臣氏苏打水') OR (`id` = '9740000000000000071' AND `name` = '可口可乐零度') OR (`id` = '9740000000000000072' AND `name` = '美年达橙味') OR (`id` = '9740000000000000073' AND `name` = '红牛维生素功能饮料') OR (`id` = '9740000000000000074' AND `name` = '东鹏特饮') OR (`id` = '9740000000000000075' AND `name` = '乐虎功能饮料') OR (`id` = '9740000000000000076' AND `name` = '星巴克即饮咖啡') OR (`id` = '9740000000000000077' AND `name` = '雀巢即饮咖啡') OR (`id` = '9740000000000000078' AND `name` = '脉动维生素饮料') OR (`id` = '9740000000000000079' AND `name` = '黑咖啡饮料') OR (`id` = '9740000000000000080' AND `name` = '维生素功能饮料') OR (`id` = '9740000000000000081' AND `name` = '青岛啤酒经典') OR (`id` = '9740000000000000082' AND `name` = '雪花啤酒勇闯天涯') OR (`id` = '9740000000000000083' AND `name` = '百威啤酒') OR (`id` = '9740000000000000084' AND `name` = '茅台迎宾酒') OR (`id` = '9740000000000000085' AND `name` = '五粮液浓香型') OR (`id` = '9740000000000000086' AND `name` = '张裕干红葡萄酒') OR (`id` = '9740000000000000087' AND `name` = '绍兴花雕酒') OR (`id` = '9740000000000000088' AND `name` = '江小白') OR (`id` = '9740000000000000089' AND `name` = '三得利乌龙茶') OR (`id` = '9740000000000000090' AND `name` = '东方树叶绿茶') OR (`id` = '9740000000000000091' AND `name` = '康师傅冰红茶') OR (`id` = '9740000000000000092' AND `name` = '统一绿茶') OR (`id` = '9740000000000000093' AND `name` = '西湖龙井') OR (`id` = '9740000000000000094' AND `name` = '安溪铁观音') OR (`id` = '9740000000000000095' AND `name` = '茉莉花茶') OR (`id` = '9740000000000000096' AND `name` = '立顿红茶') OR (`id` = '9740000000000000097' AND `name` = '香飘飘奶茶') OR (`id` = '9740000000000000098' AND `name` = '桂格即食燕麦片') OR (`id` = '9740000000000000099' AND `name` = '阿华田可可粉') OR (`id` = '9740000000000000100' AND `name` = '南方黑芝麻糊') OR (`id` = '9740000000000000101' AND `name` = '雀巢咖啡1+2') OR (`id` = '9740000000000000102' AND `name` = '豆奶粉') OR (`id` = '9740000000000000103' AND `name` = '洋槐蜂蜜') OR (`id` = '9740000000000000104' AND `name` = '山药葛根粉') OR (`id` = '9740000000000000105' AND `name` = '火锅肥牛卷') OR (`id` = '9740000000000000106' AND `name` = '羔羊肉卷') OR (`id` = '9740000000000000107' AND `name` = '火锅丸子组合') OR (`id` = '9740000000000000108' AND `name` = '海底捞番茄火锅底料') OR (`id` = '9740000000000000109' AND `name` = '腌制羊肉串') OR (`id` = '9740000000000000110' AND `name` = '甜玉米') OR (`id` = '9740000000000000111' AND `name` = '土豆片') OR (`id` = '9740000000000000112' AND `name` = '火锅蘸料麻酱') OR (`id` = '9740000000000000113' AND `name` = '五香酱牛肉') OR (`id` = '9740000000000000114' AND `name` = '南京盐水鸭') OR (`id` = '9740000000000000115' AND `name` = '德州扒鸡') OR (`id` = '9740000000000000116' AND `name` = '卤鸡爪') OR (`id` = '9740000000000000117' AND `name` = '涪陵榨菜') OR (`id` = '9740000000000000118' AND `name` = '酸甜脆萝卜') OR (`id` = '9740000000000000119' AND `name` = '松花皮蛋') OR (`id` = '9740000000000000120' AND `name` = '午餐肉罐头') OR (`id` = '9740000000000000121' AND `name` = '砀山黄桃罐头') OR (`id` = '9740000000000000122' AND `name` = '糖水橘子罐头') OR (`id` = '9740000000000000123' AND `name` = '菠萝罐头') OR (`id` = '9740000000000000124' AND `name` = '山楂罐头') OR (`id` = '9740000000000000125' AND `name` = '午餐肉罐头') OR (`id` = '9740000000000000126' AND `name` = '油浸金枪鱼罐头') OR (`id` = '9740000000000000127' AND `name` = '甜玉米粒罐头') OR (`id` = '9740000000000000128' AND `name` = '豆豉鲮鱼罐头') OR (`id` = '9740000000000000129' AND `name` = '洽洽香瓜子') OR (`id` = '9740000000000000130' AND `name` = '铁锅炒花生') OR (`id` = '9740000000000000131' AND `name` = '酒鬼花生') OR (`id` = '9740000000000000132' AND `name` = '三只松鼠碧根果') OR (`id` = '9740000000000000133' AND `name` = '每日坚果') OR (`id` = '9740000000000000134' AND `name` = '百草味夏威夷果') OR (`id` = '9740000000000000135' AND `name` = '开心果') OR (`id` = '9740000000000000136' AND `name` = '巴旦木仁') OR (`id` = '9740000000000000137' AND `name` = '乐事薯片') OR (`id` = '9740000000000000138' AND `name` = '卫龙大面筋辣条') OR (`id` = '9740000000000000139' AND `name` = '三只松鼠肉脯') OR (`id` = '9740000000000000140' AND `name` = '旺旺仙贝') OR (`id` = '9740000000000000141' AND `name` = '德芙巧克力') OR (`id` = '9740000000000000142' AND `name` = '徐福记酥心糖') OR (`id` = '9740000000000000143' AND `name` = '芒果干') OR (`id` = '9740000000000000144' AND `name` = '奥利奥夹心饼干') OR (`id` = '9740000000000000145' AND `name` = '全麦面包') OR (`id` = '9740000000000000146' AND `name` = '夹心吐司面包') OR (`id` = '9740000000000000147' AND `name` = '麻薯面包') OR (`id` = '9740000000000000148' AND `name` = '肉松吐司') OR (`id` = '9740000000000000149' AND `name` = '黄油曲奇饼干') OR (`id` = '9740000000000000150' AND `name` = '蛋黄派') OR (`id` = '9740000000000000151' AND `name` = '蒸蛋糕') OR (`id` = '9740000000000000152' AND `name` = '苏打饼干') OR (`id` = '9740000000000000153' AND `name` = '康师傅红烧牛肉面') OR (`id` = '9740000000000000154' AND `name` = '统一老坛酸菜面') OR (`id` = '9740000000000000155' AND `name` = '桶装方便面') OR (`id` = '9740000000000000156' AND `name` = '自热小火锅') OR (`id` = '9740000000000000157' AND `name` = '自热米饭') OR (`id` = '9740000000000000158' AND `name` = '柳州螺蛳粉') OR (`id` = '9740000000000000159' AND `name` = '兰州牛肉面') OR (`id` = '9740000000000000160' AND `name` = '酸辣粉') OR (`id` = '9740000000000000161' AND `name` = '海飞丝去屑洗发水') OR (`id` = '9740000000000000162' AND `name` = '舒肤佳沐浴露') OR (`id` = '9740000000000000163' AND `name` = '氨基酸洗面奶') OR (`id` = '9740000000000000164' AND `name` = '洋甘菊护手霜') OR (`id` = '9740000000000000165' AND `name` = '云南白药牙膏') OR (`id` = '9740000000000000166' AND `name` = '高露洁牙膏') OR (`id` = '9740000000000000167' AND `name` = '卫生巾日用') OR (`id` = '9740000000000000168' AND `name` = '纸巾抽纸整箱') OR (`id` = '9740000000000000169' AND `name` = '蓝月亮洗衣液') OR (`id` = '9740000000000000170' AND `name` = '立白洗洁精') OR (`id` = '9740000000000000171' AND `name` = '雕牌洗洁精') OR (`id` = '9740000000000000172' AND `name` = '洗手液') OR (`id` = '9740000000000000173' AND `name` = '加厚垃圾袋') OR (`id` = '9740000000000000174' AND `name` = 'PE保鲜袋') OR (`id` = '9740000000000000175' AND `name` = '旋转拖把') OR (`id` = '9740000000000000176' AND `name` = '防滑衣架') OR (`id` = '9740000000000000177' AND `name` = '中性笔黑色') OR (`id` = '9740000000000000178' AND `name` = 'B5笔记本') OR (`id` = '9740000000000000179' AND `name` = 'A4复印纸') OR (`id` = '9740000000000000187' AND `name` = 'Type-C数据线') OR (`id` = '9740000000000000194' AND `name` = '劳保手套') OR (`id` = '9740000000000000196' AND `name` = 'KN95防尘口罩') OR (`id` = '9740000000000000201' AND `name` = '烟台大樱桃') OR (`id` = '9740000000000000202' AND `name` = '蒲江红心猕猴桃') OR (`id` = '9740000000000000203' AND `name` = '广西百香果') OR (`id` = '9740000000000000204' AND `name` = '新鲜冬枣') OR (`id` = '9740000000000000205' AND `name` = '红心火龙果') OR (`id` = '9740000000000000206' AND `name` = '上海青小青菜') OR (`id` = '9740000000000000207' AND `name` = '新鲜韭菜') OR (`id` = '9740000000000000208' AND `name` = '新鲜莴笋') OR (`id` = '9740000000000000209' AND `name` = '新鲜西兰花') OR (`id` = '9740000000000000210' AND `name` = '新鲜杏鲍菇') OR (`id` = '9740000000000000211' AND `name` = '新鲜猪大排') OR (`id` = '9740000000000000212' AND `name` = '原切牛腱子肉') OR (`id` = '9740000000000000213' AND `name` = '新鲜羊排') OR (`id` = '9740000000000000214' AND `name` = '冷冻鸡翅中') OR (`id` = '9740000000000000215' AND `name` = '冷冻带鱼段') OR (`id` = '9740000000000000216' AND `name` = '速冻小笼包') OR (`id` = '9740000000000000217' AND `name` = '韭菜盒子') OR (`id` = '9740000000000000218' AND `name` = '葱油拌面') OR (`id` = '9740000000000000219' AND `name` = '即食豆腐脑') OR (`id` = '9740000000000000220' AND `name` = '冻鲅鱼段') OR (`id` = '9740000000000000221' AND `name` = '奥尔良鸡肉卷') OR (`id` = '9740000000000000222' AND `name` = '香芋地瓜丸') OR (`id` = '9740000000000000223' AND `name` = '芝麻麻团') OR (`id` = '9740000000000000224' AND `name` = '红心猕猴桃') OR (`id` = '9740000000000000225' AND `name` = '100%椰子水') OR (`id` = '9740000000000000226' AND `name` = '即食蔬菜沙拉') OR (`id` = '9740000000000000227' AND `name` = '冷萃冻干咖啡') OR (`id` = '9740000000000000228' AND `name` = '农夫山泉婴儿水') OR (`id` = '9740000000000000229' AND `name` = '心相印盒抽纸') OR (`id` = '9740000000000000230' AND `name` = '厨房湿巾') OR (`id` = '9740000000000000231' AND `name` = '有芯卷纸') OR (`id` = '9740000000000000232' AND `name` = '光明优倍鲜牛奶') OR (`id` = '9740000000000000233' AND `name` = '维他奶豆奶') OR (`id` = '9740000000000000234' AND `name` = '味全每日C橙汁') OR (`id` = '9740000000000000235' AND `name` = '汇源100%橙汁') OR (`id` = '9740000000000000236' AND `name` = '健力宝橙蜜味') OR (`id` = '9740000000000000237' AND `name` = '百事轻怡可乐') OR (`id` = '9740000000000000238' AND `name` = '外星人电解质水') OR (`id` = '9740000000000000239' AND `name` = '星巴克星冰乐') OR (`id` = '9740000000000000240' AND `name` = '麦斯威尔拿铁') OR (`id` = '9740000000000000241' AND `name` = '中沃体质能量') OR (`id` = '9740000000000000242' AND `name` = '日加满功能饮料') OR (`id` = '9740000000000000243' AND `name` = '汾酒青花20') OR (`id` = '9740000000000000244' AND `name` = '洋河大曲') OR (`id` = '9740000000000000245' AND `name` = '宁夏干红葡萄酒') OR (`id` = '9740000000000000246' AND `name` = '古越龙山黄酒') OR (`id` = '9740000000000000247' AND `name` = '康师傅绿茶') OR (`id` = '9740000000000000248' AND `name` = '今麦郎冰红茶') OR (`id` = '9740000000000000249' AND `name` = '三得利茉莉乌龙') OR (`id` = '9740000000000000250' AND `name` = '农夫山泉茶π') OR (`id` = '9740000000000000251' AND `name` = '优乐美杯装奶茶') OR (`id` = '9740000000000000252' AND `name` = '豆本豆豆奶') OR (`id` = '9740000000000000253' AND `name` = '黑芝麻核桃粉') OR (`id` = '9740000000000000254' AND `name` = '阿胶蜜枣') OR (`id` = '9740000000000000255' AND `name` = '谷饲肥牛片') OR (`id` = '9740000000000000256' AND `name` = '新鲜金针菇') OR (`id` = '9740000000000000257' AND `name` = '腌制牛肉串') OR (`id` = '9740000000000000258' AND `name` = '火山石烤肠') OR (`id` = '9740000000000000259' AND `name` = '卤酱鸭头') OR (`id` = '9740000000000000260' AND `name` = '湖南酸豆角') OR (`id` = '9740000000000000261' AND `name` = '糖醋糖蒜') OR (`id` = '9740000000000000262' AND `name` = '五香卤蛋') OR (`id` = '9740000000000000263' AND `name` = '椰果罐头') OR (`id` = '9740000000000000264' AND `name` = '杨梅罐头') OR (`id` = '9740000000000000265' AND `name` = '红烧猪肉罐头') OR (`id` = '9740000000000000266' AND `name` = '鹰嘴豆罐头') OR (`id` = '9740000000000000267' AND `name` = '原味南瓜子') OR (`id` = '9740000000000000268' AND `name` = '琥珀核桃仁') OR (`id` = '9740000000000000269' AND `name` = '东北开口松子') OR (`id` = '9740000000000000270' AND `name` = '碧根果仁') OR (`id` = '9740000000000000271' AND `name` = '可比克薯片') OR (`id` = '9740000000000000272' AND `name` = '旺旺雪饼') OR (`id` = '9740000000000000273' AND `name` = '士力架花生夹心') OR (`id` = '9740000000000000274' AND `name` = '溜溜梅脆青梅') OR (`id` = '9740000000000000275' AND `name` = '豆沙面包') OR (`id` = '9740000000000000276' AND `name` = '丹麦起酥面包') OR (`id` = '9740000000000000277' AND `name` = '肉松戚风蛋糕') OR (`id` = '9740000000000000278' AND `name` = '趣多多曲奇') OR (`id` = '9740000000000000279' AND `name` = '汤达人豚骨拉面') OR (`id` = '9740000000000000280' AND `name` = '康师傅藤椒牛肉面') OR (`id` = '9740000000000000281' AND `name` = '武汉热干面') OR (`id` = '9740000000000000282' AND `name` = '自热煲仔饭') OR (`id` = '9740000000000000283' AND `name` = '海飞丝护发素') OR (`id` = '9740000000000000284' AND `name` = '六神经典花露水') OR (`id` = '9740000000000000285' AND `name` = '达克宁软膏') OR (`id` = '9740000000000000286' AND `name` = '妇炎洁洗液') OR (`id` = '9740000000000000287' AND `name` = '84消毒液') OR (`id` = '9740000000000000288' AND `name` = '洁厕灵') OR (`id` = '9740000000000000289' AND `name` = '盘式蚊香') OR (`id` = '9740000000000000291' AND `name` = '红色中性笔') OR (`id` = '9740000000000000292' AND `name` = '便利贴套装') OR (`id` = '9740000000000000293' AND `name` = '耐打羽毛球') OR (`id` = '9740000000000000298' AND `name` = '不锈钢电水壶');
+
+-- 断言：本批次段内商品（9740000000000000001~0302）名称仍不带任何规格词的
+--       应仅剩刻意不改的 27 个
+SELECT `id`, `name` FROM `goods_spu`
+WHERE `id` BETWEEN '9740000000000000001' AND '9740000000000000302' AND `del_flag` = '0'
+  AND `name` NOT REGEXP '[0-9]+(g|kg|ml|L|只|枚|个|盒|袋|包|份|条|罐|瓶|卷|支|根|串|颗|片|桶|杯|筒|副|盘|本|张|抽|度|m)|装|套|卷';
 
 SET FOREIGN_KEY_CHECKS = 1;

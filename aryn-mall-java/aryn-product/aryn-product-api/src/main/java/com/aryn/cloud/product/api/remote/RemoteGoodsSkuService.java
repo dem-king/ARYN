@@ -40,4 +40,11 @@ public interface RemoteGoodsSkuService {
 	 */
 	List<GoodsSku> getSkuByIds(List<String> ids);
 
+	/**
+	 * 按 SPU 批量查询 SKU（商品卡营销标签的 SPU→SKU 解析用，仅 id/spuId 精简列）。
+	 * @param spuIds SPU ID 集合
+	 * @return SKU 精简列表；空入参返回空列表
+	 */
+	List<GoodsSku> listBySpuIds(List<String> spuIds);
+
 }

@@ -9,6 +9,8 @@ import com.aryn.cloud.product.api.vo.AppraiseCountVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 /**
  * 商品评价
  *
@@ -26,5 +28,13 @@ public interface GoodsAppraiseMapper extends BaseMapper<GoodsAppraise> {
 	AppraiseCountVO selectGoodsAppraiseCount(@Param("query") GoodsAppraise goodsAppraise);
 
 	IPage<GoodsAppraise> selectAppraisePage(Page page, @Param("query") GoodsAppraise goodsAppraise);
+
+	/**
+	 * 商详口碑气泡买家头像：该 SPU 近期非匿名、非系统默认评价的头像快照（去重），
+	 * 不足返回实际条数；与评价列表同一公开口径（匿名/系统评价不入列）。
+	 * @param spuId 商品 SPU ID
+	 * @param limit 最多返回条数（≤3）
+	 */
+	List<String> selectRecentBuyerAvatars(@Param("spuId") String spuId, @Param("limit") int limit);
 
 }

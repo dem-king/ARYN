@@ -1,19 +1,21 @@
-import type { AppClearancePriceItem, AppClearancePriceVO } from '@/utils/clearance-price'
 import type { AppMemberPriceVO } from '@/api/promotion'
+import type { AppClearancePriceItem, AppClearancePriceVO } from '@/utils/clearance-price'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * 列表专区价批量取数（会员价 + 出清价）的行为守门。
+ * 列表专区价批量取数（会员价 + 出清价 + 卡面营销标签）的行为守门。
  *
  * 关键契约：
  * - 一次 load 只按本页 SPU 各发一次请求，缓存命中的 SPU 不重复请求；
  * - 会员价按资格三态展示（达标切主价、未达标给引导）；
  * - 出清价与会员价取低、同价会员优先；到期/倒挂忽略；
+ * - 卡面标签（新人价/秒杀价）按 SPU 聚合上卡，秒杀硬互斥压过身份价；
  * - 接口失败静默回落原价，不影响列表渲染。
  */
 
 const mocks = vi.hoisted(() => ({
+  getCardTags: vi.fn(),
   getClearanceSpuPrices: vi.fn(),
   getMemberSpuPrices: vi.fn(),
 }))
@@ -22,6 +24,7 @@ vi.mock('@/api/promotion', () => ({
   getMemberSpuPrices: mocks.getMemberSpuPrices,
 }))
 vi.mock('@/api/product/spu', () => ({
+  getCardTags: mocks.getCardTags,
   getClearanceSpuPrices: mocks.getClearanceSpuPrices,
 }))
 
@@ -76,9 +79,11 @@ beforeEach(() => {
   resetZonePriceCache()
   mocks.getMemberSpuPrices.mockReset()
   mocks.getClearanceSpuPrices.mockReset()
+  mocks.getCardTags.mockReset()
   mocks.getMemberSpuPrices.mockResolvedValue(memberVO())
   mocks.getClearanceSpuPrices.mockResolvedValue({ items: [] })
   mocks.getClearanceSpuPrices.mockResolvedValue(clearanceVO([]))
+  mocks.getCardTags.mockResolvedValue([])
 })
 
 describe('useZonePrices 列表专区价', () => {
@@ -194,5 +199,119 @@ describe('useZonePrices 列表专区价', () => {
     const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9 })
     expect(display.mainPrice).toBe(39.9)
     expect(display.badgeKind).toBe('')
+  })
+
+  it('card-tags 按本页 SPU 请求一次，缓存命中后不重复请求', async () => {
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303', 'spu-318'])
+    expect(mocks.getCardTags).toHaveBeenCalledTimes(1)
+    expect(mocks.getCardTags.mock.calls[0][0]).toEqual(['spu-303', 'spu-318'])
+
+    await zone.loadForSpuIds(['spu-303'])
+    expect(mocks.getCardTags).toHaveBeenCalledTimes(1)
+  })
+
+  it('秒杀价上卡：主价切秒杀价、角标 seckill，压过会员/出清', async () => {
+    mocks.getCardTags.mockResolvedValue([{ spuId: 'spu-303', seckillPrice: 16.92 }])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303'])
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9, originalPrice: 51.87 })
+    expect(display.badgeKind).toBe('seckill')
+    expect(display.mainPrice).toBe(16.92)
+    expect(display.strikePrice).toBe(39.9)
+  })
+
+  it('新人价上卡（无更高优先级命中）：主价切新人价、角标 newbie', async () => {
+    // 会员价未达标（只有引导）：新人价是引擎优先级最低的身份价，必须先让开会员/出清
+    mocks.getMemberSpuPrices.mockResolvedValue(memberVO({ eligible: null, userDiscountRate: null }))
+    mocks.getCardTags.mockResolvedValue([{ spuId: 'spu-303', newbiePrice: 0.01 }])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303'])
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9, originalPrice: 51.87 })
+    expect(display.badgeKind).toBe('newbie')
+    expect(display.mainPrice).toBe(0.01)
+    expect(display.strikePrice).toBe(39.9)
+  })
+
+  it('同 SPU 多 SKU 标签聚合取最低（服务端已聚合，前端防御性再取低）', async () => {
+    mocks.getMemberSpuPrices.mockResolvedValue(memberVO({ eligible: null, userDiscountRate: null }))
+    mocks.getCardTags.mockResolvedValue([
+      { spuId: 'spu-303', newbiePrice: 2 },
+      { spuId: 'spu-303', newbiePrice: 1.5 },
+    ])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303'])
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(display.badgeKind).toBe('newbie')
+    expect(display.mainPrice).toBe(1.5)
+  })
+
+  it('card-tags 失败静默：回落原价不抛错', async () => {
+    mocks.getMemberSpuPrices.mockResolvedValue(memberVO({ eligible: null, userDiscountRate: null }))
+    mocks.getCardTags.mockRejectedValue(new Error('boom'))
+    const zone = useZonePrices()
+    await expect(zone.loadForSpuIds(['spu-303'])).resolves.toBeUndefined()
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9, originalPrice: 51.87 })
+    expect(display.badgeKind).toBe('')
+    expect(display.mainPrice).toBe(39.9)
+    expect(display.strikePrice).toBe(51.87)
+  })
+
+  it('社证文案随 card-tags 透传到卡片展示结果（服务端成文，前端不拼装）', async () => {
+    mocks.getCardTags.mockResolvedValue([
+      { spuId: 'spu-303', socialProofText: '月4000+人已下单' },
+      { spuId: 'spu-318', socialProofText: '  ' },
+    ])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303', 'spu-318'])
+    expect(zone.cardPriceOf({ id: 'spu-303', price: 39.9 }).socialProofText).toBe('月4000+人已下单')
+    // 空白文案不展示
+    expect(zone.cardPriceOf({ id: 'spu-318', price: 7.9 }).socialProofText).toBeNull()
+  })
+
+  it('近N天最低价声明随 card-tags 透传（服务端判定成文，前端零逻辑；空白不展示）', async () => {
+    mocks.getCardTags.mockResolvedValue([
+      { spuId: 'spu-303', priceTagText: '近14天最低价' },
+      { spuId: 'spu-318', priceTagText: ' ' },
+    ])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303', 'spu-318'])
+    expect(zone.cardPriceOf({ id: 'spu-303', price: 39.9 }).priceTagText).toBe('近14天最低价')
+    // 与身份价角标并存：秒杀价命中时声明照常透传
+    mocks.getCardTags.mockResolvedValue([
+      { spuId: 'spu-319', seckillPrice: 9.9, priceTagText: '近14天最低价' },
+    ])
+    await zone.loadForSpuIds(['spu-319'])
+    const display = zone.cardPriceOf({ id: 'spu-319', price: 39.9 })
+    expect(display.badgeKind).toBe('seckill')
+    expect(display.priceTagText).toBe('近14天最低价')
+    // 空白声明不展示
+    expect(zone.cardPriceOf({ id: 'spu-318', price: 7.9 }).priceTagText).toBeNull()
+  })
+
+  it('card-tags 失败降级后 priceTagText 置空（商品卡不渲染新元素）', async () => {
+    mocks.getCardTags.mockRejectedValue(new Error('boom'))
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303'])
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(display.priceTagText).toBeNull()
+    expect(display.socialProofText).toBeNull()
+  })
+
+  it('登录态切换后 card-tags 缓存整体失效并重新拉取（新人资格随身份变化）', async () => {
+    mocks.getMemberSpuPrices.mockResolvedValue(memberVO({ eligible: null, userDiscountRate: null }))
+    mocks.getCardTags.mockResolvedValue([{ spuId: 'spu-303', newbiePrice: 0.01 }])
+    const zone = useZonePrices()
+    await zone.loadForSpuIds(['spu-303'])
+    expect(zone.cardPriceOf({ id: 'spu-303', price: 39.9 }).badgeKind).toBe('newbie')
+
+    // 登录（已下过单的用户）：资格变化必须重新请求，新人价角标消失
+    storage.auth = { token: 'token-old-user' }
+    mocks.getCardTags.mockResolvedValue([])
+    await zone.loadForSpuIds(['spu-303'])
+    expect(mocks.getCardTags).toHaveBeenCalledTimes(2)
+    const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(display.badgeKind).toBe('')
+    expect(display.mainPrice).toBe(39.9)
   })
 })

@@ -51,6 +51,9 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 	/** 楼层最多展示的商品数，防单活动配过多 SKU 拖慢接口 */
 	private static final int MAX_FLOOR_GOODS = 20;
 
+	/** 独立专享页一次可取的商品上限：只防响应体无限放大，正常运营配置远低于此值 */
+	private static final int MAX_LIST_GOODS = 200;
+
 	/**
 	 * 指定 SKU 查询的单次请求上限。
 	 *
@@ -74,8 +77,14 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 
 	@Override
 	public AppNewbieFloorVO getCurrentFloor() {
+		return getCurrentFloor(MAX_FLOOR_GOODS);
+	}
+
+	@Override
+	public AppNewbieFloorVO getCurrentFloor(int limit) {
+		int maxGoods = Math.max(1, Math.min(limit, MAX_LIST_GOODS));
 		for (PromotionActivity activity : activeActivities()) {
-			AppNewbieFloorVO floor = toFloor(activity);
+			AppNewbieFloorVO floor = toFloor(activity, maxGoods);
 			if (floor != null) {
 				return floor;
 			}
@@ -123,15 +132,17 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 					.orderByDesc(PromotionActivity::getCreateTime));
 	}
 
-	private AppNewbieFloorVO toFloor(PromotionActivity activity) {
-		// 楼层展示有上限（防单活动配过多 SKU 拖慢接口）：与展示上限一致地截断
-		Map<String, BigDecimal> priceBySku = parseSkuPrices(activity, MAX_FLOOR_GOODS);
+	private AppNewbieFloorVO toFloor(PromotionActivity activity, int maxGoods) {
+		// 楼层展示有上限（防单活动配过多 SKU 拖慢接口）：按调用方要求的上限截断
+		Map<String, BigDecimal> priceBySku = parseSkuPrices(activity, maxGoods);
 		if (priceBySku.isEmpty()) {
 			return null;
 		}
 		AppNewbieFloorVO floor = new AppNewbieFloorVO();
 		applyActivityBase(activity, floor::setActivityId, floor::setActivityName, floor::setEndTime,
 				floor::setRegisterWithinDays, floor::setLimitPerUser);
+		// 长期有效只影响 C 端是否展示倒计时；活动生效仍沿用远期 endTime 的既有查询口径
+		floor.setLongTerm(JSONUtil.parseObj(activity.getRules()).getBool("longTerm", false));
 		Map<String, GoodsSku> skuMap = loadSkuMap(priceBySku.keySet());
 		List<AppNewbieFloorVO.NewbieGoodsVO> goodsList = new ArrayList<>();
 		for (Map.Entry<String, BigDecimal> entry : priceBySku.entrySet()) {
@@ -144,6 +155,7 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 			goods.setSkuId(sku.getId());
 			goods.setSpuId(sku.getSpuId());
 			goods.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+			goods.setSubTitle(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getSubTitle() : null);
 			goods.setGoodsImage(sku.getPicUrl());
 			goods.setNewbiePrice(entry.getValue());
 			goods.setOriginalPrice(sku.getSalesPrice());

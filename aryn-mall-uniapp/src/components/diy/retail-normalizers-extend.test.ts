@@ -155,4 +155,9 @@ describe('normalizeRetailNewbieFloor', () => {
     const items = normalizeRetailNewbieFloor({ activityId: 'act-1' })
     expect(items[0].limitPerUser).toBe(1)
   })
+
+  it('长期有效标记透传，缺失按 false（C 端据此隐藏倒计时）', () => {
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1', longTerm: true })[0].longTerm).toBe(true)
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-2' })[0].longTerm).toBe(false)
+  })
 })

@@ -46,6 +46,18 @@ public class SocialUser extends Model<SocialUser> {
 	private String socialAccountId;
 
 	/**
+	 * 平台类型：WX_MA / ALI_MINI
+	 */
+	@Schema(description = "平台类型：WX_MA / ALI_MINI")
+	private String platformType;
+
+	/**
+	 * 身份模式：WX_MA 固定 open_id；ALI_MINI 为 user_id/open_id
+	 */
+	@Schema(description = "身份模式")
+	private String identityMode;
+
+	/**
 	 * appID
 	 */
 	@Schema(description = "appID")

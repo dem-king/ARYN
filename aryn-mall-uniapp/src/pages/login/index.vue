@@ -67,10 +67,44 @@ onLoad(async () => {
   state.loginType = '3'
   // #endif
 })
-// 小程序登录处理
+function getAliAuthCode(): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const alipay = (globalThis as any).my
+    if (alipay && typeof alipay.getAuthCode === 'function') {
+      alipay.getAuthCode({
+        scopes: 'auth_base',
+        success: (res: any) => {
+          if (res?.authCode) {
+            resolve(res.authCode)
+            return
+          }
+          reject(new Error(t('login.loginCodeMissing')))
+        },
+        fail: reject,
+      })
+      return
+    }
+    uni.login({
+      provider: 'alipay',
+      success: (res: any) => {
+        const code = res?.authCode || res?.code
+        code ? resolve(code) : reject(new Error(t('login.loginCodeMissing')))
+      },
+      fail: reject,
+    } as any)
+  })
+}
+
+// 小程序登录处理：微信走 uni.login + WX_MA，支付宝走 my.getAuthCode + ALI_MINI
 async function handleMpLogin() {
   globalLoading.loading(t('common.loading'))
   try {
+    let response: any
+    // #ifdef MP-ALIPAY
+    const authCode = await getAliAuthCode()
+    response = await authStore.aliMiniLogin({ authCode })
+    // #endif
+    // #ifndef MP-ALIPAY
     const res = await new Promise<UniApp.LoginRes>((resolve, reject) => {
       uni.login({
         success: resolve,
@@ -81,7 +115,8 @@ async function handleMpLogin() {
     if (!res.code)
       throw new Error(t('login.loginCodeMissing'))
 
-    const response = await authStore.wxLogin({ jsCode: res.code })
+    response = await authStore.wxLogin({ jsCode: res.code })
+    // #endif
     globalLoading.close()
 
     if (response.tokenValue) {
@@ -212,8 +247,9 @@ onPageScroll(handlePageScroll)
           <text class="agreement__text">{{ t('login.agreementPrefix') }}<text class="agreement__link">{{ t('login.userAgreement') }}</text>{{ t('login.agreementAnd') }}<text class="agreement__link">{{ t('login.privacyPolicy') }}</text></text>
         </view>
 
-        <!-- 小程序：其他登录方式 -->
+        <!-- 小程序：其他登录方式（支付宝小程序仅支持授权码登录，不展示不可用入口） -->
         <!-- #ifdef MP -->
+        <!-- #ifndef MP-ALIPAY -->
         <view class="alt-login">
           <view class="alt-login__divider">
             <view class="alt-login__line" />
@@ -230,12 +266,23 @@ onPageScroll(handlePageScroll)
               @click="state.loginType = '1'"
             >
               <view class="alt-login__icon">
+                <!-- #ifdef MP-ALIPAY -->
+                <text class="i-carbon:wallet alt-login__glyph" />
+                <!-- #endif -->
+                <!-- #ifndef MP-ALIPAY -->
                 <image class="alt-login__wx" src="/static/wx2.svg" mode="aspectFit" />
+                <!-- #endif -->
               </view>
               <text class="alt-login__label">
+                <!-- #ifdef MP-ALIPAY -->
+                {{ t('login.alipayLogin') }}
+                <!-- #endif -->
+                <!-- #ifndef MP-ALIPAY -->
                 {{ t('login.wechatLogin') }}
+                <!-- #endif -->
               </text>
             </view>
+            <!-- #ifndef MP-ALIPAY -->
             <view
               v-if="state.loginType !== '3'"
               class="alt-login__item"
@@ -262,8 +309,10 @@ onPageScroll(handlePageScroll)
                 {{ t('login.passwordLogin') }}
               </text>
             </view>
+            <!-- #endif -->
           </view>
         </view>
+        <!-- #endif -->
         <!-- #endif -->
 
         <view class="copyright">

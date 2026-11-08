@@ -376,28 +376,31 @@ describe('商详首屏双栏（P1-1 / A6）', () => {
 // E. 分类 / 列表 / 瀑布（P1-2 + P1-3 / A7 + A8）
 // ---------------------------------------------------------------------------
 
-describe('分类页 rail + 列表 / 瀑布 3 列（A7/A8）', () => {
-  it('分类页宽屏 rail 固定 96px，骨架网格 3 列', () => {
-    // rail 若继续用 rpx，展开态会放大到 ~170px，右侧商品区被挤到 <180px/列
+describe('分类页 rail + 列表 / 瀑布（A7/A8）', () => {
+  it('分类页宽屏 rail 固定 96px，商品流骨架保持单列', () => {
+    // rail 若继续用 rpx，展开态会放大到 ~170px，右侧商品区被挤得放不下图左信息右的行卡
     const css = mpWideCss(source(CATEGORY_BROWSER))
     expect(css, '分类 rail 未固定 width: 96px').toMatch(/width\s*:\s*96px/)
-    expect(css, '分类宽屏网格/骨架未改成 repeat(3, ...)').toMatch(/repeat\(\s*3\b/)
+    // 分类页固定单列：宽屏骨架不得被重排成多列（同权规则后写者胜会悄悄盖掉单列）
+    expect(css, '分类页宽屏骨架未保持单列').toMatch(/grid-template-columns\s*:\s*minmax\(0,\s*1fr\)/)
   })
 
   it('列表页宽屏 3 列 + 卡片标题/价格用平板密度 token', () => {
     // A8：3 列且标题 13px、价格 15px；字号若仍走 rpx，展开态标题会 26px+ 直接挤爆卡片
-    const css = mpWideCss(source(GOODS_LIST_PANEL))
-    expect(css, '列表网格未改成 repeat(3, ...)').toMatch(/repeat\(\s*3\b/)
+    const code = source(GOODS_LIST_PANEL)
+    const css = mpWideCss(code)
+    // 3 列改由 useResponsiveColumns 控制（不再用 CSS grid 轨道写死）
+    expect(code, '列表未接入宽屏 3 列').toContain('useResponsiveColumns(600, 2, 3)')
     expect(css, '卡片标题未引用 --wide-card-font').toMatch(/var\(\s*--wide-card-font\b/)
     expect(css, '价格未引用 --wide-price-font').toMatch(/var\(\s*--wide-price-font\b/)
   })
 
-  it('瀑布流宽屏 3 列宽度算式 + 模板语义 class', () => {
-    // 与列表页同参数：3 列、间距 24px；宽度算式若不对会溢出或留出第 4 列空位
+  it('瀑布流宽屏 3 列 + 模板语义 class', () => {
+    // 与列表页同参数：3 列、间距 24px；列数由 useResponsiveColumns 控制
     const waterfall = source(WATERFALL)
     const css = mpWideCss(waterfall)
+    expect(waterfall, '瀑布流未接入宽屏 3 列').toContain('useResponsiveColumns(600, 2, 3)')
     expect(css, '瀑布流宽屏段未引用 --wide-gutter').toMatch(/var\(\s*--wide-gutter\b/)
-    expect(css, '瀑布流宽度不是 “/ 3” 的三列算式').toMatch(/\/\s*3\s*\)/)
     expect(waterfall, '模板缺少 waterfall-grid 语义 class').toMatch(
       /class="[^"]*\bwaterfall-grid\b[^"]*"/,
     )

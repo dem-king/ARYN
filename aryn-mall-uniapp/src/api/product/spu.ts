@@ -116,3 +116,47 @@ export function getQuickCartInfo(id: string) {
     headers: { skipToken: true },
   })
 }
+
+/** 商品卡营销标签（SPU 级聚合：同 SPU 多 SKU 命中取最低可享价） */
+export interface GoodsCardTagItem {
+  spuId: string
+  /** 新人专享价；null/缺省=未命中（或当前用户无资格） */
+  newbiePrice?: number | null
+  /** 进行中秒杀价；null/缺省=未命中 */
+  seckillPrice?: number | null
+  /** 社证文案（月 N+ 人已下单 / 月 N+ 位回头客 / N% 的人回购）；null/缺省=未达门槛不展示 */
+  socialProofText?: string | null
+  /** 社证类型（repurchase=回购率/repeat=回头客/buyer=月售），与 socialProofText 同生共死；null/缺省=未知，前端兜底图标 */
+  socialProofKind?: string | null
+  /** 价格声明文案（近N天最低价，服务端已按窗口/门槛判定成文）；null/缺省=不展示 */
+  priceTagText?: string | null
+}
+
+/** 商详口碑气泡（轮播图浮层，详情接口随 goodsSpu.socialBubble 下发） */
+export interface GoodsSocialBubble {
+  /** 社证文案（月售N+/回头客N+/回购率N%），与商品卡同源同门槛；null/缺省=未达门槛不展示 */
+  socialText?: string | null
+  /** 社证类型（repurchase=回购率/repeat=回头客/buyer=月售），与 socialText 同生共死 */
+  socialKind?: string | null
+  /** 好评率成文（好评率N%，服务端按评价数门槛判定）；null/缺省=不展示 */
+  praiseText?: string | null
+  /** 好评率数值（一位小数），供本地化兜底；null/缺省=未达门槛 */
+  praiseRate?: number | null
+  /** 买家头像（近期非匿名评价快照，≤3个）；空=纯文字胶囊 */
+  avatars?: string[] | null
+}
+
+/**
+ * 批量查询商品卡营销标签（新人价/秒杀价）。
+ *
+ * 可选登录（**不传 skipToken**）：登录用户要带 token，后端据此判定新人资格
+ * （不合格不下发）；未登录时中间件本就不发 token，后端按潜在新人口径下发。
+ */
+export function getCardTags(spuIds: string[]) {
+  const ids = spuIds.filter(Boolean)
+  if (!ids.length)
+    return Promise.resolve<GoodsCardTagItem[]>([])
+  return alovaInstance.Get<GoodsCardTagItem[]>('/product/app/goodsspu/card-tags', {
+    params: { spuIds: ids.join(',') },
+  })
+}

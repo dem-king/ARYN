@@ -75,6 +75,7 @@ export default {
     loginCodeMissing: '登录失败: code 未获取',
     getPhoneFailed: '获取手机号失败',
     wechatLogin: '微信登录',
+    alipayLogin: '支付宝登录',
     phoneQuickLogin: '手机号快速登录',
     phoneRequired: '手机号不能为空',
     phoneInvalid: '请输入正确的手机号码',

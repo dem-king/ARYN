@@ -142,7 +142,7 @@ export function resolveMpResizable(envValue) {
 }
 
 /**
- * @param {{ name: string, wxAppId: string, resizable?: boolean }} identity
+ * @param {{ name: string, wxAppId: string, aliAppId?: string, resizable?: boolean }} identity
  */
 export function createManifest(identity) {
   if (!identity || typeof identity.name !== 'string' || !identity.name.trim()) {
@@ -151,9 +151,16 @@ export function createManifest(identity) {
   if (typeof identity.wxAppId !== 'string' || !/^wx[0-9a-f]{16}$/.test(identity.wxAppId)) {
     throw new Error(`manifest 工厂收到非法微信 AppID: ${identity.wxAppId}`)
   }
+  if (identity.aliAppId !== undefined && identity.aliAppId !== null && identity.aliAppId !== ''
+    && (typeof identity.aliAppId !== 'string' || !/^[0-9]{16}$/.test(identity.aliAppId))) {
+    throw new Error(`manifest 工厂收到非法支付宝 AppID: ${identity.aliAppId}`)
+  }
   const manifest = createOriginalManifest()
   manifest.name = identity.name.trim()
   manifest['mp-weixin'].appid = identity.wxAppId
   manifest['mp-weixin'].resizable = identity.resizable !== false
+  if (identity.aliAppId) {
+    manifest['mp-alipay'].appid = identity.aliAppId
+  }
   return manifest
 }

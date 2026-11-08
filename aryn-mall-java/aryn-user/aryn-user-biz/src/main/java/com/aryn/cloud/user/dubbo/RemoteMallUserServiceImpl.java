@@ -101,7 +101,14 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 
 	@Override
 	public UserInfo getUserByOpenId(String openid, String platformType) {
-		UserInfo userInfo = userInfoService.getOne(Wrappers.<UserInfo>lambdaQuery().eq(UserInfo::getOpenId, openid));
+		// 支付宝身份与微信 openid 不能互相命中：支付宝只匹配同来源用户，
+		// 微信保持历史行为（老数据 user_source 为空）。
+		boolean alipay = com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum.ALI_MINI.getCode()
+			.equals(platformType);
+		UserInfo userInfo = userInfoService.getOne(Wrappers.<UserInfo>lambdaQuery()
+			.eq(UserInfo::getOpenId, openid)
+			.eq(alipay, UserInfo::getUserSource, platformType)
+			.last("LIMIT 1"));
 		if (ObjectUtil.isNull(userInfo)) {
 			userInfo = userInfoService.createUserByOpenId(openid, platformType);
 		}

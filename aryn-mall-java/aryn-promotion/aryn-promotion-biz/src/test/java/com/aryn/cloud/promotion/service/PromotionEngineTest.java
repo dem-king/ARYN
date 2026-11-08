@@ -935,8 +935,8 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("会员价与新人价同 SKU 冲突：会员价优先，即使新人价更低也不覆盖")
-	void memberPriceWinsOverNewbieOnSameSku() {
+	@DisplayName("会员价与新人价同 SKU：身份价取低（2026-11-08），新人价 10 更低则覆盖会员价 20")
+	void newbiePriceWinsWhenCheaperThanMemberPrice() {
 		when(activityMapper.selectList(any())).thenReturn(List.of(
 				memberActivity("act-member", memberRules("lv-1", "sku-1", "20")),
 				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null,
@@ -946,19 +946,39 @@ class PromotionEngineTest {
 
 		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
 
-		// 同 SKU 只保留一条覆盖：会员价 20（身份权益优先于新人价 10）
+		// 同 SKU 只保留一条覆盖：新人价 10（低于会员价 20，取低生效）
 		assertEquals(1, result.getLadderOverrides().size());
 		PromotionCalculationVO.UnitPriceOverride override = result.getLadderOverrides().get(0);
-		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("20")));
-		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, override.getActivityType());
-		// 新人价对该 SKU 整体跳过：不产出新人价明细，总让利只算会员价 510（而非叠加 810）
-		assertEquals(1, result.getDetails().size());
-		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, result.getDetails().get(0).getActivityType());
-		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("510.0")));
+		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("10")));
+		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, override.getActivityType());
+		// 让利不重复计算：会员明细 510（(28.5-20)*60）+ 新人明细增量 600（(20-10)*60）= 实际让利 1110
+		assertEquals(2, result.getDetails().size());
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("1110.0")));
 	}
 
 	@Test
-	@DisplayName("会员价只锁定命中 SKU，其它 SKU 的新人价仍照常生效")
+	@DisplayName("会员价与新人价同 SKU：新人价更高时会员价保留（取低口径，同价归属身份价）")
+	void memberPriceStaysWhenNewbieNotCheaper() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				memberActivity("act-member", memberRules("lv-1", "sku-1", "20")),
+				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null,
+						newbieRules("{\"skuId\":\"sku-1\",\"price\":25}"))));
+		memberLevels(3, 2);
+		newbieEligible(true);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("20")));
+		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, result.getLadderOverrides().get(0).getActivityType());
+		// 新人价未生效：不产出新人明细（不写新人锁，避免白耗一次性新人资格）
+		assertTrue(result.getDetails()
+			.stream()
+			.noneMatch(detail -> PromotionActivity.TYPE_NEWBIE_PRICE.equals(detail.getActivityType())));
+	}
+
+	@Test
+	@DisplayName("新人价对会员价覆盖的 SKU 取低生效，未覆盖 SKU 照常生效")
 	void newbieStillAppliesOnSkusNotCoveredByMemberPrice() {
 		when(activityMapper.selectList(any())).thenReturn(List.of(
 				memberActivity("act-member", memberRules("lv-1", "sku-1", "20")),
@@ -970,13 +990,14 @@ class PromotionEngineTest {
 		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
 
 		assertEquals(2, result.getLadderOverrides().size());
-		PromotionCalculationVO.UnitPriceOverride member = result.getLadderOverrides()
+		PromotionCalculationVO.UnitPriceOverride memberSku = result.getLadderOverrides()
 			.stream()
 			.filter(override -> "sku-1".equals(override.getSkuId()))
 			.findFirst()
 			.orElseThrow();
-		assertEquals(0, member.getUnitPrice().compareTo(new BigDecimal("20")));
-		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, member.getActivityType());
+		// 身份价取低：新人 10 < 会员 20，sku-1 切新人价
+		assertEquals(0, memberSku.getUnitPrice().compareTo(new BigDecimal("10")));
+		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, memberSku.getActivityType());
 		PromotionCalculationVO.UnitPriceOverride newbie = result.getLadderOverrides()
 			.stream()
 			.filter(override -> "sku-2".equals(override.getSkuId()))
@@ -984,13 +1005,13 @@ class PromotionEngineTest {
 			.orElseThrow();
 		assertEquals(0, newbie.getUnitPrice().compareTo(new BigDecimal("8")));
 		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, newbie.getActivityType());
-		// 会员价 510 + 新人价 sku-2 的 5*(12-8)=20
-		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("530.0")));
+		// 会员明细 510 + 新人明细增量 (20-10)*60 + (12-8)*5 = 620，合计实际让利 1130
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("1130.0")));
 	}
 
 	@Test
-	@DisplayName("会员价与阶梯价同 SKU：阶梯价更低时保留阶梯价（用户更优）且新人价仍被跳过")
-	void memberPriceKeepsLowerLadderPriceAndStillBlocksNewbie() {
+	@DisplayName("阶梯价更低时保留阶梯价，但新人价更低则再覆盖阶梯价（层层取低）")
+	void newbiePriceOverridesLowerLadderPriceWhenCheaper() {
 		String ladder = "{\"skuLadders\":[{\"skuId\":\"sku-1\",\"ladders\":[{\"minQty\":1,\"unitPrice\":19}]}]}";
 		when(activityMapper.selectList(any())).thenReturn(List.of(
 				activity("act-ladder", PromotionActivity.TYPE_LADDER_PRICE, "2", "sku-1", null, ladder),
@@ -1004,12 +1025,13 @@ class PromotionEngineTest {
 
 		assertEquals(1, result.getLadderOverrides().size());
 		PromotionCalculationVO.UnitPriceOverride override = result.getLadderOverrides().get(0);
-		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("19")));
-		assertEquals("act-ladder", override.getActivityId());
-		// 新人价被会员价锁定跳过：明细里不应出现 type=9
+		// 层层取低：阶梯 19 < 会员 20 保留阶梯，新人 10 < 19 再覆盖——最终价 10
+		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("10")));
+		assertEquals("act-newbie", override.getActivityId());
+		// 新人价真正生效：产出新人明细（下单链据此写 promotion_lock，在途唯一才有效）
 		assertTrue(result.getDetails()
 			.stream()
-			.noneMatch(detail -> PromotionActivity.TYPE_NEWBIE_PRICE.equals(detail.getActivityType())));
+			.anyMatch(detail -> PromotionActivity.TYPE_NEWBIE_PRICE.equals(detail.getActivityType())));
 	}
 
 	@Test
@@ -1200,8 +1222,8 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("出清价阻断新人价：即使新人价更低也不覆盖")
-	void clearanceBlocksNewbiePrice() {
+	@DisplayName("出清价与新人价同 SKU：身份价取低（2026-11-08），新人价 10 更低则覆盖出清价 20")
+	void clearancePriceLosesToCheaperNewbiePrice() {
 		when(activityMapper.selectList(any())).thenReturn(List.of(
 				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
 						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20}]}"),
@@ -1212,10 +1234,9 @@ class PromotionEngineTest {
 		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
 
 		assertEquals(1, result.getLadderOverrides().size());
-		assertEquals(PromotionActivity.TYPE_CLEARANCE, result.getLadderOverrides().get(0).getActivityType());
-		assertTrue(result.getDetails()
-			.stream()
-			.noneMatch(detail -> PromotionActivity.TYPE_NEWBIE_PRICE.equals(detail.getActivityType())));
+		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, result.getLadderOverrides().get(0).getActivityType());
+		// 让利不重复计算：出清明细 + 新人明细增量 = 实际让利
+		assertEquals(2, result.getDetails().size());
 	}
 
 }

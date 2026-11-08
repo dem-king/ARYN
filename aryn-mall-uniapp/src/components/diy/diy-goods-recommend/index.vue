@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 
 import { loadGoodsRecommend } from '@/components/diy/retail-data'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useZonePrices } from '@/composables/useZonePrices'
 import { zonePriceBadgeText } from '@/utils/zone-price'
@@ -39,7 +40,8 @@ const zone = useZonePrices()
 /** 本轮推荐商品补专区价：不 await，避免价格接口阻塞商详主内容 */
 function loadZonePrices(items: any[]) {
   const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
-  if (!ids.length) return
+  if (!ids.length)
+    return
   void zone.loadForSpuIds(ids)
 }
 
@@ -91,9 +93,8 @@ function cardBadgeText(item: any): string {
 }
 
 function cardBadgeClass(item: any): string {
-  return cardDisplay(item).badgeKind === 'member'
-    ? 'gr-price-badge--member'
-    : 'gr-price-badge--clearance'
+  // 类名直接按枚举派生（会员/捡漏/秒杀/新人各有颜色语义，与主卡同一套令牌）
+  return `gr-price-badge--${cardDisplay(item).badgeKind || 'clearance'}`
 }
 
 function cardGuideText(item: any): string {
@@ -141,10 +142,10 @@ function cardGuideText(item: any): string {
                   v-if="cardBadgeText(item)"
                   class="gr-price-badge"
                   :class="cardBadgeClass(item)"
-                >{{ cardBadgeText(item) }}</text>
-                <text class="gr-price-symbol">
-                  ¥
-                </text>{{ cardMainPrice(item).toFixed(2) }}
+                >
+                  {{ cardBadgeText(item) }}
+                </text>
+                <price-text :value="cardMainPrice(item)" />
               </text>
               <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
               <text
@@ -166,6 +167,7 @@ function cardGuideText(item: any): string {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 /* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
    内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
 .gr-inner {
@@ -265,11 +267,7 @@ function cardGuideText(item: any): string {
   font-weight: 600;
 }
 
-.gr-price-symbol {
-  font-size: 22rpx;
-}
-
-/* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢价格层级 */
+/* 专区价角标：会员价走浅金、捡漏价走固定红橙，小号标签不抢价格层级 */
 .gr-price-badge {
   margin-right: 4rpx;
   padding: 0 6rpx;
@@ -286,8 +284,16 @@ function cardGuideText(item: any): string {
 }
 
 .gr-price-badge--clearance {
-  background: var(--wot-color-theme-primary, #ff2237);
+  @include goods-tag-clearance;
+}
+
+.gr-price-badge--seckill {
+  background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   color: #fff;
+}
+
+.gr-price-badge--newbie {
+  @include goods-tag-newbie;
 }
 
 /* 划线原价：灰字小一号，仅作价格锚点 */

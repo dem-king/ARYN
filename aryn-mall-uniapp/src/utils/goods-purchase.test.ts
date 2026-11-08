@@ -118,6 +118,7 @@ describe('resolveDeliveryRow', () => {
       deliveryWindowStart: '2026-09-28 08:00:00',
       deliveryWindowEnd: '2026-09-28 12:00:00',
     })
+    expect(row.visible).toBe(true)
     expect(row.text).toBe('配送至 悦航1号')
     expect(row.detail).toBe('上海港 3号泊位（2026-09-28 08:00:00 ~ 2026-09-28 12:00:00）')
     expect(row.tappable).toBe(false)
@@ -140,32 +141,43 @@ describe('resolveDeliveryRow', () => {
     expect(row.detail).toBe('')
   })
 
-  it('普通场景保留包邮与收货地址，可点去改地址', () => {
+  it('包邮商品整行隐藏（「包邮」不再上商详，地址改选交给结算页）', () => {
     const row = resolveDeliveryRow({
       hasVesselContext: false,
       freightType: '0',
       addressText: '北京市东城区某小区',
     })
-    expect(row).toEqual({
-      text: '包邮',
-      detail: '配送至：北京市东城区某小区',
-      tappable: true,
-    })
+    expect(row).toEqual({ visible: false, text: '', detail: '', tappable: false })
   })
 
-  it('固定运费商品展示运费金额', () => {
+  it('包邮且未设置收货地址时同样隐藏，不渲染空占位行', () => {
+    expect(resolveDeliveryRow({ hasVesselContext: false, freightType: '0' }).visible).toBe(false)
+  })
+
+  it('收费商品展示运费金额（真实决策信息，防结算惊吓）', () => {
     const row = resolveDeliveryRow({ hasVesselContext: false, freightType: '1', fixedFreightPrice: 8 })
-    expect(row.text).toBe('运费：8元')
+    expect(row).toEqual({ visible: true, text: '运费：8元', detail: '', tappable: true })
+  })
+
+  it('收费商品带地址时副文案展示收货地址，可点去改地址', () => {
+    const row = resolveDeliveryRow({
+      hasVesselContext: false,
+      freightType: '1',
+      fixedFreightPrice: 8,
+      addressText: '北京市东城区某小区',
+    })
+    expect(row.detail).toBe('配送至：北京市东城区某小区')
+    expect(row.tappable).toBe(true)
   })
 
   it('固定运费但金额缺失时按 0 元展示，不出现 undefined', () => {
     const row = resolveDeliveryRow({ hasVesselContext: false, freightType: '1' })
+    expect(row.visible).toBe(true)
     expect(row.text).toBe('运费：0元')
   })
 
-  it('普通场景未设置收货地址时副文案为空，但行仍可点去添加地址', () => {
-    const row = resolveDeliveryRow({ hasVesselContext: false, freightType: '0' })
-    expect(row.detail).toBe('')
-    expect(row.tappable).toBe(true)
+  it('freightType 缺失或未知取值按免运费处理整行隐藏（与后端仅 FREIGHT_TYPE_1 计费对齐）', () => {
+    expect(resolveDeliveryRow({ hasVesselContext: false }).visible).toBe(false)
+    expect(resolveDeliveryRow({ hasVesselContext: false, freightType: '2' }).visible).toBe(false)
   })
 })

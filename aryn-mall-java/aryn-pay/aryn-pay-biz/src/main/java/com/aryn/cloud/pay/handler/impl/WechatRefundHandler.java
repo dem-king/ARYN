@@ -7,7 +7,6 @@ import com.github.binarywang.wxpay.bean.request.WxPayRefundV3Request;
 import com.github.binarywang.wxpay.bean.result.WxPayRefundV3Result;
 import com.github.binarywang.wxpay.exception.WxPayException;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
-import com.aryn.cloud.common.core.entity.CallbackPrefixProperties;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.core.constant.CommonConstants;
@@ -16,15 +15,15 @@ import com.aryn.cloud.pay.api.dto.CreateRefundsReqDTO;
 import com.aryn.cloud.pay.api.entity.PayRefundOrder;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
 import com.aryn.cloud.pay.api.enums.PayRefundOrderStatusEnum;
-import com.aryn.cloud.pay.config.WxPayConfiguration;
+import com.aryn.cloud.pay.config.PayChannelClientFactory;
 import com.aryn.cloud.pay.handler.AbstractPayRefundOrderHandler;
 import com.aryn.cloud.pay.service.IPayRefundOrderService;
 import com.aryn.cloud.pay.service.IPayTradeOrderService;
+import com.aryn.cloud.pay.service.PayCallbackUrlBuilder;
+import com.aryn.cloud.pay.service.PayCredentialResolver;
+import com.aryn.cloud.pay.service.PayEventOutboxService;
+import com.aryn.cloud.pay.service.PayResolvedIdentity;
 import lombok.RequiredArgsConstructor;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.client.producer.SendStatus;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -37,9 +36,13 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 
 	private final IPayTradeOrderService tradeOrderService;
 
-	private final CallbackPrefixProperties callbackPrefixProperties;
+	private final PayCallbackUrlBuilder callbackUrlBuilder;
 
-	private final RocketMQTemplate rocketMQTemplate;
+	private final PayCredentialResolver credentialResolver;
+
+	private final PayChannelClientFactory clientFactory;
+
+	private final PayEventOutboxService outboxService;
 
 	@Override
 	protected void notifyRefundSuccess(PayRefundOrder payRefundOrder) {
@@ -47,11 +50,9 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 		jsonObject.put(PayConstants.EXTRA_PARAMS, payRefundOrder.getExtra());
 		jsonObject.put(PayConstants.REFUND_TRADE_NO, payRefundOrder.getRefundTradeNo());
 		jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
-		SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
-				new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
-		if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
-			throw new IllegalStateException("退款状态通知发送失败");
-		}
+		outboxService.enqueue(ArynTenantContextHolder.getTenantId(), "REFUND_SUCCESS",
+				payRefundOrder.getRefundTradeNo(), RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+				jsonObject.toJSONString());
 	}
 
 	@Override
@@ -67,9 +68,10 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 			throw new ArynBusinessException("原支付订单校验失败");
 		}
 
-		String notifyUrl = String.format("%s/%s/notify/refunds/wx/%s/%s", payRefundOrder.getNotifyUrl(),
-				callbackPrefixProperties.getPay(), ArynTenantContextHolder.getTenantId(),
-				payTradeOrder.getTerminalType());
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		PayResolvedIdentity identity = credentialResolver.resolveForOrder(tenantId, payTradeOrder);
+		String notifyUrl = callbackUrlBuilder.buildWxRefundNotifyUrl(payRefundOrder.getNotifyUrl(), tenantId,
+				payTradeOrder.getConfigRevisionId());
 
 		WxPayRefundV3Request.Amount amount = new WxPayRefundV3Request.Amount();
 		amount.setTotal(payRefundOrder.getPayAmount().multiply(BigDecimal.valueOf(100)).intValue());
@@ -81,8 +83,7 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 		wxPayRefundV3Request.setOutRefundNo(payRefundOrder.getRefundTradeNo());
 		wxPayRefundV3Request.setNotifyUrl(notifyUrl);
 		try {
-			WxPayRefundV3Result result = WxPayConfiguration.wxPayService(payTradeOrder.getTerminalType())
-				.refundV3(wxPayRefundV3Request);
+			WxPayRefundV3Result result = clientFactory.wxPayService(identity).refundV3(wxPayRefundV3Request);
 			// 微信同步返回成功时立即落账并通知，回调丢失也不会让订单侧一直停在退款中
 			if (result != null && "SUCCESS".equals(result.getStatus())) {
 				payRefundOrder.setRefundStatus(PayRefundOrderStatusEnum.STATUS_2.getCode());

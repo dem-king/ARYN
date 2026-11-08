@@ -245,12 +245,96 @@ describe('小程序原生首帧底栏：页面 Vue 启动前兜住空窗', () =>
   })
 })
 
+describe('底部渐进模糊蒙层（两端同口径）', () => {
+  const NATIVE_WXSS = 'src/custom-tab-bar/index.wxss'
+  const NATIVE_WXML = 'src/custom-tab-bar/index.wxml'
+  const GOODS_FOOTER = 'src/sub-pages/product/goods-detail/components/GoodsFooter.vue'
+  const SHARED_CART_CATEGORY = 'src/sub-pages/order/shared-cart/category.vue'
+
+  // 蒙层材质/掩码/贴底几何：三处底栏 + 两个非 tab 页悬浮底栏共用
+  const VEIL_RULES = [
+    'position: fixed',
+    'left: 0',
+    'right: 0',
+    'bottom: 0',
+    'pointer-events: none',
+    'backdrop-filter: blur(18px) saturate(160%)',
+    'linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%)',
+  ]
+
+  it('小程序自绘底栏：蒙层固定在底部，模糊由下往上渐弱', () => {
+    const code = source(BAR)
+    for (const rule of VEIL_RULES) {
+      expect(code, `glass-tabbar 蒙层缺少 ${rule}`).toContain(rule)
+    }
+    // 68 = 胶囊贴底 16 + 高 52；层级在胶囊(998)之下、页面弹层(900+)之上
+    expect(code).toContain('height: 68px')
+    expect(code).toContain('z-index: 890')
+    // iOS 18 以下只认前缀写法；掩码同样大小写前缀兜底
+    expect(code).toContain('-WEBKIT-backdrop-filter: blur(18px) saturate(160%)')
+    expect(code).toContain('-WEBKIT-mask-image')
+    expect(code).toMatch(/\.wot-theme-dark \.glass-tabbar-veil[\s\S]*?rgba\(18, 18, 18, 0\.5\)/)
+  })
+
+  it('原生首帧底栏：蒙层与 Vue 版逐值一致', () => {
+    const wxss = source(NATIVE_WXSS)
+    for (const rule of VEIL_RULES) {
+      expect(wxss, `原生蒙层缺少 ${rule}`).toContain(rule)
+    }
+    expect(wxss).toContain('height: 68px')
+    expect(wxss).toContain('z-index: 890')
+    expect(wxss).toContain('-webkit-backdrop-filter: blur(18px) saturate(160%)')
+    expect(wxss).toMatch(/\.glass-tabbar-veil--dark[\s\S]*?rgba\(18, 18, 18, 0\.5\)/)
+    expect(source(NATIVE_WXML)).toContain('glass-tabbar-veil--dark')
+  })
+
+  it('H5 内置 tabBar：伪元素蒙层挂在外层 uni-tabbar 上，深色模式同步', () => {
+    const code = source(APP)
+    expect(code).toContain('uni-tabbar::before')
+    for (const rule of VEIL_RULES) {
+      expect(code, `H5 蒙层缺少 ${rule}`).toContain(rule)
+    }
+    expect(code).toContain('height: 68px')
+    expect(code).toContain('z-index: 890')
+    expect(code).toMatch(/prefers-color-scheme: dark[\s\S]*?uni-tabbar::before[\s\S]*?background-color: rgba\(18, 18, 18, 0\.5\)/)
+  })
+
+  it('非 tab 页悬浮底栏同款：商详底栏（GoodsFooter）', () => {
+    const code = source(GOODS_FOOTER)
+    for (const rule of VEIL_RULES) {
+      expect(code, `GoodsFooter 蒙层缺少 ${rule}`).toContain(rule)
+    }
+    expect(code).toContain('height: 68px')
+    // 底栏 z-index 9 → 蒙层 8（领券弹层 10+ 仍在上面）
+    expect(code).toContain('z-index: 8')
+    expect(code).toContain('-WEBKIT-backdrop-filter: blur(18px) saturate(160%)')
+    expect(code).toContain('-WEBKIT-mask-image')
+    expect(code).toMatch(/\.wot-theme-dark \.goods-footer-veil[\s\S]*?rgba\(18, 18, 18, 0\.5\)/)
+  })
+
+  it('非 tab 页悬浮底栏同款：共享车选货清单条（条更高，蒙层 76px）', () => {
+    const code = source(SHARED_CART_CATEGORY)
+    for (const rule of VEIL_RULES) {
+      expect(code, `选货清单条蒙层缺少 ${rule}`).toContain(rule)
+    }
+    expect(code).toContain('height: 76px')
+    expect(code).toContain('z-index: 8')
+    expect(code).toContain('-WEBKIT-backdrop-filter: blur(18px) saturate(160%)')
+    expect(code).toContain('-WEBKIT-mask-image')
+    expect(code).toMatch(/\.wot-theme-dark \.picker-bar-veil[\s\S]*?rgba\(18, 18, 18, 0\.5\)/)
+  })
+})
+
 describe('tab 页为悬浮底栏让位（H5 与小程序同口径）', () => {
-  it('分类页 tab 宿主让出一条底栏占位，压栈页不让', () => {
+  it('分类页 tab 宿主：内容从栏下穿过、滚动末尾让位，压栈页不让', () => {
     const code = source(CATEGORY)
     expect(code).toContain('withTabBar')
     expect(code).toContain('category-page--with-tabbar')
-    expect(code).toMatch(/category-page--with-tabbar[\s\S]*?height: calc\(100vh - var\(--app-tabbar-height/)
+    // 不能缩短整页：内容截断在底栏上沿，就无法像其他 tab 页一样从栏下穿过
+    expect(code).not.toMatch(/category-page--with-tabbar[\s\S]*?height: calc\(100vh - var\(--app-tabbar-height/)
+    // 与共享车选货页同口径：整页全高 + 末尾让位变量，左栏 rail 同步补底部内边距
+    expect(code).toMatch(/category-page--with-tabbar[\s\S]*?--page-glass-bar-clearance: var\(--app-tabbar-height/)
+    expect(code).toMatch(/category-page--with-tabbar[\s\S]*?\.category-rail[\s\S]*?padding-bottom: calc\(20rpx \+ var\(--page-glass-bar-clearance/)
     expect(source(CATEGORY_PAGE)).toContain('with-tab-bar')
   })
 

@@ -85,6 +85,7 @@ function codeOf(relativePath: string) {
 }
 
 const FLOOR = 'src/components/diy/diy-newbie-floor/index.vue'
+const ACTIONS = 'src/composables/useNewbieGoodsActions.ts'
 const QUICK_CART = 'src/composables/useQuickCart.ts'
 
 /** 「抢」按钮的 handler 名：模板绑定与函数定义必须是同一个名字 */
@@ -102,13 +103,16 @@ describe('新人专享楼层「抢」＝直接加购', () => {
   })
 
   it('引入统一加购 composable 并真的调用 quickAdd', () => {
-    const floor = source(FLOOR)
-    expect(floor).toContain('useQuickCart')
+    const actions = source(ACTIONS)
+    expect(actions).toContain('useQuickCart')
     // 只 import 不调用 = 按钮仍然是死的
-    expect(floor).toMatch(/await quickAdd\(/)
+    expect(actions).toMatch(/await quickAdd\(/)
     // 不允许自己写加购接口：绕开统一入口会丢掉数量归一化与去向确认
-    expect(floor).not.toContain('addShoppingCart')
-    expect(floor).not.toContain('addSharedCartItem')
+    expect(actions).not.toContain('addShoppingCart')
+    expect(actions).not.toContain('addSharedCartItem')
+    // 楼层本身必须接到共用逻辑上，不能只留一个 import
+    expect(source(FLOOR)).toContain('useNewbieGoodsActions')
+    expect(source(FLOOR)).toContain('handleGrab')
   })
 
   it('未登录的登录引导由 useQuickCart 统一负责，楼层不自己写跳登录', () => {
@@ -119,13 +123,13 @@ describe('新人专享楼层「抢」＝直接加购', () => {
     expect(composable).toContain('goLogin()')
     expect(composable).toContain('authStore.isLoggedIn')
     // 楼层自己再写一份 navigateTo 登录，就会与统一入口二次跳转
-    expect(source(FLOOR)).not.toMatch(/navigateTo\(\{\s*url:\s*'\/pages\/login\/index'/)
+    expect(source(ACTIONS)).not.toMatch(/navigateTo\(\{\s*url:\s*'\/pages\/login\/index'/)
   })
 
-  it('handler 名字同时出现在模板绑定与脚本定义里（防止删掉绑定只留函数）', () => {
+  it('handler 名字同时出现在模板绑定与共用逻辑里（防止删掉绑定只留函数）', () => {
     const floor = source(FLOOR)
     expect(floor).toMatch(/@click\.stop="handleGrab\(goods\)"/)
-    expect(floor).toMatch(new RegExp(`as(?:ync)?\\s+function\\s+${GRAB_HANDLER}\\s*\\(`))
+    expect(source(ACTIONS)).toMatch(new RegExp(`as(?:ync)?\\s+function\\s+${GRAB_HANDLER}\\s*\\(`))
   })
 
   it('整卡点击仍然跳商详（按钮加购不能把卡片入口改没）', () => {
@@ -136,58 +140,66 @@ describe('新人专享楼层「抢」＝直接加购', () => {
   })
 
   it('多规格回退商详：needChoose 时提示选规格并打开商详', () => {
-    const floor = source(FLOOR)
-    expect(floor).toContain('result.needChoose')
+    const actions = source(ACTIONS)
+    expect(actions).toContain('result.needChoose')
     // 文案走 i18n 词条（中文即原「请选择规格」），此处只校验接线到的 key
-    expect(floor).toContain("t('diy.newbieFloor.selectSpecsToast')")
+    expect(actions).toContain("t('diy.newbieFloor.selectSpecsToast')")
     // needChoose 分支内必须真的去商详，否则用户点「抢」后无从选择规格
-    expect(floor).toMatch(/result\.needChoose[\s\S]{0,300}openGoods\(spuId\)/)
+    expect(actions).toMatch(/result\.needChoose[\s\S]{0,300}options\.openGoods\(spuId\)/)
   })
 
-  it('成功提示不与 useQuickCart 重复：楼层自己不再 toast「已加入购物车」', () => {
+  it('成功提示不与 useQuickCart 重复：共用逻辑不再 toast「已加入购物车」', () => {
     const composable = source(QUICK_CART)
     // 加购成功的提示由统一入口（useCartDestination.addPersonal）发出
     expect(composable).toContain('submitCartAdd')
     // 只断言代码：注释里提这句文案是在解释「为什么这里不再提示」，属正常
-    expect(codeOf(FLOOR)).not.toContain('已加入购物车')
+    expect(codeOf(ACTIONS)).not.toContain('已加入购物车')
   })
 
-  it('新人限购件数取自楼层配置，并与统一数量算法比对后再决定是否加购', () => {
+  it('新人限购件数取自活动配置，并与统一数量算法比对后再决定是否加购', () => {
     const floor = source(FLOOR)
-    // 限购数来自活动（floor.limitPerUser），不是商品自带字段
-    expect(floor).toContain('limitPerUser')
+    const actions = source(ACTIONS)
+    // 限购数来自楼层上下文（活动 limitPerUser），由楼层把取值函数交给共用逻辑
+    expect(floor).toContain('limitPerUser: newbieLimitPerUser')
+    expect(floor).toContain('floor.value?.limitPerUser')
     // 必须用与 useQuickCart 同一份纯函数算最小合规数量，不能各写一套
-    expect(floor).toContain('resolveQuickAddQuantity')
-    expect(floor).toContain('QUICK_CART_MODE_DIRECT')
+    expect(actions).toContain('resolveQuickAddQuantity')
+    expect(actions).toContain('QUICK_CART_MODE_DIRECT')
     // 数量超过限购时给提示并跳商详（冲突场景不自行加购）
-    expect(floor).toMatch(/resolveQuickAddQuantity\(info\) > limit[\s\S]{0,200}showToast/)
+    expect(actions).toMatch(/resolveQuickAddQuantity\(info\) > limit[\s\S]{0,200}showToast/)
   })
 
   it('活动 SKU 与快捷加购选中的 SKU 不一致时回退商详', () => {
-    const floor = source(FLOOR)
+    const actions = source(ACTIONS)
     // 楼层项自带活动 skuId；后端快捷加购按库存挑 SKU，两者可能不是同一行。
     // 对不上还硬加，用户看到的是活动价、入车的是另一规格，价差到结算才暴露。
-    expect(floor).toMatch(/activitySkuId/)
-    expect(floor).toMatch(/String\(info\?\.skuId \|\| ''\) !== activitySkuId/)
-    expect(floor).toMatch(/!== activitySkuId[\s\S]{0,200}openGoods\(spuId\)/)
+    expect(actions).toMatch(/activitySkuId/)
+    expect(actions).toMatch(/String\(info\?\.skuId \|\| ''\) !== activitySkuId/)
+    expect(actions).toMatch(/!== activitySkuId[\s\S]{0,200}openGoods\(spuId\)/)
   })
 
-  it('确认弹层按楼层成交价展示（命中身份价时用身份价，否则新人价），并封顶限购件数', () => {
-    const floor = source(FLOOR)
+  it('确认弹层按卡片成交价展示（命中身份价时用身份价，否则新人价），并封顶限购件数', () => {
+    const actions = source(ACTIONS)
     // quick-cart 只回普通售价；不带活动价进弹层就会出现「卡片 ¥0.01、小计 ¥12.90」
-    expect(floor).toMatch(/quickAdd\(spuId,\s*\{\s*promotion:\s*\{/)
+    expect(actions).toContain('const result = await quickAdd(spuId, promotion ? { promotion } : {})')
     // 命中更高优先级的会员价/出清价时按身份价展示（SKU 级优先），否则沿用新人价
-    expect(floor).toMatch(/unitPrice:\s*zonePriced/)
-    expect(floor).toMatch(/goods\.newbiePrice/)
-    expect(floor).toMatch(/zone\.skuZonePriceOf\(/)
+    expect(actions).toMatch(/unitPrice:\s*cardMainPrice\(goods\)/)
+    expect(actions).toMatch(/unitPrice:\s*Number\(goods\?\.newbiePrice\)/)
+    expect(actions).toMatch(/zone\.skuZonePriceOf\(/)
     // 超量不是恢复原价而是整单被后端拒绝，必须在弹层里提前封顶
-    expect(floor).toMatch(/maxQuantity:\s*zonePriced \? null : newbieLimitPerUser\(\)/)
+    expect(actions).toMatch(/maxQuantity:\s*null/)
+    expect(actions).toMatch(/maxQuantity:\s*limitPerUser\(\)/)
   })
 
-  it('防重复点击：复用 composable 的 pending，并把在途态反映到按钮上', () => {
+  it('防重复点击：复用统一加购的 pending，并把在途态反映到按钮上', () => {
     const floor = source(FLOOR)
-    expect(floor).toMatch(/const \{ pending, quickAdd \} = useQuickCart\(\)/)
-    expect(floor).toMatch(/if \(pending\.value\)[\s\S]{0,80}return/)
+    const actions = source(ACTIONS)
+    expect(floor).toMatch(/const \{[\s\S]{0,200}pending,[\s\S]{0,600}\} = useNewbieGoodsActions/)
+    expect(actions).toMatch(/if \(pending\.value\)[\s\S]{0,80}return/)
     expect(floor).toContain('nf-btn--pending')
+  })
+
+  it('长期有效活动不展示结束倒计时', () => {
+    expect(source(FLOOR)).toContain('floor.value?.longTerm')
   })
 })

@@ -39,6 +39,7 @@ export const TENANT_VITE_KEYS = [
   'VITE_TENANT_KEY',
   'VITE_TENANT_ID',
   'VITE_TENANT_WX_APPID',
+  'VITE_TENANT_ALI_APPID',
   'VITE_TENANT_NAME',
   'VITE_OPEN_BOOT',
   'VITE_API_BASE_URL',
@@ -64,14 +65,15 @@ export function resolveProjectRoot(startDir) {
 /**
  * 本次构建的完整目录契约。
  */
-export function resolveBuildPaths(projectRoot, normalized) {
+export function resolveBuildPaths(projectRoot, normalized, platform = 'mp-weixin') {
   const workRoot = path.join(projectRoot, '.tenant-build', normalized.key, normalized.profile, normalized.deployment, normalized.buildId)
   const attemptRoot = path.join(workRoot, 'attempt')
   return {
     workRoot,
+    platform,
     appRoot: path.join(workRoot, 'app'),
     attemptRoot,
-    outputDir: path.join(attemptRoot, 'mp-weixin'),
+    outputDir: path.join(attemptRoot, platform),
     cacheViteDir: path.join(workRoot, 'cache', 'vite'),
     cacheUniDir: path.join(workRoot, 'cache', 'uni'),
     logsDir: path.join(workRoot, 'logs'),
@@ -104,6 +106,7 @@ export function buildChildEnv(normalized, paths, { nodeEnv = 'production' } = {}
   env.VITE_TENANT_KEY = normalized.key
   env.VITE_TENANT_ID = normalized.tenantId
   env.VITE_TENANT_WX_APPID = normalized.wxAppId
+  env.VITE_TENANT_ALI_APPID = normalized.aliAppId || ''
   env.VITE_TENANT_NAME = normalized.name
   env.VITE_OPEN_BOOT = String(normalized.openBoot)
   env.VITE_API_BASE_URL = normalized.apiBaseUrl
@@ -126,7 +129,8 @@ export function cleanDefaultEnv(baseEnv = process.env) {
   const removed = []
   for (const key of Object.keys(env)) {
     if (key === 'VITE_TENANT_BUILD' || key === 'VITE_TENANT_KEY' || key === 'VITE_TENANT_ID'
-      || key === 'VITE_TENANT_WX_APPID' || key === 'VITE_TENANT_NAME' || key === 'VITE_BUILD_ID'
+      || key === 'VITE_TENANT_WX_APPID' || key === 'VITE_TENANT_ALI_APPID' || key === 'VITE_TENANT_NAME'
+      || key === 'VITE_BUILD_ID'
       || key.startsWith('UNI_INPUT_DIR') || key.startsWith('UNI_OUTPUT_DIR')) {
       delete env[key]
       removed.push(key)

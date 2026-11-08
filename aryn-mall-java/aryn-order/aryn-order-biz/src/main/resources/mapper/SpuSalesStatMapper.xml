@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.order.mapper.SpuSalesStatMapper">
+
+    <!--
+      社证统计聚合：口径与热销榜（selectGoodsSalesRank）/常购清单同源——
+      order_info.status IN ('2','3','4')（已过支付环节，含货到付款）、订单与明细均未删除、
+      窗口按 order_info.create_time 近 days 天。回购判定按「不同订单数 ≥ 2」：
+      同一订单买多件/多规格不构成回购。租户由上下文（MP 拦截器）与显式条件双重保证；
+      uk (tenant_id, spu_id, stat_date) 冲突走覆盖，Job 重跑幂等。
+    -->
+    <insert id="upsertSpuStats">
+        INSERT INTO stat_daily_spu_sales (
+            id, tenant_id, stat_date, spu_id, buyer_cnt, repeat_buyer_cnt, repurchase_rate, create_time, update_time
+        )
+        SELECT
+            REPLACE(UUID(), '-', ''),
+            #{tenantId},
+            #{statDate},
+            t.spu_id,
+            COUNT(*) AS buyer_cnt,
+            IFNULL(SUM(t.order_cnt &gt;= 2), 0) AS repeat_buyer_cnt,
+            IFNULL(ROUND(SUM(t.order_cnt &gt;= 2) * 100.0 / COUNT(*), 2), 0) AS repurchase_rate,
+            NOW(),
+            NOW()
+        FROM (
+            SELECT
+                i.spu_id AS spu_id,
+                o.user_id AS user_id,
+                COUNT(DISTINCT o.id) AS order_cnt
+            FROM order_item AS i
+            INNER JOIN order_info AS o
+                ON o.id = i.order_id
+                AND o.tenant_id = i.tenant_id
+                AND o.del_flag = '0'
+                AND o.status IN ('2', '3', '4')
+                AND o.create_time &gt;= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+            WHERE i.tenant_id = #{tenantId}
+              AND i.del_flag = '0'
+              AND o.user_id IS NOT NULL
+              AND o.user_id != ''
+            GROUP BY i.spu_id, o.user_id
+        ) t
+        GROUP BY t.spu_id
+        ON DUPLICATE KEY UPDATE
+            buyer_cnt = VALUES(buyer_cnt),
+            repeat_buyer_cnt = VALUES(repeat_buyer_cnt),
+            repurchase_rate = VALUES(repurchase_rate),
+            update_time = NOW()
+    </insert>
+
+    <!-- 最新一期：每 SPU 取 stat_date 最大且不晚于今日的行（T+1 快照语义，未来预写行不下发） -->
+    <select id="selectLatestStats" resultType="com.aryn.cloud.order.api.dto.GoodsSpuSalesStatDTO">
+        SELECT
+            s.spu_id AS spuId,
+            s.buyer_cnt AS buyerCnt,
+            s.repeat_buyer_cnt AS repeatBuyerCnt,
+            s.repurchase_rate AS repurchaseRate
+        FROM stat_daily_spu_sales AS s
+        INNER JOIN (
+            SELECT spu_id, MAX(stat_date) AS max_date
+            FROM stat_daily_spu_sales
+            WHERE tenant_id = #{tenantId}
+              AND stat_date &lt;= CURDATE()
+              AND spu_id IN
+              <foreach collection="spuIds" item="spuId" open="(" separator="," close=")">#{spuId}</foreach>
+            GROUP BY spu_id
+        ) m ON m.spu_id = s.spu_id AND m.max_date = s.stat_date
+        WHERE s.tenant_id = #{tenantId}
+    </select>
+
+</mapper>

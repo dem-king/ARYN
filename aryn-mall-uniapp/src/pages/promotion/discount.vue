@@ -8,6 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getDiscountActivities } from '@/api/promotion'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { formatDiscountValue } from '@/utils/discount-price'
 import { navigateToUrl } from '@/utils/tab-bar'
@@ -620,12 +621,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
                     {{ goods.subTitle }}
                   </view>
                   <view class="goods-price">
-                    <text class="price-sym">
-                      ¥
-                    </text>
-                    <text class="price-val">
-                      {{ formatPrice(goods.discountPrice) }}
-                    </text>
+                    <price-text class="price-val" :value="goods.discountPrice" />
                     <text v-if="hasOriginalPrice(goods)" class="price-orig">
                       ¥{{ formatPrice(goods.originalPrice) }}
                     </text>
@@ -1133,13 +1129,9 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   white-space: nowrap;
 }
 
-.price-sym {
-  color: var(--wot-color-theme-primary, #ff2237);
-  font-size: 20rpx;
-  font-weight: 700;
-}
-
 .price-val {
+  --price-symbol-size: 0.56em;
+
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 36rpx;
   font-weight: 700;

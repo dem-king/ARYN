@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import type {
+  ReplenishDirectImport,
+  ReplenishDirectImportConfirmResult,
+} from '@/api/order/replenishImport'
+import type {
   SharedCartImport,
   SharedCartImportActionPayload,
   SharedCartImportCandidate,
   SharedCartImportRow,
 } from '@/api/order/sharedCart'
 /**
- * 补给单 Excel 导入（原型「详情 → 导入 → 报告」三步）。
+ * Excel 导入报告页（原型「详情 → 导入 → 报告」三步），两种模式：
+ *
+ * 1. 车模式（?cartId=）：补给单详情页入口，确认后明细并入该购物车（车版接口）；
+ * 2. 直下单模式（?mode=direct）：「导入清单下单」向导入口，确认后复核清单
+ *    交给结算页直接生成订单（/app/replenish-import 链路，不挂购物车）。
+ *    两模式共用解析/报告/补选渲染，仅 preview/confirm/恢复端点与成功去向不同。
  *
  * 与原型的两点刻意差异：
  * 1. **不画假的解析进度条**：解析同步完成后一次性返回报告，没有可回传的真实进度，
@@ -23,6 +32,12 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/core/handlers'
 import { alovaInstance } from '@/api/core/instance'
 import {
+  confirmDirectImport,
+  getDirectImport,
+  getLatestDirectImport,
+  resumeDirectImport,
+} from '@/api/order/replenishImport'
+import {
   confirmSharedCartImport,
   getSharedCartImport,
   listSharedCartImports,
@@ -31,8 +46,11 @@ import {
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
+import { useGoodsStore } from '@/store/goodsStore'
+import { useDirectImportOrderStore } from '@/store/directImportOrderStore'
 import {
   downloadSharedCartImportTemplate,
+  previewDirectImport,
   previewSharedCartImport,
 } from '@/sub-pages/api/order/sharedCartImport'
 
@@ -46,17 +64,24 @@ definePage({
   },
 })
 
-// 统一登录守卫：游客深链进入时记录带 cartId 的回跳并跳登录（不再裸跳登录页丢来源）
+// 统一登录守卫：游客深链进入时记录带参的回跳并跳登录（不再裸跳登录页丢来源）
 const { ensureLoggedIn } = useRequireLogin()
 const { t } = useI18n()
+const goodsStore = useGoodsStore()
+const directImportOrderStore = useDirectImportOrderStore()
 
 const cartId = ref('')
+/** 直下单模式：不挂购物车，确认后进结算页下单（「导入清单下单」向导入口） */
+const directMode = ref(false)
+/** 本次直下单交接 ID：结算页只认 URL 上这一个，防止普通订单被全局残留接管 */
+const handoffId = ref('')
 /** 1选文件 2报告 */
 const step = ref<1 | 2>(1)
 const parsing = ref(false)
 const confirming = ref(false)
 const fileName = ref('')
-const report = ref<SharedCartImport | null>(null)
+/** 报告两种模式同构（行字段名一致），车模式多了 personName/候选等接龙字段 */
+const report = ref<ReplenishDirectImport | SharedCartImport | null>(null)
 /** 行号 → 处置动作（只传动作，行内容一律以服务端已落库的解析行为准） */
 const actions = reactive<Record<number, SharedCartImportActionPayload>>({})
 /** 行号 → 人工补选关键字 */
@@ -66,6 +91,13 @@ const pickCandidates = reactive<Record<number, SharedCartImportCandidate[]>>({})
 const picking = reactive<Record<number, boolean>>({})
 
 const rows = computed(() => report.value?.rows ?? [])
+/** 已确认但尚未进结算：重启/误返回后可从服务端恢复同一份合并清单 */
+const canResumeCheckout = computed(() => directMode.value && report.value?.status === '2')
+/** 恢复提示数量：直下单回执为 confirmedRows；车版报告无该字段，回落匹配行数 */
+const resumeCount = computed(() => {
+  const value = report.value as { confirmedRows?: number, matchedRows?: number } | null
+  return Number(value?.confirmedRows ?? value?.matchedRows ?? 0)
+})
 /**
  * 需要用户处置的行：匹配成功、已下架、未填数量的都不需要逐行确认。
  *
@@ -111,11 +143,52 @@ const RESULT_THEME: Record<string, string> = {
 
 onLoad((options) => {
   cartId.value = options?.cartId ?? ''
-  // 需登录页：游客先登录，登录成功后带着 cartId 回到本页（而不是被兜底送回首页）
-  const redirectPath = `/sub-pages/order/shared-cart/import${cartId.value ? `?cartId=${encodeURIComponent(cartId.value)}` : ''}`
+  directMode.value = options?.mode === 'direct'
+  handoffId.value = options?.handoff ?? ''
+  if (directMode.value) {
+    // 深链/旧入口没有交接上下文时不能假装能下单：回向导重新选择配送目标，
+    // 否则确认后的结算页不知道送船还是送岸上，只能错用全局船舶上下文。
+    if (!directImportOrderStore.matches(handoffId.value)) {
+      uni.showToast({ title: t('sharedCart.importPage.handoffExpired'), icon: 'none' })
+      setTimeout(() => {
+        uni.redirectTo({ url: '/sub-pages/order/shared-cart/import-entry' })
+      }, 800)
+      return
+    }
+  }
+  // 需登录页：游客先登录，登录成功后带着原参数回到本页（而不是被兜底送回首页）
+  const params = [
+    cartId.value ? `cartId=${encodeURIComponent(cartId.value)}` : '',
+    directMode.value ? 'mode=direct' : '',
+    handoffId.value ? `handoff=${encodeURIComponent(handoffId.value)}` : '',
+  ].filter(Boolean).join('&')
+  const redirectPath = `/sub-pages/order/shared-cart/import${params ? `?${params}` : ''}`
   if (!ensureLoggedIn(redirectPath))
     return
+  if (directMode.value)
+    void restoreDirectReport()
 })
+
+/**
+ * 杀进程/重启后恢复：store 里记着上次解析的 importId，直接取回报告。
+ * 已确认的任务会展示「继续去结算」，待确认的回到报告页继续处置。
+ * 新流程（importId 为空）不触发，避免覆盖刚上传的报告。
+ */
+async function restoreDirectReport() {
+  const importId = directImportOrderStore.importId
+  if (!importId)
+    return
+  try {
+    const restored = await getDirectImport(importId)
+    if (!restored)
+      return
+    report.value = restored
+    step.value = 2
+  }
+  catch {
+    // 恢复失败不阻塞：用户仍可重新上传或「继续上次」
+  }
+}
 
 /** 选文件：小程序只能从聊天记录选（基础库 ≥ 2.6.0），H5 走 chooseFile */
 function handlePickFile() {
@@ -155,12 +228,16 @@ function handlePickFile() {
 }
 
 async function uploadAndParse(filePath: string, name: string) {
-  if (!cartId.value)
+  if (!directMode.value && !cartId.value)
     return
   parsing.value = true
   fileName.value = name
   try {
-    report.value = await previewSharedCartImport(cartId.value, filePath)
+    report.value = directMode.value
+      ? await previewDirectImport(filePath)
+      : await previewSharedCartImport(cartId.value, filePath)
+    if (directMode.value)
+      directImportOrderStore.setImportId(report.value.importId)
     // 重置上一份报告留下的处置状态，避免行号串台
     Object.keys(actions).forEach(key => delete actions[Number(key)])
     Object.keys(pickCandidates).forEach(key => delete pickCandidates[Number(key)])
@@ -258,27 +335,127 @@ function actionLabel(row: SharedCartImportRow) {
   }
 }
 
+/** 跳结算页：redirectTo 让返回键回向导，而不是回到已确认的报告页 */
+function goCheckout() {
+  const pages = getCurrentPages()
+  const currentPage = pages[pages.length - 1]
+  setTimeout(() => {
+    const stack = getCurrentPages()
+    if (stack[stack.length - 1] !== currentPage)
+      return
+    uni.redirectTo({
+      url: `/sub-pages/order/order-confirm/index?createWay=2&handoff=${encodeURIComponent(handoffId.value)}`,
+    })
+  }, 800)
+}
+
+/** 跳过行摘要：最多列 3 行，避免弹窗被 2000 行报告撑爆 */
+function skippedSummary(result: ReplenishDirectImportConfirmResult) {
+  const skipped = (result.rows || [])
+    .filter(row => row.resolvedAction === 'SKIP')
+    .slice(0, 3)
+    .map(row => `第 ${row.rowNo} 行：${row.resultMessage || ''}`)
+  return skipped.join('\n')
+}
+
+function handleDirectConfirm(result: ReplenishDirectImportConfirmResult) {
+  if (!report.value)
+    return
+  // 回执带真实行处置与跳过原因：报告页状态必须跟服务端同步，
+  // 否则「后台已终结、界面还让人处理」或「部分漏行仍直接跳结算」
+  report.value = {
+    ...report.value,
+    status: result.status,
+    confirmedRows: result.confirmedRows,
+    skippedRows: result.skippedRows,
+    rows: result.rows,
+  }
+  if (!result.checkoutReady || !result.items?.length) {
+    uni.showModal({
+      title: t('sharedCart.importPage.confirmBlockedTitle'),
+      content: result.message || t('sharedCart.importPage.nothingToOrder'),
+      showCancel: false,
+    })
+    return
+  }
+  goodsStore.setGoodsList(result.items.map(item => ({
+    spuId: item.spuId,
+    skuId: item.skuId,
+    quantity: item.quantity,
+    spuName: item.spuName,
+    specsInfo: item.specsInfo,
+    picUrl: item.picUrl,
+  })))
+  const proceed = () => {
+    uni.showToast({
+      title: t('sharedCart.importPage.confirmedGoCheckout', { count: result.items.length }),
+      icon: 'none',
+    })
+    goCheckout()
+  }
+  if (Number(result.skippedRows) > 0) {
+    // 部分行因库存/下架被跳过时必须先告知，不能只 toast 成功就跳结算
+    uni.showModal({
+      title: t('sharedCart.importPage.confirmSkippedTitle'),
+      content: `${result.message || ''}\n${skippedSummary(result)}`.trim(),
+      confirmText: t('sharedCart.importPage.continueCheckout'),
+      showCancel: false,
+      success: proceed,
+    })
+    return
+  }
+  proceed()
+}
+
+/**
+ * 已确认任务恢复结算：只读取回复核清单（不重新确认、不改写解析行）。
+ * 覆盖「确认成功后没到结算页就杀进程/返回」的恢复路径。
+ */
+async function handleResumeCheckout() {
+  if (!report.value || confirming.value)
+    return
+  confirming.value = true
+  uni.showLoading({ title: t('common.loading') })
+  try {
+    const result = await resumeDirectImport(report.value.importId)
+    handleDirectConfirm(result)
+  }
+  catch (error) {
+    uni.showToast({
+      title: error instanceof Error ? error.message : t('sharedCart.importPage.loadFailed'),
+      icon: 'none',
+    })
+  }
+  finally {
+    confirming.value = false
+    uni.hideLoading()
+  }
+}
+
 async function handleConfirm() {
   if (!report.value)
     return
   confirming.value = true
   try {
-    report.value = await confirmSharedCartImport(cartId.value, report.value.importId, Object.values(actions))
+    if (directMode.value) {
+      // 直下单：确认返回复核回执（同 SKU 已合并），交给结算页下单
+      const result = await confirmDirectImport(report.value.importId, Object.values(actions))
+      handleDirectConfirm(result)
+      return
+    }
+    const cartReport: SharedCartImport = await confirmSharedCartImport(cartId.value, report.value.importId, Object.values(actions))
+    report.value = cartReport
     uni.showToast({
-      title: report.value.importedRows
-        ? t('sharedCart.importPage.mergedCount', { count: report.value.importedRows })
+      title: cartReport.importedRows
+        ? t('sharedCart.importPage.mergedCount', { count: cartReport.importedRows })
         : t('sharedCart.importPage.processed'),
       icon: 'none',
     })
-    if (report.value.importedRows) {
+    if (cartReport.importedRows) {
       const pages = getCurrentPages()
       const previous: any = pages[pages.length - 2]
       if (previous?.$vm?.fetchDetail)
         previous.$vm.fetchDetail()
-      // 延时返回期间用户可能已经自己离开本页（切了 tab、点了返回）：
-      // 那时再 navigateBack 就是对已销毁页面发路由，微信报
-      // `routeDone with a webviewId xxx is not found`。
-      // 因此先记住当前页，回调里确认「还是这一页且下面还有页」才返回。
       const currentPage = pages[pages.length - 1]
       setTimeout(() => {
         const stack = getCurrentPages()
@@ -290,8 +467,8 @@ async function handleConfirm() {
   }
   catch (error) {
     // 姓名闸门：操作者未填姓名，服务端拒绝并入（拦截器已 toast 后端文案）。
-    // 跳到该车详情页强制补填，导入任务保留，返回本页后可直接重新确认
-    if (error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
+    // 直下单模式没有成员姓名概念，不会返回该 code。
+    if (!directMode.value && error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
       uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${cartId.value}` })
       return
     }
@@ -326,6 +503,18 @@ async function downloadTemplate() {
 async function reopenLatestImport() {
   uni.showLoading({ title: t('common.loading') })
   try {
+    if (directMode.value) {
+      // 直下单：取最近一份可继续任务（待确认或已确认），已确认的可直接恢复结算
+      const latest = await getLatestDirectImport()
+      if (!latest) {
+        uni.showToast({ title: t('sharedCart.importPage.noPendingImport'), icon: 'none' })
+        return
+      }
+      report.value = latest
+      directImportOrderStore.setImportId(latest.importId)
+      step.value = 2
+      return
+    }
     const list = await listSharedCartImports(cartId.value)
     const latest = (list ?? []).find(item => item.status === '1')
     if (!latest) {
@@ -353,7 +542,7 @@ onPageScroll(handlePageScroll)
 
     <!-- 步骤 1：选择文件 -->
     <template v-if="step === 1">
-      <view class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-32rpx">
+      <view class="mx-20rpx mt-20rpx rounded-20rpx p-32rpx bg-white">
         <view class="text-28rpx text-gray-800 font-bold">
           {{ t('sharedCart.importPage.title') }}
         </view>
@@ -402,7 +591,7 @@ onPageScroll(handlePageScroll)
 
     <!-- 步骤 2：导入报告 -->
     <template v-else>
-      <view class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx">
+      <view class="mx-20rpx mt-20rpx rounded-20rpx p-24rpx bg-white">
         <view class="flex items-center justify-between">
           <view class="text-28rpx font-bold">
             {{ t('sharedCart.importPage.reportTitle') }}
@@ -485,7 +674,7 @@ onPageScroll(handlePageScroll)
       <view
         v-for="row in actionableRows"
         :key="row.rowNo"
-        class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx"
+        class="mx-20rpx mt-20rpx rounded-20rpx p-24rpx bg-white"
       >
         <view class="flex items-center gap-12rpx">
           <text class="rounded-6rpx px-10rpx py-4rpx text-20rpx font-bold" :class="RESULT_THEME[row.resultType]">
@@ -574,7 +763,7 @@ onPageScroll(handlePageScroll)
       -->
       <view
         v-if="passiveRows.length > notFilledCount"
-        class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx"
+        class="mx-20rpx mt-20rpx rounded-20rpx p-24rpx bg-white"
       >
         <view class="text-28rpx font-bold">
           {{ t('sharedCart.importPage.noActionNeeded') }}
@@ -596,19 +785,34 @@ onPageScroll(handlePageScroll)
         </view>
       </view>
 
+      <view v-if="canResumeCheckout" class="mx-20rpx mt-20rpx rounded-12rpx bg-amber-50 px-20rpx py-14rpx text-22rpx text-amber-700">
+        {{ t('sharedCart.importPage.resumeHint', { count: resumeCount }) }}
+      </view>
       <view class="mx-20rpx my-30rpx flex gap-20rpx">
         <button class="h-80rpx flex-1 text-28rpx leading-80rpx !m-0" @tap="backToPick">
           {{ t('sharedCart.importPage.repick') }}
         </button>
         <button
+          v-if="canResumeCheckout"
+          class="h-80rpx flex-1 text-28rpx leading-80rpx !m-0"
+          type="primary"
+          :disabled="confirming"
+          @tap="handleResumeCheckout"
+        >
+          {{ t('sharedCart.importPage.resumeCheckout') }}
+        </button>
+        <button
+          v-else
           class="h-80rpx flex-1 text-28rpx leading-80rpx !m-0"
           type="primary"
           :disabled="confirming || report?.status !== '1'"
           @tap="handleConfirm"
         >
-          {{ report?.status === '2'
-            ? t('sharedCart.importPage.mergedToCart')
-            : t('sharedCart.importPage.confirmMerge', { count: report?.matchedRows || 0 }) }}
+          {{ directMode
+            ? t('sharedCart.importPage.confirmOrder', { count: report?.matchedRows || 0 })
+            : (report?.status === '2'
+              ? t('sharedCart.importPage.mergedToCart')
+              : t('sharedCart.importPage.confirmMerge', { count: report?.matchedRows || 0 })) }}
         </button>
       </view>
     </template>

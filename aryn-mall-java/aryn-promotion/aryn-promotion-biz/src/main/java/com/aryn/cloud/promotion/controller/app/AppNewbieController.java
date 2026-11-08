@@ -38,8 +38,9 @@ public class AppNewbieController {
 
 	@Operation(summary = "当前进行中的新人专享活动（含新人价商品；无活动返回 null）")
 	@GetMapping("/current")
-	public Result<AppNewbieFloorVO> current() {
-		return Result.success(newbieActivityService.getCurrentFloor());
+	public Result<AppNewbieFloorVO> current(
+			@RequestParam(value = "limit", required = false, defaultValue = "20") int limit) {
+		return Result.success(newbieActivityService.getCurrentFloor(limit));
 	}
 
 	/**

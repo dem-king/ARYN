@@ -11,7 +11,7 @@
  * 结构：
  *   自定义搜索导航栏（搜索 + 购物车角标）
  *   ├─ 一级分类圆形图标横滑条（未配图走首字色块兜底）｜右端「展开」
- *   └─ 左：二级分类 rail（筛选）  右：商品流（categoryFirstId/categorySecondId）
+ *   └─ 左：二级分类 rail（筛选）  右：单列商品流（categoryFirstId/categorySecondId）
  *         点击「展开」→ 全屏「全部分类」浮层（懒挂载）
  *
  * 与旧版的差别：旧版右侧是一级 banner + 二级宫格，点击二级跳商品列表；
@@ -33,7 +33,6 @@ import { usePageDecoration } from '@/composables/usePageDecoration'
 import { usePageShowLoad } from '@/composables/usePageShowLoad'
 import { resolveCategoryBadge } from '@/utils/category-badge'
 import { locateCategoryInTree } from '@/utils/category-tree'
-import { Local } from '@/utils/storage'
 
 interface Props {
   /** 压栈打开时显示左上角返回箭头；tab 页保持无箭头 */
@@ -103,11 +102,11 @@ const sheetVisible = ref(false)
 const pendingLocate = ref<CategoryLocateTarget | null>(null)
 
 /**
- * 商品流布局：双列（默认）/ 单列（图左信息右，对标小象超市）。
- * 记住上次选择——分类页是高频入口，每次都回到双列会让偏好单列的用户反复切换。
+ * 商品流固定单列（图左信息右，对齐小象超市分类页）。
+ *
+ * 右栏可用宽度有限，单列卡片能完整承载商品名、卖点、身份价与营销标签；
+ * 商品列表页仍保留自己的双列 / 单列切换，与本页互不影响。
  */
-const gridLayout = ref(Local.get('category-goods-grid') !== false)
-watch(gridLayout, value => Local.set('category-goods-grid', value))
 
 /**
  * 当前一级分类下的二级列表（带解析后的角标，供左栏直接渲染）。
@@ -248,12 +247,12 @@ function toCart() {
 const cartCount = computed(() => (authStore.isLoggedIn ? shoppingCartStore.getCartCount : 0))
 
 /**
- * 「全部分类」面板的顶边偏移 = 导航栏占位高度。
+ * 「全部分类」面板的顶边偏移 = 导航栏实际渲染高度。
  *
- * 直接读组件暴露的真实高度（状态栏 + 导航栏），不在页面里按平台手算：
- * 参考图中搜索框保持纯白未被遮挡，面板恰好从它下沿开始。
+ * 直接读组件暴露的 visualHeight（状态栏 + 胶囊偏移 + 导航栏），不在页面里按平台手算：
+ * 占位高度不含微信胶囊的纵向偏移，按它贴边会在导航栏下沿漏出一根深色细线。
  */
-const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?? 0)
+const sheetTopOffset = computed(() => searchNavbarRef.value?.visualHeight ?? 0)
 </script>
 
 <template>
@@ -271,6 +270,8 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
       ref="searchNavbarRef"
       :left-arrow="props.showBack"
       :disabled="true"
+      :bordered="!sheetVisible"
+      :force-frosted="sheetVisible"
       :placeholder="t('catalog.searchProducts')"
       :search-btn="true"
       @search="toSearch"
@@ -380,24 +381,22 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
               class="category-goods-skeleton__sort-item skeleton-shimmer"
             />
           </view>
-          <view
-            class="category-goods-skeleton__grid"
-            :class="gridLayout ? '' : 'category-goods-skeleton__grid--single'"
-          >
+          <view class="category-goods-skeleton__grid">
             <view v-for="n in 4" :key="n" class="category-goods-skeleton__card">
               <view class="category-goods-skeleton__pic skeleton-shimmer" />
-              <view class="category-goods-skeleton__line skeleton-shimmer" />
-              <view class="category-goods-skeleton__line category-goods-skeleton__line--short skeleton-shimmer" />
+              <view class="category-goods-skeleton__info">
+                <view class="category-goods-skeleton__line skeleton-shimmer" />
+                <view class="category-goods-skeleton__line category-goods-skeleton__line--short skeleton-shimmer" />
+              </view>
             </view>
           </view>
         </view>
         <goods-list-panel
           v-else
-          v-model:grid="gridLayout"
+          :grid="false"
           :category-first-id="currentFirstId"
           :category-second-id="currentSecondId"
           show-sort
-          show-layout-toggle
           detail-sheet
           @scroll="handlePageScroll"
         >
@@ -425,6 +424,7 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
       :categories="categories"
       :active-index="activeFirst"
       :top-offset="sheetTopOffset"
+      frosted
       @select="handleSheetSelect"
       @close="sheetVisible = false"
     />
@@ -447,9 +447,16 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
   background: var(--app-bg);
 }
 
-/* tab 页底部压着悬浮玻璃底栏：整页让出底栏占位，商品不在底栏下方穿行 */
+/* tab 页挂悬浮玻璃底栏：与其他 tab 页同口径，内容延伸到屏底从栏下穿过，
+   只在滚动末尾经 --page-glass-bar-clearance 让位（右栏商品流/详情弹层复用
+   goods-list-panel 既有变量，左栏 rail 补底部内边距），末行商品与最后一个
+   子类能滚到玻璃上沿之上；压栈页不声明 withTabBar，变量取 0 行为不变 */
 .category-page--with-tabbar {
-  height: calc(100vh - var(--app-tabbar-height, 0px));
+  --page-glass-bar-clearance: var(--app-tabbar-height, 0px);
+
+  .category-rail {
+    padding-bottom: calc(20rpx + var(--page-glass-bar-clearance, 0px));
+  }
 }
 
 /**
@@ -516,36 +523,44 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
   border-radius: 12rpx;
 }
 
+/**
+ * 单列骨架与真实单列商品卡同构：图左 1:1 方框、信息右；
+ * 负外边距抵消容器内边距，让分隔线像真实列表一样通栏。
+ */
 .category-goods-skeleton__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16rpx;
-}
-
-.category-goods-skeleton__grid--single {
   grid-template-columns: minmax(0, 1fr);
+  margin: 0 -16rpx;
 }
 
 .category-goods-skeleton__card {
-  overflow: hidden;
-  border-radius: 16rpx;
-  background: var(--app-card);
-  box-shadow: 0 4rpx 14rpx rgba(22, 34, 51, 0.05);
+  display: flex;
+  align-items: flex-start;
+  padding: 16rpx;
+  border-bottom: 1rpx solid var(--app-border);
 }
 
 .category-goods-skeleton__pic {
-  padding-top: 100%;
+  flex: none;
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 12rpx;
+}
+
+.category-goods-skeleton__info {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16rpx;
 }
 
 .category-goods-skeleton__line {
   height: 24rpx;
-  margin: 16rpx 16rpx 0;
+  margin-bottom: 16rpx;
   border-radius: 8rpx;
 }
 
 .category-goods-skeleton__line--short {
   width: 55%;
-  margin-bottom: 16rpx;
 }
 
 .category-content {
@@ -865,7 +880,7 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
     font-size: 26px !important;
   }
 
-  /* 右栏骨架：与真实商品流同一密度（3 列、同样的卡片圆角和行高） */
+  /* 右栏骨架：与真实单列商品流同一密度（图左信息右、同样的行卡留白） */
   .category-goods-skeleton {
     padding: calc(var(--category-header-height, 0px) + 12px) 12px 12px;
   }
@@ -886,30 +901,31 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
     border-radius: 8px;
   }
 
+  /* 分类页固定单列：宽屏也不得重排成多列（展开态 rpx 会放大，统一改 px） */
   .category-goods-skeleton__grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  /* 单列（图左信息右）布局时骨架保持单列：上面刚把默认网格改成 3 列，同权规则后写者胜
-     会把 --single 盖掉，这里按原样再断言一次，手机端不受影响 */
-  .category-goods-skeleton__grid--single {
     grid-template-columns: minmax(0, 1fr);
+    margin: 0 -12px;
   }
 
   .category-goods-skeleton__card {
+    padding: 12px;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .category-goods-skeleton__pic {
+    width: 96px;
+    height: 96px;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(22, 34, 51, 0.05);
+  }
+
+  .category-goods-skeleton__info {
+    padding-left: 12px;
   }
 
   .category-goods-skeleton__line {
     height: 16px;
-    margin: 12px 12px 0;
-    border-radius: 4px;
-  }
-
-  .category-goods-skeleton__line--short {
     margin-bottom: 12px;
+    border-radius: 4px;
   }
 
   /* 右栏装修位骨架（分类页 banner 位）：200rpx 展开态 ≈187px 过高，收到平板密度 */

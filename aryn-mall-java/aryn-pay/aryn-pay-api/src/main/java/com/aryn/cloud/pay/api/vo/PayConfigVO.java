@@ -8,18 +8,19 @@
   */
 package com.aryn.cloud.pay.api.vo;
 
-import com.baomidou.mybatisplus.annotation.*;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 支付配置安全读取模型。不得包含私钥、密钥、密文或服务器路径。
+ */
 @Data
 @Schema(description = "支付配置")
 public class PayConfigVO {
 
 	@Schema(description = "主键")
-	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
 
 	@Schema(description = "支付类型：1.微信；2.支付宝；")
@@ -28,47 +29,20 @@ public class PayConfigVO {
 	@Schema(description = "应用ID")
 	private String appId;
 
-	@Schema(description = "商户号")
+	@Schema(description = "商户号/收款方PID")
 	private String mchId;
 
-	@Schema(description = "微信支付商户密钥")
-	private String mchKey;
-
-	@Schema(description = "apiclient_cert.p12文件的绝对路径，或者如果放在项目中，请以classpath:开头指定.")
-	private String keyPath;
-
-	@Schema(description = "证书序列号")
-	private String certSerialNo;
-
-	@Schema(description = "apiV3秘钥")
-	private String apiv3Key;
-
-	@Schema(description = "apiv3 商户apiclient_key.pem")
-	private String privateKeyPath;
-
-	@Schema(description = "apiv3 商户apiclient_cert.pem")
-	private String privateCertPath;
-
-	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;
 
-	@TableField(fill = FieldFill.UPDATE)
 	@Schema(description = "修改人")
 	private String updateBy;
 
-	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
 
-	@TableField(fill = FieldFill.UPDATE)
 	@Schema(description = "修改时间")
 	private LocalDateTime updateTime;
-
-	@TableLogic
-	@TableField(fill = FieldFill.INSERT)
-	@Schema(description = "逻辑删除：0.显示；1.隐藏；")
-	private String delFlag;
 
 	@Schema(description = "支付端类型：0-小程序，1-App，2-H5，3-PC，4-公众号")
 	private String terminalType;
@@ -76,10 +50,19 @@ public class PayConfigVO {
 	@Schema(description = "租户id")
 	private String tenantId;
 
-	@Schema(description = "微信支付公钥")
-	private String publicKeyPath;
+	@Schema(description = "是否启用：0.停用；1.启用；")
+	private String enabled;
 
-	@Schema(description = "微信支付公钥ID")
-	private String publicKeyId;
+	@Schema(description = "当前生效的身份版本ID")
+	private String activeRevisionId;
+
+	@Schema(description = "并发版本号")
+	private Integer configVersion;
+
+	@Schema(description = "活动版本是否已具备启用所需材料")
+	private Boolean materialReady;
+
+	@Schema(description = "活动版本本地检查结果：0.未检查；1.通过；2.失败")
+	private String checkStatus;
 
 }

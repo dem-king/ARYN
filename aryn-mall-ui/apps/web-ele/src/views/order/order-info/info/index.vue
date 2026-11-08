@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { UploadRequestOptions, UploadUserFile } from 'element-plus';
+
 import type { Component } from 'vue';
 
 import type { OrderCategoryGroup } from '../category-group';
@@ -21,24 +23,36 @@ import {
   CircleCloseFilled,
   Clock,
   CopyDocument,
+  Money,
   Picture,
+  Plus,
   Van,
   WarningFilled,
 } from '@element-plus/icons-vue';
 import {
   ElAvatar,
   ElButton,
+  ElDialog,
   ElEmpty,
+  ElForm,
+  ElFormItem,
   ElIcon,
   ElImage,
+  ElInputNumber,
   ElMessage,
   ElMessageBox,
   ElTag,
   ElTooltip,
+  ElUpload,
 } from 'element-plus';
 
-import { getById, selffetchObj } from '#/api/order/order-info';
+import {
+  confirmOfflinePayment,
+  getById,
+  selffetchObj,
+} from '#/api/order/order-info';
 import { getPromotionSnapshots } from '#/api/order/shared-cart';
+import { uploadFile } from '#/api/upms/upload';
 import { getById as getUserById } from '#/api/user/user-info';
 import PageSection from '#/components/page/page-section.vue';
 import { useDict } from '#/utils/dict';
@@ -280,6 +294,21 @@ const canSelfFetch = computed(
 const deliverLabel = computed(() =>
   ['3', '4'].includes(state.orderInfo.deliveryWay) ? '派单发货' : '发货',
 );
+
+/**
+ * 确认收款入口判据：货到付款 + 未收款 + 货物已送达（与列表页同口径）。
+ * delivered 由后端下发（isDelivered 判定：已完成、自提到店、或配送任务已送达/签收），
+ * 不能只认已完成——客户常当面付款却不在小程序点确认收货，只认完成会把入口拖到超时自动收货之后。
+ */
+const canConfirmPay = computed(() => {
+  const order = state.orderInfo;
+  return (
+    order.paymentType === '3' &&
+    order.payStatus === '0' &&
+    order.delivered === true &&
+    order.status !== '11'
+  );
+});
 
 /** 公司配送（3/4）由配送任务驱动，详情页展示任务进度而不是快递轨迹 */
 const isTaskDriven = computed(() =>
@@ -812,6 +841,90 @@ const selffetchOrder = () => {
   });
 };
 
+/**
+ * 货到付款确认收款（实收金额 + 付款凭证上传），与列表页同口径。
+ */
+interface PayVoucherFile extends UploadUserFile {
+  materialId?: string;
+}
+const payConfirmState = reactive({
+  visible: false,
+  submitting: false,
+  orderNo: '',
+  // 应收金额（总金额-优惠+运费），线下收款可能有折扣
+  receivable: 0,
+  actualPayPrice: 0,
+  voucherFiles: [] as PayVoucherFile[],
+});
+const openPayConfirm = () => {
+  const order = state.orderInfo;
+  payConfirmState.orderNo = order.orderNo || order.id;
+  payConfirmState.receivable = Number(
+    order.paymentPrice ?? order.totalPrice ?? 0,
+  );
+  payConfirmState.actualPayPrice = payConfirmState.receivable;
+  payConfirmState.voucherFiles = [];
+  payConfirmState.visible = true;
+};
+const uploadPayVoucher = async (options: UploadRequestOptions) => {
+  const formData = new FormData();
+  formData.append('file', options.file);
+  formData.append('type', '1');
+  const res: any = await uploadFile(formData);
+  const fileItem = payConfirmState.voucherFiles.at(-1);
+  if (fileItem) {
+    fileItem.materialId = res?.id;
+    fileItem.url = res?.url;
+  }
+  options.onSuccess?.(res);
+  return res;
+};
+const beforePayVoucherUpload = (file: any) => {
+  const isImage = file.type?.startsWith('image/');
+  if (!isImage) {
+    ElMessage.error('付款凭证仅支持图片');
+    return false;
+  }
+  if (payConfirmState.voucherFiles.length >= 6) {
+    ElMessage.error('付款凭证最多上传6张');
+    return false;
+  }
+  return true;
+};
+const confirmPaySubmit = () => {
+  if (!payConfirmState.actualPayPrice || payConfirmState.actualPayPrice <= 0) {
+    ElMessage.error('请填写大于0的实收金额');
+    return;
+  }
+  if (payConfirmState.actualPayPrice > payConfirmState.receivable) {
+    ElMessage.error('实收金额不能大于应收金额');
+    return;
+  }
+  const pending = payConfirmState.voucherFiles.some(
+    (file) => file.status === 'uploading' || !file.materialId,
+  );
+  if (pending) {
+    ElMessage.error('付款凭证还在上传中，请稍候');
+    return;
+  }
+  payConfirmState.submitting = true;
+  confirmOfflinePayment(state.orderInfo.id, {
+    actualPayPrice: payConfirmState.actualPayPrice,
+    voucherMaterialIds: payConfirmState.voucherFiles
+      .map((file) => file.materialId)
+      .filter((id): id is string => id !== undefined),
+  })
+    .then(() => {
+      ElMessage.success('确认收款成功');
+      payConfirmState.visible = false;
+      getDetail();
+    })
+    .catch(() => {})
+    .finally(() => {
+      payConfirmState.submitting = false;
+    });
+};
+
 getDetail();
 </script>
 
@@ -1251,6 +1364,16 @@ getDetail();
                     ¥{{ money(finalAmount) }}
                   </span>
                 </div>
+                <ElButton
+                  v-if="canConfirmPay"
+                  v-access:code="'order:orderinfo:payconfirm'"
+                  :icon="Money"
+                  type="primary"
+                  class="od-receipt__pay-btn"
+                  @click="openPayConfirm"
+                >
+                  确认收款
+                </ElButton>
                 <div
                   v-if="
                     state.orderInfo.paymentType || state.orderInfo.paymentTime
@@ -1383,6 +1506,56 @@ getDetail();
         </div>
 
         <Deliver ref="refDeliver" @handle-success="getDetail" />
+
+        <!-- 货到付款确认收款弹窗 -->
+        <ElDialog
+          v-model="payConfirmState.visible"
+          :title="`确认收款${payConfirmState.orderNo ? ` - ${payConfirmState.orderNo}` : ''}`"
+          width="520px"
+          :close-on-click-modal="false"
+        >
+          <ElForm label-width="90px">
+            <ElFormItem label="应收金额">
+              <span>￥{{ payConfirmState.receivable }}</span>
+            </ElFormItem>
+            <ElFormItem label="实收金额" required>
+              <ElInputNumber
+                v-model="payConfirmState.actualPayPrice"
+                :min="0.01"
+                :max="payConfirmState.receivable"
+                :precision="2"
+                :step="1"
+                controls-position="right"
+                style="width: 200px"
+              />
+              <span class="pl-6px text-12px text-gray-400"
+                >客户线下实付，可低于应收</span
+              >
+            </ElFormItem>
+            <ElFormItem label="付款凭证">
+              <ElUpload
+                v-model:file-list="payConfirmState.voucherFiles"
+                list-type="picture-card"
+                accept="image/*"
+                :limit="6"
+                :before-upload="beforePayVoucherUpload"
+                :http-request="uploadPayVoucher"
+              >
+                <ElIcon><Plus /></ElIcon>
+              </ElUpload>
+            </ElFormItem>
+          </ElForm>
+          <template #footer>
+            <ElButton @click="payConfirmState.visible = false">取消</ElButton>
+            <ElButton
+              type="primary"
+              :loading="payConfirmState.submitting"
+              @click="confirmPaySubmit"
+            >
+              确认收款
+            </ElButton>
+          </template>
+        </ElDialog>
       </template>
 
       <ElEmpty
@@ -2274,6 +2447,10 @@ getDetail();
   font-weight: 700;
   line-height: 30px;
   color: var(--el-color-danger);
+}
+
+.od-receipt__pay-btn {
+  width: 100%;
 }
 
 .od-receipt__meta {

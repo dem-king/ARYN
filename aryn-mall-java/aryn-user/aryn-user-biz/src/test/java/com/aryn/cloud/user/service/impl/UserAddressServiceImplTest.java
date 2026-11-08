@@ -1,6 +1,7 @@
 package com.aryn.cloud.user.service.impl;
 
 import com.aryn.cloud.common.core.constant.CommonConstants;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.mapper.UserAddressMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -51,10 +52,10 @@ class UserAddressServiceImplTest {
 		when(userAddressMapper.insert(any(UserAddress.class))).thenReturn(1);
 
 		// when
-		boolean result = userAddressService.saveOrUpdateForUser(address, "user-1");
+		UserAddress result = userAddressService.saveOrUpdateForUser(address, "user-1");
 
 		// then
-		assertTrue(result);
+		assertEquals(address, result);
 		ArgumentCaptor<UserAddress> updateCaptor = ArgumentCaptor.forClass(UserAddress.class);
 		InOrder inOrder = inOrder(userAddressMapper);
 		inOrder.verify(userAddressMapper).update(updateCaptor.capture(), any());
@@ -71,10 +72,10 @@ class UserAddressServiceImplTest {
 		when(userAddressMapper.insert(any(UserAddress.class))).thenReturn(1);
 
 		// when
-		boolean result = userAddressService.saveOrUpdateForUser(address, "user-1");
+		UserAddress result = userAddressService.saveOrUpdateForUser(address, "user-1");
 
 		// then
-		assertTrue(result);
+		assertEquals(address, result);
 		verify(userAddressMapper, never()).update(any(UserAddress.class), any());
 		verify(userAddressMapper).insert(address);
 		assertEquals("user-1", address.getUserId());
@@ -90,10 +91,10 @@ class UserAddressServiceImplTest {
 		when(userAddressMapper.update(any(UserAddress.class), any())).thenReturn(1);
 
 		// when
-		boolean result = userAddressService.saveOrUpdateForUser(address, "user-1");
+		UserAddress result = userAddressService.saveOrUpdateForUser(address, "user-1");
 
 		// then
-		assertTrue(result);
+		assertEquals(address, result);
 		ArgumentCaptor<UserAddress> entityCaptor = ArgumentCaptor.forClass(UserAddress.class);
 		verify(userAddressMapper, times(2)).update(entityCaptor.capture(), any());
 		List<UserAddress> updated = entityCaptor.getAllValues();
@@ -113,11 +114,27 @@ class UserAddressServiceImplTest {
 		when(userAddressMapper.update(any(UserAddress.class), any())).thenReturn(1);
 
 		// when
-		boolean result = userAddressService.saveOrUpdateForUser(address, "user-1");
+		UserAddress result = userAddressService.saveOrUpdateForUser(address, "user-1");
 
 		// then
-		assertTrue(result);
+		assertEquals(address, result);
 		verify(userAddressMapper, times(1)).update(any(UserAddress.class), any());
+		verify(userAddressMapper, never()).insert(any(UserAddress.class));
+	}
+
+	@Test
+	@DisplayName("更新未命中（如地址不属于该用户）：返回实体改为抛业务异常，避免前端误判成功")
+	void updateMissedRow_throwsBusinessException() {
+		// given
+		UserAddress address = new UserAddress()
+			.setId("addr-1")
+			.setIsDefault(CommonConstants.NO);
+		// update 按 id + userId 过滤，0 行代表地址不存在或属于他人
+		when(userAddressMapper.update(any(UserAddress.class), any())).thenReturn(0);
+
+		// then
+		assertThrows(ArynBusinessException.class,
+				() -> userAddressService.saveOrUpdateForUser(address, "user-1"));
 		verify(userAddressMapper, never()).insert(any(UserAddress.class));
 	}
 

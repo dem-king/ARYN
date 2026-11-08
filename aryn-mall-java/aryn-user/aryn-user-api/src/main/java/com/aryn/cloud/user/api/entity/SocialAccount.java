@@ -58,6 +58,12 @@ public class SocialAccount extends Model<SocialAccount> {
 	private String appSecret;
 
 	/**
+	 * 身份模式：WX_MA 不需要；ALI_MINI 必须显式配置 user_id/open_id
+	 */
+	@Schema(description = "身份模式：ALI_MINI 必须配置 user_id/open_id")
+	private String identityMode;
+
+	/**
 	 * 创建时间
 	 */
 	@Schema(description = "创建时间")

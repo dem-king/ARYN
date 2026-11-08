@@ -78,6 +78,85 @@ class TocLoginServiceTest {
 		return request;
 	}
 
+	private UserLoginReqDTO aliMiniRequest(String tenantId) {
+		UserLoginReqDTO request = new UserLoginReqDTO();
+		request.setAppId("2021000000000001");
+		request.setAuthCode("synthetic-auth-code");
+		request.setPlatformType("ALI_MINI");
+		request.setRequestTenantId(tenantId);
+		return request;
+	}
+
+	@Test
+	void alipayMiniLoginUsesVerifiedTenantAndBindsMallUser() {
+		UserLoginReqDTO request = aliMiniRequest("tenant-1");
+		when(loginTenantGuard.requireVerifiedTenant("2021000000000001", "tenant-1", "ALI_MINI"))
+			.thenReturn("tenant-1");
+		SocialUser socialUser = new SocialUser().setId("social-ali").setOpenId("2088123456789012")
+			.setTenantId("tenant-1");
+		when(remoteSocialUserService.aliMiniLogin(request)).thenReturn(socialUser);
+		when(remoteSocialUserService.bindUserId(any())).thenReturn(true);
+		when(remoteMallUserService.getUserByOpenId("2088123456789012", "ALI_MINI"))
+			.thenAnswer(invocation -> {
+				assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-1");
+				return new UserInfo().setId("user-ali").setTenantId("tenant-1");
+			});
+		when(remoteMallUserService.getUserById("user-ali")).thenReturn(userVo("user-ali", "tenant-1"));
+
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
+		service.aliMiniLogin(request);
+
+		verify(remoteSocialUserService).aliMiniLogin(request);
+		verify(remoteMallUserService).getUserByOpenId("2088123456789012", "ALI_MINI");
+		assertThat(ArynTenantContextHolder.getTenantId()).isNull();
+	}
+
+	@Test
+	void alipayMiniLoginRejectsSocialUserFromAnotherTenant() {
+		when(loginTenantGuard.requireVerifiedTenant("2021000000000001", "tenant-1", "ALI_MINI"))
+			.thenReturn("tenant-1");
+		when(remoteSocialUserService.aliMiniLogin(any()))
+			.thenReturn(new SocialUser().setId("social-ali").setOpenId("2088123456789012")
+				.setTenantId("tenant-other"));
+
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
+		assertThatThrownBy(() -> service.aliMiniLogin(aliMiniRequest("tenant-1")))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("三方账号与登录租户不一致");
+		verifyNoInteractions(remoteMallUserService);
+	}
+
+	@Test
+	void alipayMiniLoginRejectsMissingAuthCodeBeforeBindingCheck() {
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
+		UserLoginReqDTO request = aliMiniRequest("tenant-1");
+		request.setAuthCode(null);
+
+		assertThatThrownBy(() -> service.aliMiniLogin(request))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("缺少支付宝授权码");
+		verifyNoInteractions(loginTenantGuard);
+	}
+
+	@Test
+	void smsLoginRejectsAlipayMiniPlatform() {
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
+		UserLoginReqDTO request = aliMiniRequest("tenant-1");
+		request.setPhone("13800000000");
+
+		assertThatThrownBy(() -> service.smsLogin(request))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.isEqualTo("支付宝小程序仅支持授权码登录");
+		verifyNoInteractions(loginTenantGuard, remoteMallUserService);
+	}
+
 	@Test
 	void miniProgramLoginUsesVerifiedTenantAndRestoresContext() {
 		when(loginTenantGuard.requireVerifiedTenant("wx0a8242ea59f3e6b4", "tenant-1")).thenReturn("tenant-1");

@@ -1,0 +1,92 @@
+/**
+ * 商品卡营销标签设计令牌（2026-11-08 视觉增强版）。
+ *
+ * 三族标签共用同一套令牌：社证（月N+人已下单/回头客/回购率）、价格声明（近N天最低价）、
+ * 新人价钩子。四张主卡（goods-list-panel / waterfall-goods / diy-goods / diy-goods-tabs）
+ * 与次级卡面（收藏/足迹/快捷商详/装修商品楼层）共用，改这里即全站同步。
+ *
+ * 设计口径（增强版，取代首版「灰字社证 + 细描边」的素色方案）：
+ * - 社证 = 热销暖 chip：浅桃底 + 暖橙字 + 数字加粗，把「很多人买」变成看得见的热度；
+ * - 最低价 = 红底贴纸：浅红渐变实底 + 600 字重 + 降价触底图标，价格保障一眼可读；
+ * - 新人价 = 红橙渐变实底白字 + 白色星芒，资格钩子要有「专享感」。
+ * - 三族都用**固定红橙系，不随多租户主题**（首版主题橙粗框被否的教训延续）；
+ *   「跟随主题」只适用于价格数字与秒杀角标（既有约定不变）。
+ *
+ * mixin 只承载「身份」（底色/字色/字重/形状/排列），字号/内边距/行高/图标尺寸
+ * 由各卡按自己的 rpx 或 px 体系落值（diy-goods 为 px 体系，其余 rpx）。
+ */
+
+/* ---------- 社证·热销族 ---------- */
+/* 浅桃底上的暖橙小字：对比度 ≈ 5:1，20rpx 小字不糊 */
+$goods-tag-hot-ink: #d43e00;
+$goods-tag-hot-bg: linear-gradient(90deg, #fff6ee 0%, #ffe9d8 100%);
+
+/* ---------- 价格声明·最低价族 ---------- */
+$goods-tag-low-ink: #e02612;
+$goods-tag-low-bg: linear-gradient(90deg, #fff0ec 0%, #ffdfd9 100%);
+/* 同族浅描边：保住首版 1px 描边的度量（行高不变），又比裸描边更「贴纸」 */
+$goods-tag-low-line: rgba(224, 38, 18, 0.16);
+
+/* ---------- 新人价钩子族 ---------- */
+$goods-tag-newbie-bg: linear-gradient(135deg, #ff2237 0%, #ff7a00 100%);
+
+/* ---------- 捡漏价身份族 ---------- */
+/* 红橙渐变实底白字：与秒杀价同一红橙语义，固定色不随主题（身份价不跟主题） */
+$goods-tag-clearance-bg: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+
+/* 社证 chip 身份：暖底胶囊、内容 hug 宽（inline-flex + align-self 防父级拉伸铺满） */
+@mixin goods-tag-hot {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: $goods-tag-hot-bg;
+  color: $goods-tag-hot-ink;
+  font-weight: 500;
+}
+
+/* 社证数字强调：服务端成文里的「1000+/6万+/30%」拆出来加粗，视线第一落点 */
+@mixin goods-tag-hot-num {
+  flex: none;
+  font-weight: 700;
+}
+
+/* 最低价贴纸身份：浅红实底 + 同族浅描边 + 600 字重 */
+@mixin goods-tag-low {
+  border: 1px solid $goods-tag-low-line;
+  background: $goods-tag-low-bg;
+  color: $goods-tag-low-ink;
+  font-weight: 600;
+}
+
+/* 新人价钩子身份：红橙渐变实底白字加粗（不随主题，理由见文件头） */
+@mixin goods-tag-newbie {
+  display: inline-flex;
+  align-items: center;
+  background: $goods-tag-newbie-bg;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* 捡漏价身份：与前两族同一套固定红橙实底白字；字号/内边距/圆角由各卡落值 */
+@mixin goods-tag-clearance {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  background: $goods-tag-clearance-bg;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 降价触底折线图标（固定红系）：尺寸由各卡落值 */
+@mixin goods-tag-low-icon {
+  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxMic+PHBvbHlsaW5lIHBvaW50cz0nMSwyIDUsNyA4LDQgMTQsOScgZmlsbD0nbm9uZScgc3Ryb2tlPSclMjNlMDI2MTInIHN0cm9rZS13aWR0aD0nMicgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PHBhdGggZD0nTTEgMTFoMTQnIHN0cm9rZT0nJTIzZTAyNjEyJyBzdHJva2Utd2lkdGg9JzEuNScgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBvcGFjaXR5PScuNDUnLz48L3N2Zz4=") no-repeat center / contain;
+}
+
+/* 白色星芒图标（新人价专享感）：尺寸由各卡落值 */
+@mixin goods-tag-newbie-icon {
+  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHBhdGggZmlsbD0nJTIzZmZmJyBkPSdNOCAwbDEuOSA2LjFMMTYgOGwtNi4xIDEuOUw4IDE2bC0xLjktNi4xTDAgOGw2LjEtMS45eicvPjwvc3ZnPg==") no-repeat center / contain;
+}

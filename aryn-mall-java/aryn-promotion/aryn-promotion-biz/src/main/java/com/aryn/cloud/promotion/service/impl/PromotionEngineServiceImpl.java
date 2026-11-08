@@ -151,12 +151,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 		applyBestLadderPrice(context, ladderHits, result);
 		// 会员价/出清价同为 stackPriority=2：在阶梯价之后、新人价之前统一落价，同 SKU 取低。
-		// 返回「已被身份价（含已由阶梯价定得更高的会员权益 SKU）锁定的 SKU」，
-		// 新人价合并时跳过，保证同 SKU 冲突时身份价优先（而非取更低价）。
-		Set<String> identityPricedSkuIds = applyBestIdentityPrice(context, memberHits, clearanceHits, result,
-				memberLevelCache);
+		// 返回「已被身份价锁定的 SKU → 实际生效价」：新人价与其取低（2026-11-08 语义调整，
+		// 原为身份价无条件优先——¥1 新人钩子被全店会员价压制永不生效），同价身份价保留。
+		Map<String, BigDecimal> identityPricedPrices = applyBestIdentityPrice(context, memberHits, clearanceHits,
+				result, memberLevelCache);
 		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价/出清价）的 SKU
-		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedSkuIds);
+		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedPrices);
 		applyBestWholeDiscount(context, wholeHits, result);
 		applyBestGift(context, giftHits, result);
 		return result;
@@ -573,13 +573,14 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * @return 已被身份价锁定的 SKU 集合：这些 SKU 的新人价必须跳过（身份价优先），
 	 *         包含「价格低于基价」的 SKU，即使最终保留的是更低的阶梯价
 	 */
-	private Set<String> applyBestIdentityPrice(PromotionContextDTO context, List<PromotionActivity> memberActivities,
+	private Map<String, BigDecimal> applyBestIdentityPrice(PromotionContextDTO context,
+			List<PromotionActivity> memberActivities,
 			List<PromotionActivity> clearanceActivities, PromotionCalculationVO result,
 			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
 		List<PriceOffer> memberOffers = memberOffers(context, memberActivities, memberLevelCache);
 		List<PriceOffer> clearanceOffers = clearanceOffers(context, clearanceActivities);
 		if (memberOffers.isEmpty() && clearanceOffers.isEmpty()) {
-			return Set.of();
+			return Map.of();
 		}
 		return mergeIdentityOverrides(context, memberOffers, clearanceOffers, result);
 	}
@@ -693,15 +694,15 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * 逐 SKU 生成一条覆盖，避免改价链（applyPromotionLadder 按 skuId findFirst）出现随机覆盖。
 	 *
 	 * <p>价格低于基价即落价并计入总让利；阶梯价更低时保留阶梯价（用户更优），
-	 * 但该 SKU 仍计入 {@code lockedSkuIds} 供新人价跳过。倒挂（价格 ≥ 基价）的 SKU
+	 * 但该 SKU 仍计入锁定集合供新人价取低比较。倒挂（价格 ≥ 基价）的 SKU
 	 * 不锁定，新人价仍可对其生效。每个参与的活动各自产出明细，同 SKU 的让利只归胜出方，
 	 * 不会重复计算。
 	 *
-	 * @return 已被身份价锁定的 SKU（含保留阶梯价更低价的情形，用于新人价跳过）
+	 * @return 已被身份价锁定的 SKU → 实际生效价（阶梯价保留时为阶梯价），供新人价取低比较
 	 */
-	private Set<String> mergeIdentityOverrides(PromotionContextDTO context, List<PriceOffer> memberOffers,
+	private Map<String, BigDecimal> mergeIdentityOverrides(PromotionContextDTO context, List<PriceOffer> memberOffers,
 			List<PriceOffer> clearanceOffers, PromotionCalculationVO result) {
-		Set<String> lockedSkuIds = new HashSet<>();
+		Map<String, BigDecimal> lockedPrices = new java.util.LinkedHashMap<>();
 		Map<String, BigDecimal> savingByActivity = new java.util.LinkedHashMap<>();
 		Map<String, PromotionActivity> participating = new java.util.LinkedHashMap<>();
 		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
@@ -709,11 +710,11 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			if (winner == null) {
 				continue;
 			}
-			lockedSkuIds.add(item.getSkuId());
 			participating.putIfAbsent(winner.activity().getId(), winner.activity());
 			PromotionCalculationVO.UnitPriceOverride existing = findOverride(result, item.getSkuId());
 			if (existing != null && existing.getUnitPrice().compareTo(winner.price()) <= 0) {
-				// 阶梯价更低：保留阶梯价（用户更优），该 SKU 仍被身份价锁定
+				// 阶梯价更低：保留阶梯价（用户更优），锁定价记阶梯价——新人价与实际生效价取低
+				lockedPrices.put(item.getSkuId(), existing.getUnitPrice());
 				continue;
 			}
 			if (existing != null) {
@@ -727,17 +728,18 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			override.setActivityType(winner.activity().getActivityType());
 			fillStackPolicy(override, winner.activity());
 			result.getLadderOverrides().add(override);
+			lockedPrices.put(item.getSkuId(), winner.price());
 			savingByActivity.merge(winner.activity().getId(),
 				item.getSalesPrice().subtract(winner.price())
 					.multiply(BigDecimal.valueOf(item.getQuantity())),
 				BigDecimal::add);
 		}
-		if (lockedSkuIds.isEmpty()) {
-			return Set.of();
+		if (lockedPrices.isEmpty()) {
+			return Map.of();
 		}
 		appendIdentityDetails(memberOffers, participating, savingByActivity, result);
 		appendIdentityDetails(clearanceOffers, participating, savingByActivity, result);
-		return lockedSkuIds;
+		return lockedPrices;
 	}
 
 	/** 身份价同 SKU 取低：同价时优先会员价（身份权益稳定归属）。 */
@@ -895,15 +897,18 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * details 为空 → 锁不写入 → 在途唯一与实际优惠都失效（真实缺陷，仅端到端可现）。
 	 * 故命中只要求「资格通过 且 规则中配置了该 SKU」，是否产生覆盖另判。
 	 *
-	 * <p><b>会员价优先</b>：已被会员价锁定的 SKU（{@code memberPricedSkuIds}）在本活动中
-	 * 完全跳过——即使新人价更低也不得覆盖，且不计入本活动的节省额/命中判定，
-	 * 避免「同一 SKU 两条覆盖」的随机改价与错误让利额。
+	 * <p><b>身份价取低</b>（2026-11-08 语义调整，原为身份价无条件优先）：已被身份价
+	 * （会员/出清，含保留的阶梯价）锁定的 SKU 不再跳过，新人价与实际生效价比较，
+	 * <b>严格更低才覆盖</b>——¥1 新人钩子不再被全店会员价吞掉；同价身份价保留。
+	 * 被压制的 SKU 不计入节省额也不构成命中（不产 detail、不写新人锁，
+	 * 避免新人价没生效却白白消耗一次性新人资格）。
 	 *
 	 * @param eligibilityCache      本次 preview 内 registerWithinDays → 是否具备资格
-	 * @param memberPricedSkuIds    已被会员价锁定的 SKU（会员价优先，新人价跳过）
+	 * @param identityPricedPrices  已被身份价锁定的 SKU → 实际生效价（新人价取低比较基准）
 	 */
 	private void applyBestNewbiePrice(PromotionContextDTO context, List<PromotionActivity> activities,
-			PromotionCalculationVO result, Map<Integer, Boolean> eligibilityCache, Set<String> memberPricedSkuIds) {
+			PromotionCalculationVO result, Map<Integer, Boolean> eligibilityCache,
+			Map<String, BigDecimal> identityPricedPrices) {
 		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
 			return;
 		}
@@ -920,7 +925,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				if (!eligibleAsNewbie(context, rules.getInt("registerWithinDays"), eligibilityCache)) {
 					continue;
 				}
-				BigDecimal saving = newbieSaving(context, newbieSkus, memberPricedSkuIds);
+				BigDecimal saving = newbieSaving(context, newbieSkus, identityPricedPrices);
 				// 资格通过即视为命中（saving 为 0 表示本次基价已等于活动价，即重放场景）；
 				// 多活动并存时仍取节省额最大者，节省额相同时取先出现的（稳定）
 				if (best == null || saving.compareTo(bestSaving) > 0) {
@@ -934,28 +939,37 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			}
 		}
 		if (best != null) {
-			mergeNewbieOverrides(context, best, bestRules, result, memberPricedSkuIds);
+			mergeNewbieOverrides(context, best, bestRules, result, identityPricedPrices);
 		}
 	}
 
 	/**
-	 * 活动命中 SKU 相对当前基价的总节省额（仅统计真正降价的 SKU；
-	 * 已被会员价锁定的 SKU 不参与，会员价优先）。
+	 * 活动命中 SKU 相对当前生效价的总节省额（仅统计真正降价的 SKU）。
+	 *
+	 * <p>被身份价锁定的 SKU 以「min(基价, 身份价)」为比较基准：新人价低于它才计节省
+	 * （该 SKU 的新人价合并时才会真正生效），与 {@link #mergeNewbieOverrides} 的取低口径一致。
 	 */
 	private BigDecimal newbieSaving(PromotionContextDTO context, JSONArray newbieSkus,
-			Set<String> memberPricedSkuIds) {
+			Map<String, BigDecimal> identityPricedPrices) {
 		BigDecimal saving = BigDecimal.ZERO;
 		for (Object element : newbieSkus) {
 			JSONObject sku = (JSONObject) element;
 			String skuId = sku.getStr("skuId");
 			BigDecimal price = sku.getBigDecimal("price");
-			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0
-					|| memberPricedSkuIds.contains(skuId)) {
+			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0) {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-				if (skuId.equals(item.getSkuId()) && price.compareTo(item.getSalesPrice()) < 0) {
-					saving = saving.add(item.getSalesPrice().subtract(price)
+				if (!skuId.equals(item.getSkuId())) {
+					continue;
+				}
+				BigDecimal identityPrice = identityPricedPrices.get(skuId);
+				BigDecimal effectiveBase = identityPrice != null
+						&& identityPrice.compareTo(item.getSalesPrice()) < 0
+								? identityPrice
+								: item.getSalesPrice();
+				if (price.compareTo(effectiveBase) < 0) {
+					saving = saving.add(effectiveBase.subtract(price)
 							.multiply(BigDecimal.valueOf(item.getQuantity())));
 				}
 			}
@@ -964,19 +978,20 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
-	 * 将命中活动的新人价覆盖合并进结果：同 SKU 与阶梯价比较取更低价，避免改价链出现
-	 * 后写覆盖先写的随机结果（applyPromotionLadder 按 skuId 逐条 findFirst 应用）。
+	 * 将命中活动的新人价覆盖合并进结果：同 SKU 与已有覆盖（阶梯价/身份价）比较取更低价，
+	 * 避免改价链出现后写覆盖先写的随机结果（applyPromotionLadder 按 skuId 逐条 findFirst 应用）。
 	 *
-	 * <p>只要活动命中了本单的任一 SKU 就必须产出 activityDetail（即使 saving 为 0）：
-	 * 下单链的第二次 preview（reserve 落锁）必须看到 detail 才会写 promotion_lock，
-	 * 否则在途唯一与优惠快照都会静默丢失。
+	 * <p>只要活动「真正生效」于本单任一 SKU（产生或本就持有覆盖）就必须产出
+	 * activityDetail（即使 saving 为 0）：下单链的第二次 preview（reserve 落锁）必须看到
+	 * detail 才会写 promotion_lock，否则在途唯一与优惠快照都会静默丢失。
 	 *
-	 * <p><b>会员价优先</b>：已被会员价锁定的 SKU 整体跳过（不覆盖、不计入命中与节省额）。
+	 * <p><b>身份价取低</b>（2026-11-08 语义调整）：身份价/阶梯价不高于新人价的 SKU 保留
+	 * 原覆盖且<b>不构成命中</b>——新人价没生效就不写锁，避免白白消耗一次性新人资格。
 	 *
-	 * @return 是否命中（命中=活动覆盖了本单至少一个未被会员价锁定的 SKU）
+	 * @return 是否命中（命中=活动对本单至少一个 SKU 的实际生效价做出了贡献）
 	 */
 	private boolean mergeNewbieOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
-			PromotionCalculationVO result, Set<String> memberPricedSkuIds) {
+			PromotionCalculationVO result, Map<String, BigDecimal> identityPricedPrices) {
 		JSONArray newbieSkus = rules.getJSONArray("skus");
 		BigDecimal saving = BigDecimal.ZERO;
 		boolean matched = false;
@@ -984,25 +999,25 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			JSONObject sku = (JSONObject) element;
 			String skuId = sku.getStr("skuId");
 			BigDecimal price = sku.getBigDecimal("price");
-			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0
-					|| memberPricedSkuIds.contains(skuId)) {
+			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0) {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
 				if (!skuId.equals(item.getSkuId())) {
 					continue;
 				}
-				matched = true;
-				// 当前基价已不高出活动价（重放/已改价）时不重复覆盖，但活动仍算命中
-				if (price.compareTo(item.getSalesPrice()) >= 0) {
-					continue;
-				}
-				// 已存在同 SKU 覆盖（阶梯价）时取更低价，保留胜出方活动ID
+				// 已存在同 SKU 覆盖（阶梯价/身份价）时取更低价；不高于新人价则保留原覆盖，
+				// 且该 SKU 不构成命中（新人价未生效，不写锁消耗资格）
 				PromotionCalculationVO.UnitPriceOverride existing = result.getLadderOverrides().stream()
 					.filter(override -> override.getSkuId().equals(skuId))
 					.findFirst()
 					.orElse(null);
 				if (existing != null && existing.getUnitPrice().compareTo(price) <= 0) {
+					continue;
+				}
+				matched = true;
+				// 当前基价已不高出活动价（重放/已改价）时不重复覆盖，但活动仍算命中
+				if (price.compareTo(item.getSalesPrice()) >= 0) {
 					continue;
 				}
 				if (existing != null) {
@@ -1016,7 +1031,10 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				override.setActivityType(activity.getActivityType());
 				fillStackPolicy(override, activity);
 				result.getLadderOverrides().add(override);
-				saving = saving.add(item.getSalesPrice().subtract(price)
+				// 让利只记「相对替换前生效价」的增量：替换身份价覆盖时原覆盖的让利
+				// 已计入其活动明细，按基价全额累计会与会员/出清明细重复计算
+				BigDecimal previousPrice = existing != null ? existing.getUnitPrice() : item.getSalesPrice();
+				saving = saving.add(previousPrice.subtract(price)
 						.multiply(BigDecimal.valueOf(item.getQuantity())));
 			}
 		}

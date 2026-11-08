@@ -103,4 +103,19 @@ public class PayTradeOrder extends Model<PayTradeOrder> {
 	@Schema(description = "用户Id")
 	private String userId;
 
+	/**
+	 * 发起支付时冻结的支付身份版本。换商户后历史订单仍按本版本读取原商户材料。
+	 */
+	@Schema(description = "支付身份版本ID")
+	private String configRevisionId;
+
+	@Schema(description = "支付生命周期：SUBMITTING/PENDING/CLOSING/UNKNOWN/CLOSED/PAID")
+	private String tradeStatus;
+
+	@Schema(description = "预支付提交时间")
+	private LocalDateTime prepayTime;
+
+	@Schema(description = "渠道关单时间")
+	private LocalDateTime closeTime;
+
 }

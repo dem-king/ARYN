@@ -103,6 +103,7 @@ export default {
       fallbackGoodsName: 'New User Item',
       limitToast: 'New User Price: limit {limit} per customer',
       selectSpecsToast: 'Select Specs',
+      viewAll: 'View All',
     },
 
     // Today's supply list floor (diy-replenish-card)

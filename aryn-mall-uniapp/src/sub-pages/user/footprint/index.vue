@@ -242,7 +242,9 @@ function toGoodsList() {
                   v-if="item.badgeText"
                   class="fp-item__badge"
                   :class="`fp-item__badge--${item.badgeKind}`"
-                >{{ item.badgeText }}</text>
+                >
+                  {{ item.badgeText }}
+                </text>
                 <text class="fp-item__currency">¥</text>
                 <text class="fp-item__amount">{{ item.price.integer }}</text>
                 <text class="fp-item__decimal">.{{ item.price.decimal }}</text>
@@ -266,6 +268,7 @@ function toGoodsList() {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 $fp-brand: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
 $fp-price: #fa2c19;
 $fp-ink: var(--app-text);
@@ -413,7 +416,16 @@ $fp-hairline: var(--app-border);
   }
 
   &--clearance {
-    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+    @include goods-tag-clearance;
+  }
+
+  /* 新人/秒杀角标与主卡同一套颜色语义（此前缺分支=白字白底，视觉增强版补齐） */
+  &--newbie {
+    @include goods-tag-newbie;
+  }
+
+  &--seckill {
+    background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   }
 }
 

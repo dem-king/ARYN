@@ -48,6 +48,14 @@ public class TocTokenController {
 		return Result.success(tocLoginService.maLogin(userLoginReqDTO));
 	}
 
+	@Operation(summary = "支付宝小程序授权码登录")
+	@PostMapping("/ma/alipay/login")
+	public Result<SaTokenInfo> aliMiniLogin(HttpServletRequest request,
+			@RequestBody UserLoginReqDTO userLoginReqDTO) {
+		applyRequestIdentity(request, userLoginReqDTO);
+		return Result.success(tocLoginService.aliMiniLogin(userLoginReqDTO));
+	}
+
 	@Operation(summary = "小程序手机号一键登录")
 	@PostMapping("/ma/phone/login")
 	public Result<SaTokenInfo> maPhoneLogin(HttpServletRequest request, @RequestBody UserLoginReqDTO userLoginReqDTO) {
@@ -97,7 +105,11 @@ public class TocTokenController {
 		if (StrUtil.isBlank(appId) || StrUtil.isBlank(tenantId)) {
 			throw new ArynBusinessException(403, "缺少 app-id 或 tenant-id 请求头");
 		}
-		loginTenantGuard.requireVerifiedTenant(appId, tenantId);
+		String platformType = request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE);
+		if (StrUtil.isBlank(platformType)) {
+			platformType = OpenPlatformTypeEnum.WX_MA.getCode();
+		}
+		loginTenantGuard.requireVerifiedTenant(appId, tenantId, platformType);
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("appId", appId);
 		payload.put("tenantId", tenantId);
@@ -143,9 +155,10 @@ public class TocTokenController {
 		}
 		// mall 会话仅限 C 端平台；delivery 会话归属配送端（TOB 一致不等于配送资格，
 		// 管理端 TOB 仍受既有 DeliveryAccessGuard 约束）
-		if ("mall".equals(scope)
-				&& !OpenPlatformTypeEnum.WX_MA.getCode().equals(request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE))
-				&& request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE) != null) {
+		String platformType = request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE);
+		if ("mall".equals(scope) && platformType != null
+				&& !OpenPlatformTypeEnum.WX_MA.getCode().equals(platformType)
+				&& !OpenPlatformTypeEnum.ALI_MINI.getCode().equals(platformType)) {
 			throw new ArynBusinessException(403, "商城会话仅支持小程序端校验");
 		}
 		Map<String, Object> payload = new LinkedHashMap<>();

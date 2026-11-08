@@ -96,6 +96,31 @@ class ShipActivityControllerTest {
 	}
 
 	@Test
+	@DisplayName("新人价长期有效：保存时把结束时间规范到远期哨兵")
+	void saveNormalizesLongTermEndTime() {
+		ActivityPublishGovernanceService realGovernance = new ActivityPublishGovernanceService(activityMapper);
+		ShipActivityController realController = new ShipActivityController(activityMapper, realGovernance,
+				engineService, promotionLockUsage);
+		ReflectionTestUtils.setField(realController, "remoteGoodsSkuService", goodsSkuService);
+
+		PromotionActivity activity = new PromotionActivity();
+		activity.setActivityName("长期新人价");
+		activity.setActivityType(PromotionActivity.TYPE_NEWBIE_PRICE);
+		activity.setScopeType("2");
+		activity.setScopeValue("sku-1");
+		activity.setStartTime(LocalDateTime.now().minusDays(1));
+		activity.setEndTime(LocalDateTime.now().plusDays(1));
+		activity.setRules("{\"longTerm\":true,\"limitPerUser\":1,"
+				+ "\"skus\":[{\"skuId\":\"sku-1\",\"price\":1}]}");
+
+		realController.save(activity);
+
+		ArgumentCaptor<PromotionActivity> captor = ArgumentCaptor.forClass(PromotionActivity.class);
+		verify(activityMapper).insert(captor.capture());
+		assertThat(captor.getValue().getEndTime()).isEqualTo(ActivityPublishGovernanceService.LONG_TERM_END_TIME);
+	}
+
+	@Test
 	@DisplayName("分页出参按时间窗派生展示态：过期→已结束、未开始→待开始，人工态原样保留")
 	void pageDerivesDisplayStatusFromTimeWindow() {
 		LocalDateTime now = LocalDateTime.now();

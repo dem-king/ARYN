@@ -215,7 +215,9 @@ function toGoodsList() {
               v-if="card.badgeText"
               class="cl-card__badge"
               :class="`cl-card__badge--${card.badgeKind}`"
-            >{{ card.badgeText }}</text>
+            >
+              {{ card.badgeText }}
+            </text>
             <text class="cl-card__currency">¥</text>
             <text class="cl-card__amount">{{ card.price.integer }}</text>
             <text class="cl-card__decimal">.{{ card.price.decimal }}</text>
@@ -245,6 +247,7 @@ function toGoodsList() {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 $cl-brand: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
 $cl-price: #fa2c19;
 $cl-ink: var(--app-text);
@@ -356,7 +359,16 @@ $cl-muted: var(--app-text-3);
   }
 
   &--clearance {
-    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+    @include goods-tag-clearance;
+  }
+
+  /* 新人/秒杀角标与主卡同一套颜色语义（此前缺分支=白字白底，视觉增强版补齐） */
+  &--newbie {
+    @include goods-tag-newbie;
+  }
+
+  &--seckill {
+    background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   }
 }
 

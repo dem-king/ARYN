@@ -63,12 +63,13 @@ export function createArtifactContractPlugin({ normalized, evidencePath }) {
     enforce: 'post',
     configResolved(config) {
       const env = config.env ?? {}
-      const keys = ['VITE_TENANT_BUILD', 'VITE_TENANT_KEY', 'VITE_TENANT_ID', 'VITE_TENANT_WX_APPID', 'VITE_TENANT_NAME', 'VITE_OPEN_BOOT', 'VITE_API_BASE_URL', 'VITE_ENV_NAME', 'VITE_BUILD_ID']
+      const keys = ['VITE_TENANT_BUILD', 'VITE_TENANT_KEY', 'VITE_TENANT_ID', 'VITE_TENANT_WX_APPID', 'VITE_TENANT_ALI_APPID', 'VITE_TENANT_NAME', 'VITE_OPEN_BOOT', 'VITE_API_BASE_URL', 'VITE_ENV_NAME', 'VITE_BUILD_ID']
       const expected = {
         VITE_TENANT_BUILD: 'true',
         VITE_TENANT_KEY: normalized.key,
         VITE_TENANT_ID: normalized.tenantId,
         VITE_TENANT_WX_APPID: normalized.wxAppId,
+        VITE_TENANT_ALI_APPID: normalized.aliAppId || '',
         VITE_TENANT_NAME: normalized.name,
         VITE_OPEN_BOOT: String(normalized.openBoot),
         VITE_API_BASE_URL: normalized.apiBaseUrl,

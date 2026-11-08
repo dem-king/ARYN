@@ -40,7 +40,9 @@ public class LogAopAspect {
 	private static final int MAX_PARAMS_LENGTH = 2000;
 
 	private static final Pattern SENSITIVE_FIELD = Pattern.compile(
-			"(?i)(\"(?:password|oldPassword|newPassword|confirmPassword|token|accessToken|refreshToken|secret|secretKey)\"\\s*:\\s*\")[^\"]*(\")");
+			"(?i)(\"(?:password|oldPassword|newPassword|confirmPassword|token|accessToken|refreshToken|secret|secretKey|mchKey|apiv3Key|privateKey|privateKeyPath|privateCertPath|publicKeyPath|keyPath|certSerialNo|ciphertext|nonce)\"\\s*:\\s*\")[^\"]*(\")");
+
+	private static final String BINARY_OMITTED = "[binary omitted]";
 
 	private final ApplicationEventPublisher applicationEventPublisher;
 
@@ -89,14 +91,19 @@ public class LogAopAspect {
 	}
 
 	/**
-	 * 参数摘要：JSON 序列化 + 敏感字段脱敏 + 长度截断；任何异常都不影响主流程。
+	 * 参数摘要：先剔除文件/字节流参数，再 JSON 序列化、敏感字段脱敏与长度截断；
+	 * 任何异常都不影响主流程。支付资料上传必须在这里被拦住，否则私钥会进入 sys_log。
 	 */
-	private String safeParams(Object[] args) {
+	String safeParams(Object[] args) {
 		if (args == null || args.length == 0) {
 			return null;
 		}
 		try {
-			String json = JSONUtil.toJsonStr(args);
+			Object[] sanitizedArgs = new Object[args.length];
+			for (int index = 0; index < args.length; index++) {
+				sanitizedArgs[index] = sanitizeArgument(args[index]);
+			}
+			String json = JSONUtil.toJsonStr(sanitizedArgs);
 			if (json == null) {
 				return null;
 			}
@@ -108,6 +115,21 @@ public class LogAopAspect {
 			log.debug("操作日志参数序列化失败，已忽略", ex);
 			return null;
 		}
+	}
+
+	private Object sanitizeArgument(Object argument) {
+		if (argument == null) {
+			return null;
+		}
+		if (argument instanceof byte[] || argument instanceof java.io.InputStream) {
+			return BINARY_OMITTED;
+		}
+		for (Class<?> interfaceType : argument.getClass().getInterfaces()) {
+			if ("org.springframework.web.multipart.MultipartFile".equals(interfaceType.getName())) {
+				return BINARY_OMITTED;
+			}
+		}
+		return argument;
 	}
 
 }

@@ -109,6 +109,14 @@ const newbieSkus = ref<
   }>
 >([]);
 const registerWithinDays = ref<null | number>(null);
+/**
+ * 新人专享「长期有效」。
+ *
+ * 规则层只存 longTerm 标记；结束时间统一写远期哨兵（见 NEWBIE_LONG_TERM_END），
+ * 让活动生效、发布冲突、列表展示态继续沿用既有 endTime 区间比较。
+ */
+const newbieLongTerm = ref(false);
+const NEWBIE_LONG_TERM_END = '2099-12-31 23:59:59';
 const gifts = ref<
   Array<{ quantity: number; skuId: string; skuName: string; spuName: string }>
 >([]);
@@ -259,6 +267,9 @@ const openDialog = (row?: any) => {
     gifts.value = rules.gifts ?? [];
     newbieSkus.value = rules.skus ?? [];
     registerWithinDays.value = rules.registerWithinDays ?? null;
+    newbieLongTerm.value = rules.longTerm === true;
+    // 长期有效不展示 2099 哨兵时间；关闭开关后必须重新选择结束时间
+    if (newbieLongTerm.value) form.endTime = '';
   } catch {
     skuLadders.value = [];
     tiers.value = [{ discountAmount: 0, minAmount: 0 }];
@@ -266,6 +277,7 @@ const openDialog = (row?: any) => {
     gifts.value = [];
     newbieSkus.value = [];
     registerWithinDays.value = null;
+    newbieLongTerm.value = false;
   }
   dryResult.value = null;
   switch (form.activityType) {
@@ -290,6 +302,17 @@ const onActivityTypeChange = (value: boolean | number | string | undefined) => {
   const newbieType = value === '9';
   form.couponStackable = newbieType ? '0' : '1';
   form.pointsStackable = newbieType ? '0' : '1';
+  if (!newbieType) newbieLongTerm.value = false;
+};
+
+/** 列表展示：长期有效活动不显示 2099 哨兵时间 */
+const isLongTermActivity = (row: any) => {
+  if (row?.activityType !== '9') return false;
+  try {
+    return JSON.parse(row.rules || '{}').longTerm === true;
+  } catch {
+    return false;
+  }
 };
 
 const buildPayload = () => {
@@ -315,6 +338,7 @@ const buildPayload = () => {
     case '9': {
       rules = {
         limitPerUser: 1,
+        longTerm: newbieLongTerm.value,
         registerWithinDays: registerWithinDays.value,
         skus: newbieSkus.value.map((row) => ({
           price: row.price,
@@ -328,8 +352,10 @@ const buildPayload = () => {
     }
     // No default
   }
+  const longTerm = form.activityType === '9' && newbieLongTerm.value;
   const payload: Record<string, any> = {
     ...form,
+    endTime: longTerm ? NEWBIE_LONG_TERM_END : form.endTime,
     rules: JSON.stringify(rules),
   };
   if (['4', '9'].includes(form.activityType)) {
@@ -344,7 +370,8 @@ const buildPayload = () => {
 };
 
 const handleSave = () => {
-  if (!form.activityName || !form.startTime || !form.endTime) {
+  const longTerm = form.activityType === '9' && newbieLongTerm.value;
+  if (!form.activityName || !form.startTime || (!longTerm && !form.endTime)) {
     ElMessage.warning('请完善活动名称与时间');
     return;
   }
@@ -820,7 +847,11 @@ useKeepAliveRefresh(initPage);
           </template>
         </ElTableColumn>
         <ElTableColumn prop="startTime" label="开始" width="170" />
-        <ElTableColumn prop="endTime" label="结束" width="170" />
+        <ElTableColumn label="结束" width="170">
+          <template #default="{ row }">
+            {{ isLongTermActivity(row) ? '长期有效' : row.endTime }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="状态" width="90">
           <template #default="scope">
             <ElTag :type="statusTagType(scope.row.status)">
@@ -1033,7 +1064,17 @@ useKeepAliveRefresh(initPage);
               style="width: 100%"
             />
           </ElFormItem>
-          <ElFormItem label="结束时间" required>
+          <ElFormItem v-if="form.activityType === '9'" label="长期有效">
+            <ElSwitch v-model="newbieLongTerm" :disabled="isPublished" />
+            <span class="ml-8px" style="color: var(--el-text-color-secondary)">
+              开启后不设置结束时间，C 端新人专享组件不展示倒计时
+            </span>
+          </ElFormItem>
+          <ElFormItem
+            v-if="form.activityType !== '9' || !newbieLongTerm"
+            label="结束时间"
+            required
+          >
             <ElDatePicker
               v-model="form.endTime"
               type="datetime"
@@ -1041,6 +1082,11 @@ useKeepAliveRefresh(initPage);
               value-format="YYYY-MM-DD HH:mm:ss"
               style="width: 100%"
             />
+          </ElFormItem>
+          <ElFormItem v-else label="结束时间">
+            <span style="color: var(--el-text-color-secondary)">
+              长期有效，不设置结束时间
+            </span>
           </ElFormItem>
           <ElFormItem label="备注">
             <ElInput

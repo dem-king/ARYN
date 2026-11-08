@@ -14,14 +14,15 @@
  *   · SKU 主键字段直接复用 getById 返回的 `id`（详情页同口径，不做字段映射）
  */
 import type { SharedCart } from '@/api/order/sharedCart'
-import type { ListZonePrice } from '@/utils/zone-price'
 import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
+import type { ListZonePrice } from '@/utils/zone-price'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { getById as getSpuById } from '@/api/product/spu'
+import PriceText from '@/components/price-text/index.vue'
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { useRequireLogin } from '@/composables/useRequireLogin'
@@ -294,14 +295,11 @@ async function handleSkuAdd(data: any) {
           >
             {{ zonePriceBadgeText(zonePriceCard.badgeKind) }}
           </text>
-          <view class="detail-sheet-price-main">
-            <text class="detail-sheet-symbol">
-              ¥
-            </text>
-            <text class="detail-sheet-value">
-              {{ formatAmount(zonePriceCard.mainPrice) }}
-            </text>
-          </view>
+          <price-text
+            class="detail-sheet-price-main"
+            :value="zonePriceCard.mainPrice"
+            format="trim"
+          />
           <text
             v-if="zonePriceCard.strikePrice !== null"
             class="detail-sheet-original"
@@ -371,6 +369,7 @@ async function handleSkuAdd(data: any) {
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/goods-tag.scss';
 .detail-sheet {
   display: flex;
   flex-direction: column;
@@ -472,7 +471,16 @@ async function handleSkuAdd(data: any) {
   }
 
   &--clearance {
-    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+    @include goods-tag-clearance;
+  }
+
+  /* 新人/秒杀角标与主卡同一套颜色语义（此前缺分支=白字白底，视觉增强版补齐） */
+  &--newbie {
+    @include goods-tag-newbie;
+  }
+
+  &--seckill {
+    background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff2237) 0%, #ff6b45 100%);
   }
 }
 
@@ -486,16 +494,12 @@ async function handleSkuAdd(data: any) {
 }
 
 .detail-sheet-price-main {
+  --price-symbol-size: 0.54em;
+
   color: var(--wot-color-theme-primary, #ff2237);
-  font-weight: 700;
-}
-
-.detail-sheet-symbol {
-  font-size: 26rpx;
-}
-
-.detail-sheet-value {
   font-size: 48rpx;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .detail-sheet-original {

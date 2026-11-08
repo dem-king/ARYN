@@ -72,6 +72,7 @@ export default {
     loginCodeMissing: 'Sign-in failed: code not received',
     getPhoneFailed: 'Failed to get phone number',
     wechatLogin: 'WeChat Sign-in',
+    alipayLogin: 'Alipay Sign-in',
     phoneQuickLogin: 'Quick phone sign-in',
     phoneRequired: 'Please enter your phone number',
     phoneInvalid: 'Please enter a valid phone number',

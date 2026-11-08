@@ -2,6 +2,7 @@ package com.aryn.cloud.promotion.service;
 
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService;
@@ -343,6 +344,75 @@ class NewbieActivityServiceTest {
 		when(activityMapper.selectList(any())).thenReturn(List.of(activity("act-broken", "{broken json")));
 		assertNull(service.getCurrentFloor());
 		assertNull(service.getSkuPrices(List.of("sku-1"), USER));
+	}
+
+	// ==== 用例 13：长期有效标记 ====
+
+	@Test
+	@DisplayName("规则标记长期有效时楼层 VO 下发 longTerm=true，普通活动为 false")
+	void floorExposesLongTermFlag() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-long", "{\"registerWithinDays\":30,\"limitPerUser\":1,\"longTerm\":true,"
+						+ "\"skus\":[{\"skuId\":\"sku-1\",\"price\":9.9}]}")));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+
+		AppNewbieFloorVO longTerm = service.getCurrentFloor();
+		assertNotNull(longTerm);
+		assertTrue(Boolean.TRUE.equals(longTerm.getLongTerm()));
+
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-normal", newbieRules(30, 1, "sku-1", "9.9"))));
+		AppNewbieFloorVO normal = service.getCurrentFloor();
+		assertNotNull(normal);
+		assertFalse(Boolean.TRUE.equals(normal.getLongTerm()));
+	}
+
+	// ==== 用例 14：商品子标题 ====
+
+	@Test
+	@DisplayName("楼层商品项回填商品子标题，供独立专享页商品卡展示")
+	void floorCarriesGoodsSubtitle() {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setName("黄豆芽500g");
+		spu.setSubTitle("鲜嫩爽脆，炒菜凉拌皆宜");
+		GoodsSku goodsSku = sku("sku-1", "spu-1", "29.9");
+		goodsSku.setGoodsSpu(spu);
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-subtitle", newbieRules(30, 1, "sku-1", "9.9"))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(goodsSku));
+
+		AppNewbieFloorVO floor = service.getCurrentFloor();
+
+		assertNotNull(floor);
+		assertEquals("黄豆芽500g", floor.getGoodsList().get(0).getGoodsName());
+		assertEquals("鲜嫩爽脆，炒菜凉拌皆宜", floor.getGoodsList().get(0).getSubTitle());
+	}
+
+	// ==== 用例 15：独立专享页的返回条数 ====
+
+	@Test
+	@DisplayName("独立专享页按 limit 返回商品：默认 20、上限 200、非正数收敛到 1")
+	void listLimitControlsGoodsCount() {
+		List<String> pairs = new ArrayList<>();
+		List<GoodsSku> skus = new ArrayList<>();
+		for (int i = 1; i <= 205; i++) {
+			String skuId = "sku-" + i;
+			pairs.add(skuId);
+			pairs.add("9.9");
+			skus.add(sku(skuId, "spu-" + i, "29.9"));
+		}
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-list", newbieRules(30, 1, pairs.toArray(String[]::new)))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(skus);
+
+		// 不传 limit 的既有楼层接口保持 20 条上限
+		assertEquals(20, service.getCurrentFloor().getGoodsList().size());
+		// 独立专享页按请求条数取
+		assertEquals(200, service.getCurrentFloor(200).getGoodsList().size());
+		// 上限 200：请求更大的条数或负数都不会放大响应体/返回空
+		assertEquals(200, service.getCurrentFloor(9999).getGoodsList().size());
+		// 非正数按至少 1 条处理，不返回空列表
+		assertEquals(1, service.getCurrentFloor(0).getGoodsList().size());
 	}
 
 	// ==== 测试数据构造 ====

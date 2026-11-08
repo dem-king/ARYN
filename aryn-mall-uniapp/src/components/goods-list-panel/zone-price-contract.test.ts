@@ -36,6 +36,34 @@ const QUICK_CART_BUTTON = 'src/components/quick-cart-button/index.vue'
 const USE_QUICK_CART = 'src/composables/useQuickCart.ts'
 const QUICK_CART = 'src/utils/quick-cart.ts'
 
+describe('p3 近N天最低价上卡（四张卡统一，主价旁描边小标）', () => {
+  const TABS = 'src/components/diy/diy-goods-tabs/index.vue'
+  const DIY_GOODS = 'src/components/diy/diy-goods/index.vue'
+
+  it('card-tags 下发的 priceTagText 直渲染（服务端成文，前端零门槛/取整逻辑）', () => {
+    for (const file of [GOODS_LIST_PANEL, WATERFALL, DIY_GOODS, TABS]) {
+      const code = stripComments(source(file))
+      // list-panel/waterfall 用 cardPrice 访问器，diy 两卡用 cardDisplay，均从共享层取值
+      expect(code, file).toMatch(/\w+\(item\)\.priceTagText/)
+      expect(code, file).toContain('price-tag')
+      // 前端不做门槛/取整：不得出现自行拼「近14天」文案
+      expect(code, file).not.toMatch(/近14天最低价/)
+    }
+  })
+
+  it('priceTagText 由 useZonePrices 管线透传（cardTagOf 带 priceTagText）', () => {
+    const code = stripComments(source('src/composables/useZonePrices.ts'))
+    expect(code).toContain('priceTagText: tags?.priceTagText')
+    expect(code).toContain('typeof item?.priceTagText === \'string\'')
+  })
+
+  it('降级契约：resolveListZonePrice 空结果 priceTagText=null，卡片不渲染新元素', () => {
+    const code = stripComments(source('src/utils/zone-price.ts'))
+    expect(code).toContain('priceTagText: null')
+    expect(code).toContain('sanitizeProofText(input.priceTagText)')
+  })
+})
+
 describe('goods-list-panel 专区价接线（分类 / 商品列表 / 搜索）', () => {
   it('按本页 SPU 异步补价（void，不阻塞列表首屏）', () => {
     const code = stripComments(source(GOODS_LIST_PANEL))

@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import type { NewbieFloorProps, NewbieGoodsItem } from '@/components/diy/retail-types'
-import type { ListZonePrice } from '@/utils/zone-price'
+import type { NewbieFloorProps } from '@/components/diy/retail-types'
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getQuickCartInfo } from '@/api/product/spu'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { loadNewbieFloor } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
+import PriceText from '@/components/price-text/index.vue'
 import { formatRemainingTime, useCountdownTicker } from '@/composables/useCountdown'
 import { useDiyStyle } from '@/composables/useDiyStyle'
-import { useQuickCart } from '@/composables/useQuickCart'
+import { useNewbieGoodsActions } from '@/composables/useNewbieGoodsActions'
 import { useRetailData } from '@/composables/useRetailData'
-import { useZonePrices } from '@/composables/useZonePrices'
-import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { resolveTargetTimestamp } from '@/utils/datetime'
-import { QUICK_CART_MODE_DIRECT, resolveQuickAddMode, resolveQuickAddQuantity } from '@/utils/quick-cart'
-import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = withDefaults(defineProps<{ showData?: Partial<NewbieFloorProps> }>(), {
   showData: () => ({}),
@@ -48,85 +43,35 @@ const floor = computed(() => items.value[0])
 const goodsList = computed(() => (floor.value?.goodsList || []).slice(0, showData.value.count))
 
 /**
- * 列表「专区价」批量补价句柄：会员价/出清价都不在活动货盘接口里。
- *
- * 新人价是优先级低于身份价的一层（后端引擎：会员价/出清价命中后新人价必须跳过），
- * 因此新人价楼层里的商品也可能命中更高的会员价/出清价，必须按同一口径展示，
- * 否则同一商品会在「新人专区」看到新人价、在会员专区/低价捡漏看到另一个成交价。
+ * 卡片展示价与「抢」加购统一走 useNewbieGoodsActions：
+ * 会员价/出清价/秒杀价与新人价的取低判定、确认弹层价格与限购封顶只维护一份，
+ * 否则楼层与独立专享页会出现「同一商品两套价格口径」。
  */
-const zone = useZonePrices()
+const {
+  pending,
+  cardBadgeText,
+  cardMainPrice,
+  cardStrikePrice,
+  cardZoneBadgeText,
+  handleGrab,
+  loadZonePrices,
+  savedAmount,
+} = useNewbieGoodsActions({
+  limitPerUser: newbieLimitPerUser,
+  openGoods,
+})
 
 watch(
   goodsList,
-  (list) => {
-    const ids = list.map(goods => String(goods?.spuId || '').trim()).filter(Boolean)
-    if (!ids.length) return
-    void zone.loadForSpuIds(ids)
-  },
+  list => loadZonePrices(list),
   { immediate: true },
 )
 
-/**
- * 卡片专区价：用活动 SKU 的当前售价作为卡片价（楼层项自带该 SKU 的原价），
- * 会员价/出清价都按「规格价与卡片价一致」匹配，避免把别的规格的价格标到这张卡上。
- */
-function cardDisplay(goods: NewbieGoodsItem): ListZonePrice {
-  return zone.cardPriceOf(
-    { id: goods?.spuId, price: Number(goods?.originalPrice) || 0 },
-    true,
-  )
-}
+/** 活动商品多于楼层展示数时，提供进入独立专享页的入口 */
+const hasMoreGoods = computed(() => (floor.value?.goodsList?.length || 0) > showData.value.count)
 
-/** 该活动 SKU 的身份成交价（会员价/出清价取低后的 SKU 级价格）；无命中返回 null */
-function skuZonePrice(goods: NewbieGoodsItem): number | null {
-  const spuId = String(goods?.spuId || '').trim()
-  const skuId = String(goods?.skuId || '').trim()
-  if (!spuId || !skuId) return null
-  return zone.skuZonePriceOf(spuId, skuId)
-}
-
-/**
- * 命中身份价时的成交单价：优先 SKU 级价（与加购弹层同一口径），
- * 无 SKU 级数据时回落 SPU 聚合价（与其它楼层卡片一致）。
- */
-function zoneDealPrice(goods: NewbieGoodsItem): number {
-  return skuZonePrice(goods) ?? cardDisplay(goods).mainPrice
-}
-
-/** 卡片主价：命中更高优先级的会员价/出清价时展示身份价，否则维持新人价 */
-function cardMainPrice(goods: NewbieGoodsItem): number {
-  return cardDisplay(goods).badgeKind
-    ? zoneDealPrice(goods)
-    : Number(goods?.newbiePrice) || 0
-}
-
-/** 卡片划线价：命中身份价时划当前售价；否则沿用「原价 > 新人价」 */
-function cardStrikePrice(goods: NewbieGoodsItem): number | null {
-  if (cardDisplay(goods).badgeKind) {
-    const sales = Number(goods?.originalPrice) || 0
-    return sales > cardMainPrice(goods)
-      ? sales
-      : cardDisplay(goods).strikePrice
-  }
-  const original = Number(goods?.originalPrice) || 0
-  return original > Number(goods?.newbiePrice) ? original : null
-}
-
-/** 身份价角标（会员价/捡漏价）；未命中身份价返回空串 */
-function cardZoneBadgeText(goods: NewbieGoodsItem): string {
-  return zonePriceBadgeText(cardDisplay(goods).badgeKind)
-}
-
-/** 角标文案：命中身份价时显示会员价/捡漏价，否则维持「新人价」 */
-function cardBadgeText(goods: NewbieGoodsItem): string {
-  return cardZoneBadgeText(goods) || t('diy.newbieFloor.priceBadge')
-}
-
-/** 省额：划线价 - 主价（身份价命中时按身份价重算，弹层/卡片口径一致） */
-function savedAmount(goods: NewbieGoodsItem): number {
-  const strike = cardStrikePrice(goods)
-  const main = cardMainPrice(goods)
-  return strike !== null && main < strike ? strike - main : 0
+function openNewbieZone() {
+  uni.navigateTo({ url: '/sub-pages/promotion/newbie/index' })
 }
 
 /**
@@ -137,7 +82,8 @@ const { now } = useCountdownTicker()
 
 const countdown = computed(() => {
   const endTime = floor.value?.endTime
-  if (!showData.value.showCountdown || !endTime)
+  // 长期有效活动没有结束倒计时（endTime 存的是远期哨兵时间，不能直接展示）
+  if (!showData.value.showCountdown || !endTime || floor.value?.longTerm)
     return null
   const ended = {
     prefix: t('diy.newbieFloor.countdownEndedPrefix'),
@@ -342,14 +288,6 @@ function openGoods(spuId: string) {
 }
 
 /**
- * 「抢」按钮改成真加购后复用统一加购动线：登录拦截、不可加购原因、多规格、
- * 去向确认弹层（useCartDestination）全部归它管，楼层不再自己实现一份——
- * 两份实现必然漂移，加购口径只能有一处真相。
- */
-const { pending, quickAdd } = useQuickCart()
-const authStore = useAuthStore()
-
-/**
  * 新人价每人每款限购件数。
  *
  * 取楼层级字段（活动配置），而不是商品自身的限购：用户看到的「每人每款限 N 件」
@@ -359,97 +297,6 @@ const authStore = useAuthStore()
 function newbieLimitPerUser() {
   const limit = Math.floor(Number(floor.value?.limitPerUser))
   return Number.isFinite(limit) && limit > 0 ? limit : 1
-}
-
-/**
- * 点「抢」= 直接加购，不再冒泡到整卡点击跳商详（按钮语义终于兑现）。
- *
- * 为什么加购前自己再查一次 quick-cart：`useQuickCart` 只在内部按 MOQ/步长算
- * 数量、不向外返回实际数量，而「新人价限购几件」是楼层才知道的约束。这里用
- * 与它同一份纯函数 `resolveQuickAddQuantity` 预判最小合规数量：一旦最小合规
- * 数量就超过限购件数，说明「限购 1 件」与「起订量/步长 > 1」冲突——任何合规
- * 数量都享不到新人价，硬加只会让用户到结算才发现被恢复原价或被数量校验拦下。
- * 这种冲突不在楼层自行加购（产品口径上更安全的处理），改为打开商详让用户
- * 看清活动规则与规格。
- *
- * 代价与取舍：多一次同接口的 GET（仅在点击时发生，不占渲染）。之所以不拿这份
- * info 自己加购，是为了不复制 useQuickCart 里的不可加购文案/数量归一化/去向
- * 弹层那套逻辑。备注：2026-09-29 船供包装资料下线后后端不再下发 MOQ/步长，
- * 当前最小合规数量恒为 1，该冲突分支正常不会触发；保留它是为了将来恢复数量
- * 规则时不留下「楼层能加、结算被拦」的漏洞。
- *
- * 这次预查询还顺带挡住另一类错单：后端快捷加购挑的是「库存最充足的可用 SKU」，
- * 而楼层卡展示的是活动配置的那个 SKU。两者不是同一行时（历史下架 SKU、活动 SKU
- * 售罄等），用户看到 A 的价、入车却是 B，价差要到结算才暴露，因此对不上就走商详。
- */
-async function handleGrab(goods: NewbieGoodsItem) {
-  const spuId = String(goods.spuId || '')
-  if (!spuId)
-    return
-  // useQuickCart 内部有 pending 防重；这里提前短路，省掉一次重复的 quick-cart 预查询
-  if (pending.value)
-    return
-
-  // 命中更高优先级的会员价/出清价时，新人价限购不再适用（后端身份价优先、新人价跳过）
-  const zoneDisplay = cardDisplay(goods)
-  const zonePriced = zoneDisplay.badgeKind !== ''
-
-  // 未登录时加购必定不会发生（quickAdd 直接引导登录，本组件不重复写登录跳转），
-  // 预查询没有意义，跳过它省一次请求
-  if (authStore.isLoggedIn) {
-    const limit = newbieLimitPerUser()
-    // 楼层商品项自带活动配置的 skuId（这也是本组件比列表页多出来的信息）
-    const activitySkuId = String(goods.skuId || '')
-    try {
-      const info = await getQuickCartInfo(spuId)
-      if (resolveQuickAddMode(info) === QUICK_CART_MODE_DIRECT) {
-        // 加错规格比不加更糟：卡片上标的是活动 SKU 的新人价，而快捷加购是后端按
-        // 「库存最充足的可用 SKU」挑的一行（QuickCartServiceImpl.resolveSingleSku），
-        // 单规格 SPU 存在历史下架 SKU 时两者可能不是同一行——用户看到 A 的价格、
-        // 入车却是 B，价差在结算才暴露。对不上就交给商详让用户看清具体规格。
-        if (activitySkuId && String(info?.skuId || '') !== activitySkuId) {
-          openGoods(spuId)
-          return
-        }
-        // 「限购 1 件」与「起订量/步长 > 1」冲突：任何合规数量都超限，不自行加购
-        // （身份价命中时新人价不参与成交，限购规则不适用，不做此拦截）
-        if (!zonePriced && resolveQuickAddQuantity(info) > limit) {
-          // 原生 toast 不随页面卸载立即消失，先提示再跳转，用户能读到限购原因
-          uni.showToast({ title: t('diy.newbieFloor.limitToast', { limit }), icon: 'none' })
-          openGoods(spuId)
-          return
-        }
-      }
-    }
-    catch {
-      // 预查询失败不拦：交给 quickAdd 自己再取一次，异常由统一拦截器提示，
-      // 不能因为一次探测失败就让「抢」彻底点不动
-    }
-  }
-
-  // 确认弹层必须按卡片上的成交价展示小计：quick-cart 只回普通售价，
-  // 不把活动价带进去就会出现「卡片标一个价、弹层小计另一个价」的价差。
-  // - 命中更高优先级的会员价/出清价：弹层单价取该身份价（SKU 级优先），不封顶新人限购；
-  // - 否则沿用新人价口径，并把限购件数交给弹层封顶，超量在提交订单时会被后端整单拒绝。
-  const result = await quickAdd(spuId, {
-    promotion: {
-      skuId: String(goods.skuId || ''),
-      unitPrice: zonePriced ? zoneDealPrice(goods) : goods.newbiePrice,
-      maxQuantity: zonePriced ? null : newbieLimitPerUser(),
-      hint: zonePriced
-        ? zonePriceBadgeText(zoneDisplay.badgeKind)
-        : t('diy.newbieFloor.limitToast', { limit: newbieLimitPerUser() }),
-    },
-  })
-  if (result.needChoose) {
-    // 多规格无法确定加哪个 SKU：楼层卡只标活动配置的那个 SKU 的价格，
-    // 在楼层里替用户猜规格会加错货，交给商详选规格更合理
-    uni.showToast({ title: t('diy.newbieFloor.selectSpecsToast'), icon: 'none' })
-    openGoods(spuId)
-  }
-  // 剩下两种结果都不再插手：info === null 是未登录/请求失败（登录跳转与提示由
-  // useQuickCart 内部处理），added === true 时它已 toast「已加入购物车」并刷新角标。
-  // 这里再提示一次就会出现「一个按钮两个提示」，失败时还会误报成功。
 }
 </script>
 
@@ -475,8 +322,14 @@ async function handleGrab(goods: NewbieGoodsItem) {
           </text>
         </view>
       </view>
-      <view v-if="floor" class="nf-perks">
-        {{ t('diy.newbieFloor.perks', { limit: floor.limitPerUser, registerDays: floor.registerWithinDays }) }}
+      <view v-if="floor" class="nf-meta-row">
+        <view class="nf-perks">
+          {{ t('diy.newbieFloor.perks', { limit: floor.limitPerUser, registerDays: floor.registerWithinDays }) }}
+        </view>
+        <view v-if="hasMoreGoods" class="nf-more" @click.stop="openNewbieZone">
+          <text>{{ t('diy.newbieFloor.viewAll') }}</text>
+          <wd-icon name="arrow-right" size="18rpx" />
+        </view>
       </view>
 
       <RetailState v-if="status !== 'ready'" :status="status" />
@@ -523,11 +376,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
                 {{ goods.goodsName || t('diy.newbieFloor.fallbackGoodsName') }}
               </view>
               <view class="nf-price-row">
-                <text class="nf-price">
-                  <text class="nf-price-symbol">
-                    ¥
-                  </text>{{ cardMainPrice(goods).toFixed(2) }}
-                </text>
+                <price-text class="nf-price" :value="cardMainPrice(goods)" />
                 <!--
                   .stop 是关键：不阻止冒泡会同时触发整卡 @click，加购完立刻被带进商详。
                   待确认态只降透明度不改尺寸：按钮尺寸是两端 parity 测试锁定值，不能因状态漂移。
@@ -583,7 +432,10 @@ async function handleGrab(goods: NewbieGoodsItem) {
 .nf-countdown { display: flex; margin-left: auto; align-items: baseline; gap: 6rpx; font-variant-numeric: tabular-nums; }
 .nf-cd-label { color: #8f959e; font-size: 20rpx; }
 .nf-cd-time { color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; font-weight: 600; }
-.nf-perks { margin-top: 6rpx; color: #8f959e; font-size: 20rpx; line-height: 1.4; }
+/* 规则行 + 「查看全部」：规则文案单行省略，入口固定在右侧，商品多时才能进专享页 */
+.nf-meta-row { display: flex; margin-top: 6rpx; align-items: center; gap: 8rpx; }
+.nf-perks { overflow: hidden; min-width: 0; flex: 1; color: #8f959e; font-size: 20rpx; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.nf-more { display: flex; flex: 0 0 auto; align-items: center; gap: 2rpx; margin: -10rpx 0; padding: 10rpx 0 10rpx 12rpx; color: var(--wot-color-theme-primary, #ff2237); font-size: 20rpx; font-weight: 500; line-height: 1; }
 .nf-scroll { width: 100%; margin-top: 14rpx; padding-bottom: 8rpx; }
 /* 轨道 nowrap + 显式宽度保证小程序横滑能滚到最后一张；卡片内文案各自复位换行 */
 .nf-track { display: flex; gap: 12rpx; width: max-content; white-space: nowrap; }
@@ -601,7 +453,6 @@ async function handleGrab(goods: NewbieGoodsItem) {
 .nf-name { display: -webkit-box; overflow: hidden; height: 64rpx; color: #303133; font-size: 24rpx; font-weight: 500; line-height: 32rpx; overflow-wrap: break-word; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .nf-price-row { display: flex; margin-top: 4rpx; height: 40rpx; align-items: center; justify-content: space-between; gap: 6rpx; }
 .nf-price { display: flex; overflow: hidden; min-width: 0; align-items: baseline; color: var(--wot-color-theme-primary, #ff2237); font-size: 30rpx; font-weight: 700; line-height: 1; white-space: nowrap; }
-.nf-price-symbol { margin-right: 2rpx; font-size: 18rpx; font-weight: 600; }
 /* 「抢」改为小胶囊：与一屏三张的窄卡同尺度，圆形大按钮在 200rpx 卡里过重 */
 .nf-btn { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; height: 36rpx; padding: 0 14rpx; border-radius: 999rpx; box-shadow: 0 2rpx 6rpx rgb(255 77 79 / 22%); background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff7a45), var(--wot-color-theme-primary, #ff4d4f)); color: #fff; font-size: 20rpx; font-weight: 600; line-height: 1; }
 /* 加购请求在途：只降透明度，不改尺寸/位置——尺寸是两端 parity 测试锁定的值，

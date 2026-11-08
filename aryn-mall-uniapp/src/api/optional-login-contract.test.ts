@@ -44,6 +44,12 @@ describe('optional-login request contract', () => {
     expect(exportedFunctionBody(api, 'getByIds')).not.toContain('skipToken')
   })
 
+  it('sends the login token on the card-tags request', () => {
+    const api = source('src/api/product/spu.ts')
+    // 卡面营销标签按登录身份判定新人资格（不合格不下发）：去掉 skipToken 才能拿到资格结果
+    expect(exportedFunctionBody(api, 'getCardTags')).not.toContain('skipToken')
+  })
+
   it('backend only records footprints when the request carries a logged-in user', () => {
     const service = repoSource(GOODS_SPU_SERVICE)
     const detail = service.match(/public GoodsSpu getApiSpuById\(String id\) \{[\s\S]*?\n\t\}/)

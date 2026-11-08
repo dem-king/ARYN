@@ -23,6 +23,11 @@ public class UserLoginReqDTO implements Serializable {
 
 	private String jsCode;
 
+	/**
+	 * 支付宝小程序 my.getAuthCode 返回的授权码；仅 ALI_MINI 使用。
+	 */
+	private String authCode;
+
 	private String platformType;
 
 	private String phone;

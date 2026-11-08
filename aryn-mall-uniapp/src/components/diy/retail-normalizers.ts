@@ -13,6 +13,12 @@ import { stripGroupBadgePrefix } from '../../utils/activity-name'
 export interface RetailGoodsItem {
   id: string
   imageUrl: string
+  /**
+   * 主图像素宽高：C 端列表接口回填（不落库），卡片按真实比例锁图片占位高度，
+   * 图片加载前后卡片高度不变；缺失时前端按 1:1 兜底。
+   */
+  picWidth?: number
+  picHeight?: number
   name: string
   /** 商品子标题（商品介绍），来源 `goods_spu.sub_title`；缺失时不渲染副标题行 */
   subTitle?: string
@@ -141,6 +147,8 @@ export function normalizeRetailGoods(value: unknown): RetailGoodsItem[] {
       return {
         id: toText(record.id),
         imageUrl: firstImage(record),
+        picWidth: toNumber(record.picWidth) || undefined,
+        picHeight: toNumber(record.picHeight) || undefined,
         name: toText(record.name ?? record.spuName),
         subTitle: toText(record.subTitle).trim() || undefined,
         price: toNumber(record.salesPrice ?? record.price),
@@ -307,6 +315,7 @@ export function normalizeRetailNewbieFloor(value: unknown): NewbieFloorItem[] {
     activityName: toText(record.activityName),
     endTime: toText(record.endTime),
     limitPerUser: toNumber(record.limitPerUser) || 1,
+    longTerm: record.longTerm === true,
     registerWithinDays: toNumber(record.registerWithinDays),
     goodsList: normalizeNewbieGoods(record.goodsList),
   }]

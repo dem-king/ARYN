@@ -42,6 +42,8 @@ function customerService() {
 </script>
 
 <template>
+  <!-- 底部渐进模糊：胶囊两侧与下方会透出详情内容，用渐隐蒙层兜住 -->
+  <view class="goods-footer-veil" />
   <view class="goods-footer">
     <view
       class="goods-footer__entry"
@@ -95,6 +97,31 @@ function customerService() {
 </template>
 
 <style lang="scss" scoped>
+/**
+ * 底部渐进模糊蒙层：与 glass-tabbar 的蒙层逐值一致（68px = 贴底 16 + 胶囊 52），
+ * 模糊由下往上渐弱，详情内容滚到胶囊两侧/下方时不再能看清。
+ * 层级 8 在胶囊(9)之下、领券弹层(10+)之上，弹层滑出时保持清晰。
+ */
+.goods-footer-veil {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 68px;
+  z-index: 8;
+  pointer-events: none;
+  background-color: rgba(255, 255, 255, 0.42);
+  /* 与胶囊同一套材质数值，渐隐后仍是同一族玻璃 */
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  -WEBKIT-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.6) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
+.wot-theme-dark .goods-footer-veil {
+  background-color: rgba(18, 18, 18, 0.5);
+}
+
 /**
  * 与悬浮玻璃底栏同一套材质与几何：高 52px、圆角 26px、贴底 16px、
  * 左右各留 20px、白 86% + blur 18px saturate 160%。

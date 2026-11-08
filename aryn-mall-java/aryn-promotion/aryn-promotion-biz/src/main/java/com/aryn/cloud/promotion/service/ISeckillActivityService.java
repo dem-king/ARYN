@@ -5,10 +5,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.promotion.api.dto.SeckillActivityDTO;
 import com.aryn.cloud.promotion.api.entity.SeckillActivity;
+import com.aryn.cloud.promotion.api.entity.SeckillGoods;
 import com.aryn.cloud.promotion.api.vo.AppSeckillGoodsVO;
 import com.aryn.cloud.promotion.api.vo.AppSeckillVO;
 import com.aryn.cloud.promotion.api.vo.SeckillActivityVO;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface ISeckillActivityService extends IService<SeckillActivity> {
@@ -58,4 +60,28 @@ public interface ISeckillActivityService extends IService<SeckillActivity> {
 	 * 获取商品当前秒杀信息
 	 */
 	AppSeckillGoodsVO getGoodsSeckillInfo(String skuId);
+
+	/**
+	 * 批量查询 SPU 当前进行中的秒杀商品（商品卡「秒杀价」角标用）。
+	 *
+	 * <p>「进行中」与 {@link #getActiveSessions(String)} 同口径：按时间判定
+	 * （活动未暂停未结束 + 场次已开始未结束），不依赖定时任务落库的场次 status，
+	 * 任务停摆时卡面角标与会场表现一致不空窗。同一 SPU 命中多个并行场次时全部返回，
+	 * 最低价聚合由调用方决定。
+	 *
+	 * @param spuIds SPU ID 集合
+	 * @return 命中的秒杀商品（同一 SPU 可能多行）
+	 */
+	List<SeckillGoods> getActiveSeckillGoodsBySpuIds(Collection<String> spuIds);
+
+	/**
+	 * 批量查询 SKU 当前进行中的秒杀商品（价格快照 Job 用，SKU 维度不聚合）。
+	 *
+	 * <p>「进行中」口径与 {@link #getActiveSeckillGoodsBySpuIds(Collection)} 完全一致，
+	 * 仅过滤列不同（按 sku_id 点查）。
+	 *
+	 * @param skuIds SKU ID 集合
+	 * @return 命中的秒杀商品（同一 SKU 可能多行，最低价聚合由调用方决定）
+	 */
+	List<SeckillGoods> getActiveSeckillGoodsBySkuIds(Collection<String> skuIds);
 }

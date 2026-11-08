@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 import {
   ElButton,
@@ -24,6 +24,7 @@ const state = reactive({
     type: 'WX_MA',
     appId: null,
     appSecret: null,
+    identityMode: null as null | string,
     createTime: null,
     updateTime: null,
     delFlag: null,
@@ -33,9 +34,33 @@ const state = reactive({
   rules: {
     type: [{ required: true, message: '请选择账号类型', trigger: 'change' }],
     appId: [{ required: true, message: '请输入账号', trigger: 'change' }],
-    appSecret: [{ required: true, message: '请输入密钥', trigger: 'change' }],
+    appSecret: [
+      {
+        validator: (_rule: any, value: string, callback: any) => {
+          if (state.form.type === 'WX_MA' && !value) {
+            callback(new Error('请输入密钥'));
+            return;
+          }
+          callback();
+        },
+        trigger: 'change',
+      },
+    ],
+    identityMode: [
+      {
+        validator: (_rule: any, value: string, callback: any) => {
+          if (state.form.type === 'ALI_MINI' && !value) {
+            callback(new Error('请选择支付宝身份模式'));
+            return;
+          }
+          callback();
+        },
+        trigger: 'change',
+      },
+    ],
   },
 });
+const isAlipayMini = computed(() => state.form.type === 'ALI_MINI');
 const dialog = ref(false);
 const loading = ref(false);
 const formRef = ref();
@@ -45,12 +70,20 @@ const initForm = (row: any | undefined) => {
   if (row && row.id) {
     state.form.id = row.id;
     getDetail(row.id);
+  } else {
+    state.form.type = 'WX_MA';
+    state.form.identityMode = null;
   }
 };
 const getDetail = (id: string) => {
   loading.value = true;
   getById(id).then((response) => {
-    state.form = response;
+    state.form = {
+      ...response,
+      identityMode:
+        response.identityMode ||
+        (response.type === 'ALI_MINI' ? 'user_id' : null),
+    };
     loading.value = false;
   });
 };
@@ -133,16 +166,49 @@ defineExpose({
         :rules="state.rules"
       >
         <ElFormItem label="账号类型" prop="type">
-          <ElSelect v-model="state.form.type" placeholder="请选择账号类型">
+          <ElSelect
+            v-model="state.form.type"
+            placeholder="请选择账号类型"
+            @change="
+              state.form.identityMode =
+                state.form.type === 'ALI_MINI'
+                  ? state.form.identityMode || 'user_id'
+                  : null
+            "
+          >
             <ElOption value="WX_MA" label="微信小程序" />
+            <ElOption value="ALI_MINI" label="支付宝小程序" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="账号" prop="appId">
-          <ElInput v-model="state.form.appId" placeholder="请输入账号" />
+        <ElFormItem label="AppID" prop="appId">
+          <ElInput
+            v-model="state.form.appId"
+            :placeholder="
+              isAlipayMini ? '请输入支付宝小程序 AppID' : '请输入微信 AppID'
+            "
+          />
         </ElFormItem>
 
-        <ElFormItem label="密钥" prop="appSecret">
-          <ElInput v-model="state.form.appSecret" placeholder="请输入密钥" />
+        <ElFormItem v-if="isAlipayMini" label="身份模式" prop="identityMode">
+          <ElSelect
+            v-model="state.form.identityMode"
+            placeholder="必须与支付身份版本一致"
+          >
+            <ElOption label="user_id（支付宝 UID）" value="user_id" />
+            <ElOption label="open_id（支付宝 OpenID）" value="open_id" />
+          </ElSelect>
+          <div class="social-hint">
+            三方账号只保存 AppID
+            与身份模式；应用私钥、应用证书、支付宝公钥证书与根证书请到「支付配置
+            → 支付宝小程序」上传加密材料。
+          </div>
+        </ElFormItem>
+
+        <ElFormItem v-if="!isAlipayMini" label="密钥" prop="appSecret">
+          <ElInput
+            v-model="state.form.appSecret"
+            placeholder="请输入微信小程序密钥"
+          />
         </ElFormItem>
       </ElForm>
       <template #footer>
@@ -160,3 +226,12 @@ defineExpose({
     </ElDialog>
   </div>
 </template>
+
+<style scoped>
+.social-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+</style>

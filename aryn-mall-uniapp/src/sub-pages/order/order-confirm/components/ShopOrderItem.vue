@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import PriceText from '@/components/price-text/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
 import {
   DELIVERY_WAY_EXPRESS,
@@ -73,6 +74,10 @@ interface Props {
   groupBuyOrder?: boolean
   /** 是否已开启积分抵扣（由父组件持有提交值） */
   pointsEnabled?: boolean
+  /** 尚未选择收货地址：运费依赖地址，此时展示「选择地址后计算」而不是误导性的 ￥0.00 */
+  addressPending?: boolean
+  /** 导入直下单交接：配送方式已在向导锁定（船供/岸上），行转静态说明、不可切换 */
+  deliveryWayLocked?: boolean
 }
 
 const props = defineProps<Props>()
@@ -259,8 +264,9 @@ const deliveryMethodColumns = computed(() =>
 )
 
 function openDeliverySheet() {
-  // 仅一种方式时行是静态说明，不弹选择层（上方上下文卡片已解释配送规则）
-  if (deliveryMethodColumns.value.length <= 1) {
+  // 仅一种方式时行是静态说明，不弹选择层（上方上下文卡片已解释配送规则）；
+  // 导入直下单交接：方式在向导里已锁定（场景值随方式联动），同样不弹
+  if (props.deliveryWayLocked || deliveryMethodColumns.value.length <= 1) {
     return
   }
   deliveryWayDraft.value = deliveryWay.value
@@ -360,13 +366,7 @@ function saveRemark() {
           <view class="goods-row__price-line">
             <view class="goods-row__price">
               <view class="goods-row__price-main">
-                <wd-text
-                  :text="goods.paymentPrice"
-                  size="30rpx"
-                  mode="price"
-                  prefix="￥"
-                  :color="THEME_COLOR"
-                />
+                <price-text class="goods-row__price-value" :value="goods.paymentPrice" symbol="￥" />
               </view>
               <!-- 划线价用原价小计（结算回填）；促销价等于成交价时不划线，避免「自己划自己」 -->
               <view v-if="showOriginalPrice(goods)" class="goods-row__price-origin">
@@ -409,11 +409,22 @@ function saveRemark() {
         </text>
         <wd-text size="26rpx" :color="THEME_COLOR" prefix="-￥" :text="memberDiscount.toFixed(2)" />
       </view>
-      <view v-if="localOrder.deliveryWay === '1'" class="fee-row">
+      <!--
+        运费：普通快递（1）与商城配送（3）都由后端 orderFreightHandler 计费；
+        岸上企业导入走 way=3，之前只判 way=1 会让用户只看到合计增加、看不到运费来源。
+      -->
+      <view v-if="localOrder.deliveryWay === '1' || localOrder.deliveryWay === '3'" class="fee-row">
         <text class="fee-row__label">
           {{ t('checkout.goods.shipping') }}
         </text>
-        <wd-text size="26rpx" color="#1d2129" :text="localOrder.freightPrice" mode="price" prefix="￥" />
+        <!-- 无地址时结算跳过运费计算（运费为 0 占位），明示「待计算」避免误解为免运费 -->
+        <wd-text
+          v-if="addressPending"
+          size="26rpx"
+          color="#86909c"
+          :text="t('checkout.goods.shippingPending')"
+        />
+        <wd-text v-else size="26rpx" color="#1d2129" :text="localOrder.freightPrice" mode="price" prefix="￥" />
       </view>
       <view
         class="fee-row"
@@ -513,8 +524,9 @@ function saveRemark() {
           <text class="option-row__value">
             {{ deliveryWayName(deliveryWay) }}
           </text>
-          <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头 -->
-          <text v-if="deliveryMethodColumns.length > 1" class="i-carbon:chevron-right option-row__arrow" />
+          <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头；
+               导入直下单交接同理（方式在向导锁定） -->
+          <text v-if="deliveryMethodColumns.length > 1 && !deliveryWayLocked" class="i-carbon:chevron-right option-row__arrow" />
         </view>
       </view>
 
@@ -740,6 +752,13 @@ function saveRemark() {
 .goods-row__price-main {
   flex-shrink: 0;
   font-weight: 600;
+}
+
+/* 主价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
+.goods-row__price-value {
+  color: var(--wot-color-theme-primary, #ff2e4d);
+  font-size: 30rpx;
+  line-height: 1;
 }
 
 .goods-row__price-origin {

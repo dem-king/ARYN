@@ -146,6 +146,7 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 * @author 雨滴kian
 	 * @date 2022/6/6
 	 * @return: com.aryn.cloud.mall.common.entity.GoodsSpu
+	 *          商品不存在或已下架返回 null（C 端据此弹「商品已下架」退回，不抛异常）
 	 */
 	GoodsSpu getApiSpuById(String id);
 
@@ -156,6 +157,15 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 * @return 在售商品列表（costPrice 已置空）
 	 */
 	List<GoodsSpu> apiListByIds(List<String> ids);
+
+	/**
+	 * 为 C 端商品卡补充主图像素宽高（不落库）。
+	 *
+	 * <p>商品卡按真实比例锁占位高度，图片加载前后卡片高度不变；解析失败的商品
+	 * 保持为空，前端按 1:1 兜底。任何异常都不能影响列表返回。</p>
+	 * @param records 待补充的商品列表（原地写入 picWidth/picHeight）
+	 */
+	void fillPicSizes(List<GoodsSpu> records);
 
 	/**
 	 * 更新销量

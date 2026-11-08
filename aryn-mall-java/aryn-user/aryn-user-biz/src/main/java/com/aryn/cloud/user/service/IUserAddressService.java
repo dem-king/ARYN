@@ -19,8 +19,8 @@ public interface IUserAddressService extends IService<UserAddress> {
 	 *
 	 * @param address 收货地址
 	 * @param userId  当前登录用户 ID（以服务端身份为准，忽略请求体中的 userId）
-	 * @return 是否保存/更新成功
+	 * @return 保存/更新后的地址实体（新增时回填生成的 id），供前端在选择模式下直接回传结算页
 	 */
-	boolean saveOrUpdateForUser(UserAddress address, String userId);
+	UserAddress saveOrUpdateForUser(UserAddress address, String userId);
 
 }

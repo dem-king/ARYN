@@ -2,14 +2,18 @@
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
 import { getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
-import { getDefault } from '@/api/user/address'
+import { getById as getAddressById, getDefault } from '@/api/user/address'
+import { getMyVessels, getVesselCalls } from '@/api/vessel'
+import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useDirectImportOrderStore } from '@/store/directImportOrderStore'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { applyDeliveryContext, resolveDeliveryContext } from '@/utils/checkout-delivery'
 import { pickBestCoupon } from '@/utils/coupon-usability'
 import {
   hasNewbiePrice,
@@ -63,6 +67,7 @@ interface Address {
 const goodsStore = useGoodsStore()
 const shoppingCartStore = useShoppingCartStore()
 const shipContextStore = useShipContextStore()
+const directImportOrderStore = useDirectImportOrderStore()
 const router = useRouter()
 const { t } = useI18n()
 const { createGoodsList } = storeToRefs(goodsStore)
@@ -72,6 +77,48 @@ const submitting = ref(false)
 const pointsEnabled = ref(false)
 const userStore = useUserStore()
 let settlementSeq = 0
+
+/**
+ * 导入直下单交接态（「导入清单下单」向导 → 报告页 → 本页）。
+ *
+ * 只有 URL 上的 handoff 与 store 匹配时才生效：普通购物车/立即购买同样走
+ * createWay=2，不能只凭一个全局 active 布尔值判断，否则用户退出导入后再下
+ * 普通订单会被残留的船供/岸上场景接管。
+ *
+ * 船供=way4/scene2（船舶与靠港随交接持久化，刷新后仍可恢复）；
+ * 岸上=way3/scene3。普通订单的交接收不到 handoff 参数即清理残留。
+ */
+interface ImportHandoff {
+  handoffId: string
+  scene: string
+  userAddressId: string
+  remark: string
+  vesselId: string
+  vesselCallId: string
+  vesselName: string
+  portName: string
+  berth: string
+}
+const importHandoff = ref<ImportHandoff | null>(null)
+const importContextActive = computed(() => !!importHandoff.value)
+const importContextInvalid = ref(false)
+const importShipPickerVisible = ref(false)
+/** 船供卡展示：优先用交接快照，刷新后全局 shipContextStore 可能是空的 */
+const shipCardContext = computed(() => {
+  const handoff = importHandoff.value
+  if (handoff && handoff.scene !== '3') {
+    return {
+      vesselName: handoff.vesselName || shipContextStore.vesselName,
+      portName: handoff.portName || shipContextStore.portName,
+      berth: handoff.berth || shipContextStore.berth,
+    }
+  }
+  return {
+    vesselName: shipContextStore.vesselName,
+    portName: shipContextStore.portName,
+    berth: shipContextStore.berth,
+  }
+})
 /**
  * 自动选券状态（页面级，一次）：
  * - couponAutoApplied：是否已尝试过「自动选最优券」（只尝试一次，避免每次结算都改写用户选择）；
@@ -79,15 +126,7 @@ let settlementSeq = 0
  */
 let couponAutoApplied = false
 let couponUserTouched = false
-const selectedAddress = ref<Address>({
-  id: '',
-  detailAddress: '',
-  recipientName: '',
-  telephone: '',
-  provinceName: '',
-  cityName: '',
-  areaName: '',
-})
+const selectedAddress = ref<Address | null>(null)
 
 const couponState = reactive<CouponState>({
   couponUserList: [],
@@ -117,8 +156,130 @@ onLoad(async (options) => {
   if (options?.groupBuyRecordId) {
     state.orderParams.groupBuyRecordId = options.groupBuyRecordId
   }
+  const handoffParam = typeof options?.handoff === 'string' ? options.handoff : ''
+  if (handoffParam) {
+    if (!directImportOrderStore.matches(handoffParam)) {
+      // 交接过期/被新流程覆盖：不能猜场景继续下单，回向导重新选择配送目标
+      uni.showToast({ title: t('checkout.importHandoff.expired'), icon: 'none' })
+      setTimeout(() => {
+        uni.redirectTo({ url: '/sub-pages/order/shared-cart/import-entry' })
+      }, 800)
+      return
+    }
+    importHandoff.value = {
+      handoffId: directImportOrderStore.handoffId,
+      scene: directImportOrderStore.scene,
+      userAddressId: directImportOrderStore.userAddressId,
+      remark: directImportOrderStore.remark,
+      vesselId: directImportOrderStore.vesselId,
+      vesselCallId: directImportOrderStore.vesselCallId,
+      vesselName: directImportOrderStore.vesselName,
+      portName: directImportOrderStore.portName,
+      berth: directImportOrderStore.berth,
+    }
+  }
+  else if (directImportOrderStore.active) {
+    // 普通下单入口：清掉旧的导入交接，避免残留影响本次 way/scene
+    directImportOrderStore.clear()
+  }
   getDefaultAddress()
+  void validateImportShipContext()
 })
+
+/**
+ * 刷新/冷启动后重新校验船供交接：船舶仍属于当前用户、靠港仍挂在该船下。
+ * 失败（船被解绑、靠港删除、换船）时不清空交接、也不静默改用全局上下文，
+ * 而是置位阻断并给出「重新选择靠港」入口；网络异常不阻断，服务端结算/提交仍校验。
+ */
+async function validateImportShipContext() {
+  const handoff = importHandoff.value
+  if (!handoff || handoff.scene === '3')
+    return
+  if (!handoff.vesselId || !handoff.vesselCallId) {
+    importContextInvalid.value = true
+    return
+  }
+  try {
+    const vessels = await getMyVessels()
+    const vessel = (vessels || []).find((item: any) => item.id === handoff.vesselId)
+    if (!vessel) {
+      importContextInvalid.value = true
+      return
+    }
+    const calls = await getVesselCalls(handoff.vesselId)
+    const call = (calls || []).find((item: any) => item.id === handoff.vesselCallId)
+    if (!call) {
+      importContextInvalid.value = true
+      return
+    }
+    handoff.vesselName = vessel.vesselName || handoff.vesselName
+    handoff.portName = call.portName || handoff.portName
+    handoff.berth = call.berth || handoff.berth
+    directImportOrderStore.setVesselContext({
+      vesselId: handoff.vesselId,
+      vesselCallId: handoff.vesselCallId,
+      vesselName: handoff.vesselName,
+      portName: handoff.portName,
+      berth: handoff.berth,
+    })
+    importContextInvalid.value = false
+  }
+  catch {
+    // 网络抖动不误判为「靠港失效」；服务端仍会做最终校验
+  }
+}
+
+/**
+ * 用户在结算页重新选择靠港后更新交接并重结算：
+ * 预览与提交必须使用同一组 vesselId/vesselCallId，不能只改全局 store。
+ */
+watch(
+  () => [shipContextStore.vesselId, shipContextStore.vesselCallId] as const,
+  ([vesselId, vesselCallId]) => {
+    const handoff = importHandoff.value
+    if (!handoff || handoff.scene === '3' || !vesselId || !vesselCallId)
+      return
+    const changed = handoff.vesselId !== vesselId || handoff.vesselCallId !== vesselCallId
+    handoff.vesselId = vesselId
+    handoff.vesselCallId = vesselCallId
+    handoff.vesselName = shipContextStore.vesselName
+    handoff.portName = shipContextStore.portName
+    handoff.berth = shipContextStore.berth
+    directImportOrderStore.setVesselContext({
+      vesselId,
+      vesselCallId,
+      vesselName: shipContextStore.vesselName,
+      portName: shipContextStore.portName,
+      berth: shipContextStore.berth,
+    })
+    importContextInvalid.value = false
+    if (changed)
+      toSettlement()
+  },
+)
+
+/** 岸上导入换地址后同步交接，刷新结算页仍恢复用户最后选择的地址 */
+watch(selectedAddress, (address) => {
+  const handoff = importHandoff.value
+  if (!handoff || handoff.scene !== '3' || !address?.id)
+    return
+  handoff.userAddressId = address.id
+  directImportOrderStore.setUserAddressId(address.id)
+})
+
+/** 结算/提交共用的配送参数解析：切换积分/券重新结算也走同一份场景 */
+function applyCheckoutDeliveryContext() {
+  const handoff = importHandoff.value
+  const resolved = resolveDeliveryContext({
+    deliveryWay: state.orderParams.deliveryWay,
+    importScene: handoff?.scene,
+    importVesselId: handoff?.vesselId,
+    importVesselCallId: handoff?.vesselCallId,
+    globalContext: shipContextStore.deliveryContextParams,
+  })
+  applyDeliveryContext(state.orderParams, resolved)
+  return resolved
+}
 
 /** 是否拼团单：拼团价由服务端重算，支付方式必须在线（成团判定依赖支付回调） */
 const isGroupBuyOrder = computed(() => !!state.orderParams.groupBuyRecordId)
@@ -234,6 +395,18 @@ function createOrderRequestId() {
 }
 // 初始化订单
 function initData() {
+  // 空清单守卫：购物车/导入来源都可能带出空列表，放下去只会渲染 ¥0.00 空态
+  if (!createGoodsList.value || createGoodsList.value.length === 0) {
+    loading.value = false
+    useGlobalToast().warning(t('checkout.toast.emptyGoods'))
+    setTimeout(() => {
+      if (getCurrentPages().length > 1)
+        uni.navigateBack()
+      else
+        uni.switchTab({ url: '/pages/home/index' })
+    }, 800)
+    return
+  }
   loading.value = true
   // 购物车按靠港分组，同一 SKU 可能合法地出现多行（已结束靠港的滞留行 +
   // 当前无靠港行）；结算/下单接口只接受一个 SKU 一行，这里按 SKU 合并数量后再提交。
@@ -250,7 +423,22 @@ function initData() {
       skuId: item.skuId,
     })
   })
-  if (shipContextStore.hasVesselContext) {
+  if (importContextActive.value && importHandoff.value) {
+    // 导入直下单：配送方式与场景在向导里锁定，不走全局船舶上下文推断。
+    // 船供=way4/scene2（船舶与靠港取自交接，刷新后仍能恢复）；岸上=way3/scene3。
+    // 用同一个解析函数生成参数，避免这里和 toSettlement/toPay 各写一套。
+    const handoff = importHandoff.value
+    applyDeliveryContext(state.orderParams, resolveDeliveryContext({
+      deliveryWay: handoff.scene === '3' ? '3' : '4',
+      importScene: handoff.scene,
+      importVesselId: handoff.vesselId,
+      importVesselCallId: handoff.vesselCallId,
+    }))
+    // 备注唯一来源：用户编辑过（含清空）就用 store 里的值，不能再被向导值覆盖
+    state.orderParams.remark = handoff.remark
+    state.orderInfo.remark = handoff.remark
+  }
+  else if (shipContextStore.hasVesselContext) {
     // 入口统一：在船成员只走内部配送（way=4），结算页不再提供地址簿类配送方式；
     // 上下文来自船舶工作台，服务端结算时再次校验
     state.orderParams.deliveryWay = '4'
@@ -270,16 +458,42 @@ function initData() {
   toSettlement()
 }
 /**
- * 查询默认地址
+ * 查询默认地址。
+ *
+ * 失败兜底：getDefault 接口异常时不能再让 initData 悬空（页面会永远停在
+ * loading 白屏），任何分支都必须走到 initData；无默认地址归一化为 null，
+ * 让地址卡渲染「请选择收货地址」空态而不是空白字段的有址态。
  */
-function getDefaultAddress() {
-  getDefault().then((res) => {
-    selectedAddress.value = res
-    initData()
-  })
+async function getDefaultAddress() {
+  try {
+    // 导入直下单（岸上）：预取向导里选定的收货地址，取不到再回落默认地址
+    const handoff = importHandoff.value
+    if (handoff && handoff.scene === '3' && handoff.userAddressId) {
+      try {
+        const picked = await getAddressById(handoff.userAddressId)
+        selectedAddress.value = picked?.id ? picked : null
+      }
+      catch {
+        selectedAddress.value = null
+      }
+      if (selectedAddress.value) {
+        initData()
+        return
+      }
+    }
+    const res = await getDefault()
+    selectedAddress.value = res?.id ? res : null
+  }
+  catch {
+    selectedAddress.value = null
+  }
+  initData()
 }
 // 配送方式切换
 function deliveryWayChange(item: any) {
+  // 导入直下单在向导里锁定配送目标，结算页不允许切走（场景与 way 必须成对）
+  if (importContextActive.value)
+    return
   const previousWay = state.orderParams.deliveryWay
   state.orderParams.deliveryWay = item.deliveryWay
   // 货到付款仅商城配送（3）/内部配送（4）可用：切走时重置为在线支付，
@@ -305,10 +519,18 @@ function paymentWayChange(paymentWay: string) {
   state.orderParams.paymentType = paymentWay
 }
 /**
- * 备注输入监听
+ * 备注输入监听：展示、重新结算与提交共用 orderParams.remark。
+ * 导入交接同步回 store（含空串），刷新后不会被向导备注填回。
  */
 function remarkChange(item: any) {
-  state.orderParams.remark = item.remark
+  const remark = item?.remark ?? ''
+  state.orderParams.remark = remark
+  if (state.orderInfo && typeof state.orderInfo === 'object')
+    state.orderInfo.remark = remark
+  if (importContextActive.value)
+    directImportOrderStore.setRemark(remark)
+  if (importHandoff.value)
+    importHandoff.value.remark = remark
 }
 
 function showCoupon(item: any) {
@@ -406,14 +628,8 @@ async function toSettlement() {
   globalLoading.loading(t('common.loading'))
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
-  if (state.orderParams.deliveryWay === '4' && shipContextStore.deliveryContextParams) {
-    Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
-  }
-  else {
-    delete state.orderParams.purchaseScene
-    delete state.orderParams.vesselId
-    delete state.orderParams.vesselCallId
-  }
+  // 预览与提交共用同一份场景解析（导入船供 scene2 / 岸上 scene3 / 普通到船全局上下文）
+  applyCheckoutDeliveryContext()
 
   // 结算订单
   try {
@@ -445,6 +661,10 @@ async function toSettlement() {
         // 券列表拉取失败不影响结算金额；保持未选券，用户点券行时会再次拉取
       })
   }
+  catch {
+    // 结算失败（如地址不在配送范围）：拦截器已 toast 原因，保留上次数据展示，
+    // 不能把页面清空成 ¥0.00 死态
+  }
   finally {
     if (seq === settlementSeq) {
       loading.value = false
@@ -458,8 +678,15 @@ async function toPay() {
     return
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
+  const delivery = applyCheckoutDeliveryContext()
   if (!state.orderParams.deliveryWay) {
     return useGlobalToast().warning(t('checkout.toast.selectDelivery'))
+  }
+
+  // 导入船供：靠港在刷新后失效时不允许提交，必须重新选择（不能静默换用全局上下文）
+  if (importContextActive.value && importHandoff.value?.scene === '2' && importContextInvalid.value) {
+    importShipPickerVisible.value = true
+    return useGlobalToast().warning(t('checkout.importHandoff.invalidDesc'))
   }
 
   if (state.orderParams.deliveryWay === '1' && !selectedAddress.value?.id) {
@@ -488,17 +715,13 @@ async function toPay() {
     }
   }
 
-  // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文
-  if (state.orderParams.deliveryWay === '4') {
-    if (!shipContextStore.hasVesselContext) {
-      return useGlobalToast().warning(t('checkout.toast.selectVesselContext'))
-    }
-    Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
-  }
-  else {
-    delete state.orderParams.purchaseScene
-    delete state.orderParams.vesselId
-    delete state.orderParams.vesselCallId
+  // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文（导入船供从交接取，
+  // 刷新后 shipContextStore 为空也能提交；普通到船从全局上下文取）
+  if (state.orderParams.deliveryWay === '4'
+    && (!delivery.vesselId || !delivery.vesselCallId)) {
+    if (importContextActive.value)
+      importShipPickerVisible.value = true
+    return useGlobalToast().warning(t('checkout.toast.selectVesselContext'))
   }
 
   submitting.value = true
@@ -515,6 +738,11 @@ async function toPay() {
     }
     // 创建订单
     const response = await orderCreate(state.orderParams)
+    // 导入直下单交接完成：清掉上下文，避免残留影响下一次普通下单
+    if (importContextActive.value) {
+      directImportOrderStore.clear()
+      importHandoff.value = null
+    }
     // 下单后刷新积分余额；刷新属增强信息，失败不打断下单成功流程
     userStore.refreshPointsInfo().catch(() => {})
     if (state.orderParams.paymentType === '3') {
@@ -557,6 +785,9 @@ function toAddress() {
 }
 function handleSelectedAddressUpdate(newAddress: Address) {
   selectedAddress.value = newAddress
+  // 选址后必须重新结算：一是地址决定运费，二是无地址首结失败后页面停在
+  // 空数据态（¥0.00），只有重结算才能把商品与金额补回来
+  toSettlement()
 }
 
 uni.$on('update:selectedAddress', handleSelectedAddressUpdate)
@@ -572,6 +803,24 @@ onPageScroll(handlePageScroll)
 <template>
   <hr-navbar :title="t('checkout.title')" />
   <view v-if="!loading" class="confirm-page">
+    <!-- 导入船供：刷新后靠港已失效时阻断提交，并给出重新选择入口 -->
+    <view
+      v-if="importContextActive && importHandoff?.scene === '2' && importContextInvalid"
+      class="import-warning"
+    >
+      <view class="import-warning__body">
+        <text class="import-warning__title">
+          {{ t('checkout.importHandoff.invalidTitle') }}
+        </text>
+        <text class="import-warning__desc">
+          {{ t('checkout.importHandoff.invalidDesc') }}
+        </text>
+      </view>
+      <view class="import-warning__action" @tap="importShipPickerVisible = true">
+        {{ t('checkout.importHandoff.reselect') }}
+      </view>
+    </view>
+
     <!-- 内部配送上下文（delivery_way=4） -->
     <view
       v-if="state.orderParams.deliveryWay === '4'"
@@ -586,10 +835,10 @@ onPageScroll(handlePageScroll)
       </view>
       <view class="ship-card__body">
         <view class="ship-card__title">
-          {{ t('checkout.delivery.deliverTo', { name: shipContextStore.vesselName }) }}
+          {{ t('checkout.delivery.deliverTo', { name: shipCardContext.vesselName }) }}
         </view>
         <view class="ship-card__meta">
-          {{ shipContextStore.portName }} {{ shipContextStore.berth }}
+          {{ shipCardContext.portName }} {{ shipCardContext.berth }}
           <text v-if="shipContextStore.deliveryWindowStart">
             （{{ shipContextStore.deliveryWindowStart }} ~
             {{ shipContextStore.deliveryWindowEnd }}）
@@ -683,6 +932,8 @@ onPageScroll(handlePageScroll)
       :payment-way="state.orderParams.paymentType"
       :group-buy-order="isGroupBuyOrder"
       :points-enabled="pointsEnabled"
+      :address-pending="!selectedAddress?.id"
+      :delivery-way-locked="importContextActive"
       @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon" @points-toggle="pointsToggle"
     />
 
@@ -704,6 +955,7 @@ onPageScroll(handlePageScroll)
       :coupon-eligible-base="couponState.couponEligibleBase"
       @close-coupon-popup="closeCouponPopup" @coupon-confirm="couponConfirm"
     />
+    <ShipContextPicker v-model="importShipPickerVisible" />
   </view>
 </template>
 
@@ -714,6 +966,50 @@ onPageScroll(handlePageScroll)
 .confirm-page {
   min-height: 100vh;
   background: var(--app-bg);
+}
+
+/*
+ * 导入船供交接失效提示：靠港被删除/换船后阻断提交，右侧给出就地重选入口。
+ */
+.import-warning {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin: 20rpx 20rpx 0;
+  padding: 24rpx;
+  border-left: 6rpx solid #f59e0b;
+  border-radius: 16rpx;
+  background: #fff7e8;
+}
+
+.import-warning__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-warning__title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #8a4b3a;
+  line-height: 40rpx;
+}
+
+.import-warning__desc {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  color: #8a4b3a;
+}
+
+.import-warning__action {
+  flex: none;
+  padding: 12rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #fff;
+  background: var(--wot-color-theme-primary, #ff2e4d);
 }
 
 /*
