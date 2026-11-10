@@ -20,6 +20,8 @@ const EXCLUDED_STORE_IDS = new Set([
   'tenantCapability',
   // 商城主题自带 storage 缓存（防闪色，同步首帧），且含 resolved 标记，不走通用持久化
   'mallTheme',
+  // 版权配置同理：自带带租户后缀的 storage 缓存（首帧品牌/版权），且含 resolved 标记
+  'copyright',
   // 语言偏好由 locales 模块用独立 key 持久化（i18n 初始化早于 pinia），避免双写
   'locale',
   // 会话失效标记只属于当前进程：持久化会导致冷启动/回前台弹出过期旧窗，

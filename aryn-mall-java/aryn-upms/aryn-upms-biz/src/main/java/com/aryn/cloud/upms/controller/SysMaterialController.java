@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.upms.api.entity.SysMaterial;
+import com.aryn.cloud.upms.service.ISysMaterialGroupService;
 import com.aryn.cloud.upms.service.ISysMaterialService;
 import com.aryn.cloud.upms.support.PrivateFileUrlSigner;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,6 +34,8 @@ public class SysMaterialController {
 
 	private final PrivateFileUrlSigner privateFileUrlSigner;
 
+	private final ISysMaterialGroupService materialGroupService;
+
 	@Operation(summary = "素材列表")
 	@SaCheckPermission("upms:material:page")
 	@GetMapping("/page")
@@ -56,6 +60,9 @@ public class SysMaterialController {
 	@SaCheckPermission("upms:material:add")
 	@PostMapping
 	public Result<Boolean> add(@RequestBody SysMaterial material) {
+		// groupId 为空 / '-1' / 指向不存在或已删除分组时落到默认分组，与上传接口同一口径
+		material.setGroupId(materialGroupService.resolveGroupIdForSave(ArynTenantContextHolder.getTenantId(),
+				material.getGroupId()));
 		return Result.success(materialService.save(material));
 	}
 
@@ -70,6 +77,12 @@ public class SysMaterialController {
 		if (existing != null && "delivery-evidence".equals(existing.getBizTag())) {
 			material.setUrl(existing.getUrl());
 			material.setBizTag(existing.getBizTag());
+		}
+		// 只有请求里真的带了 groupId 才解析：前端只改名称/其它字段时 groupId 可能为空，
+		// 直接回填默认分组会把素材从原分组悄悄挪走（MP updateById 又只更新非空字段，语义更含糊）
+		if (material.getGroupId() != null && !material.getGroupId().isBlank()) {
+			material.setGroupId(materialGroupService.resolveGroupIdForSave(
+					ArynTenantContextHolder.getTenantId(), material.getGroupId()));
 		}
 		return Result.success(materialService.updateById(material));
 	}

@@ -123,15 +123,11 @@ export async function updateMyPassword(data: {
 }
 
 /**
- * 修改当前登录用户手机号（需短信验证码 + 当前密码）
+ * 修改当前登录用户手机号（需当前密码校验）
  *
  * 与个人资料接口一致：始终作用于当前会话用户，固定不走租户切换请求头。
  */
-export async function updateMyPhone(data: {
-  code: string;
-  password: string;
-  phone: string;
-}) {
+export async function updateMyPhone(data: { password: string; phone: string }) {
   return requestClient.put('/upms/profile/phone', data, {
     headers: {
       isSwitchTenant: false,

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { Component } from 'vue';
 
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 
 import { LanguageToggle, ThemeToggle } from '@vben/layouts';
 import { preferences } from '@vben/preferences';
@@ -9,14 +9,39 @@ import { preferences } from '@vben/preferences';
 import { Goods, PriceTag, Tickets, Van } from '@element-plus/icons-vue';
 import { ElIcon } from 'element-plus';
 
+import { usePublicCopyright } from '#/composables/use-public-copyright';
 import { $t } from '#/locales';
 
 defineOptions({ name: 'AuthPageLayout' });
 
-const appName = computed(() => preferences.app.name);
-const logo = computed(() => preferences.logo.source);
+const { config: copyrightConfig, ensureLoaded: ensureCopyrightLoaded } =
+  usePublicCopyright();
+
+const appName = computed(
+  () => copyrightConfig.value?.name || $t('page.auth.brandName'),
+);
+const logo = computed(
+  () => copyrightConfig.value?.logoUrl || preferences.logo.source,
+);
 const brandLatin = computed(() => $t('page.auth.brandLatin'));
 const year = new Date().getFullYear();
+
+/** 平台端配置的版权信息留空时回落语言包内置文案，保证页脚不空 */
+const copyrightName = computed(
+  () =>
+    copyrightConfig.value?.copyrightText ||
+    copyrightConfig.value?.name ||
+    $t('page.auth.copyrightName'),
+);
+const copyrightLink = computed(
+  () => copyrightConfig.value?.copyrightLink || '',
+);
+const icp = computed(() => copyrightConfig.value?.icp || '');
+const icpLink = computed(() => copyrightConfig.value?.icpLink || '');
+
+onMounted(() => {
+  void ensureCopyrightLoaded();
+});
 
 interface BrandFeature {
   desc: string;
@@ -82,7 +107,7 @@ const features = computed((): BrandFeature[] => [
           <div class="ml-3">
             <div class="flex items-center gap-2">
               <div class="text-[22px] font-semibold tracking-wide text-white">
-                {{ $t('page.auth.brandName') }}
+                {{ appName }}
               </div>
               <span
                 class="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] text-white/55"
@@ -144,7 +169,28 @@ const features = computed((): BrandFeature[] => [
 
 --rise-delay: 620ms"
         >
-          <span>© {{ year }} {{ $t('page.auth.copyrightName') }}</span>
+          <span>
+            © {{ year }}
+            <a
+              v-if="copyrightLink"
+              class="hover:text-white/70"
+              :href="copyrightLink"
+              rel="noopener"
+              target="_blank"
+              >{{ copyrightName }}</a
+            >
+            <template v-else>{{ copyrightName }}</template>
+          </span>
+          <template v-if="icp">
+            <span aria-hidden="true" class="h-3 w-px bg-white/15"></span>
+            <a
+              class="hover:text-white/70"
+              :href="icpLink || 'javascript:void(0)'"
+              rel="noopener"
+              target="_blank"
+              >{{ icp }}</a
+            >
+          </template>
           <span aria-hidden="true" class="h-3 w-px bg-white/15"></span>
           <span>{{ $t('page.auth.staffOnly') }}</span>
         </footer>
@@ -168,7 +214,7 @@ const features = computed((): BrandFeature[] => [
           <img :alt="appName" :src="logo" class="size-7" />
         </div>
         <span class="text-foreground ml-2 text-lg font-semibold">
-          {{ $t('page.auth.brandName') }} · {{ $t('page.auth.workbench') }}
+          {{ appName }} · {{ $t('page.auth.workbench') }}
         </span>
       </div>
 
@@ -191,7 +237,8 @@ const features = computed((): BrandFeature[] => [
       <footer
         class="text-muted-foreground px-6 pb-6 text-center text-[11px] leading-relaxed lg:hidden"
       >
-        © {{ year }} {{ $t('page.auth.copyrightName') }} ·
+        © {{ year }} {{ copyrightName
+        }}<template v-if="icp"> · {{ icp }}</template> ·
         {{ $t('page.auth.staffOnly') }}
       </footer>
     </div>
@@ -199,8 +246,6 @@ const features = computed((): BrandFeature[] => [
 </template>
 
 <style scoped>
-
-
 @keyframes auth-grid-pan {
   from {
     background-position:

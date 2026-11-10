@@ -23,8 +23,10 @@ import { ref } from 'vue'
 import { ApiError } from '@/api/core/handlers'
 import { addSharedCartItem, SHARED_CART_NAME_REQUIRED } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
+import { translate } from '@/locales'
 import { useSharedCartStore } from '@/store/sharedCartStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
+
 import { normalizeQuantity } from '@/utils/quick-cart'
 
 /** 统一加购入参：与个人购物车接口对齐；写入共享车时只取 skuId/quantity/spuId */
@@ -38,19 +40,29 @@ export interface CartAddPayload {
   goodsName?: string
   /** 单价（元，仅用于确认弹层展示小计，应传成交价而不是商品原价） */
   unitPrice?: number | string | null
-  /** 数量上限（如新人价每人限购 1 件）；确认弹层与库存取小后封顶 */
+  /**
+   * 每人优惠件数（新人价每人限购 N 件 / 秒杀每人限购 N 件）。
+   *
+   * 新人价 2026-11-08 放宽限购后**不再封顶数量**：首 N 件按活动价成交、超出件按
+   * 销售价由后端拆行结算，这里仅用于限购提示、混价小计与超限提示；秒杀仍硬性
+   * 限购（后端预扣校验拒绝超量单），配合 capQuantity=true 在弹层封顶。
+   */
   maxQuantity?: number | null
-  /** 上限说明（如「新人专享价每人限购 1 件」），仅在确认弹层回显 */
+  /** maxQuantity 是否为硬性数量上限（秒杀 true；新人价混价不封顶 false/缺省） */
+  capQuantity?: boolean
+  /** 超出优惠件数后的销售单价（新人价 SKU 传商品售价）；混价小计与超限提示用 */
+  originalPrice?: number | string | null
+  /** 限购说明（如「新人专享价每人限购 1 件，超出按销售价」），仅在确认弹层回显 */
   quantityHint?: string
 }
+
+export type CartAddDestination = 'shared' | 'personal' | 'abort'
 
 /** 正整数上限；非法/缺省返回 null（表示不做上限约束） */
 function toPositiveInt(value: unknown): number | null {
   const parsed = Math.floor(Number(value))
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
-
-export type CartAddDestination = 'shared' | 'personal' | 'abort'
 
 /** 一次等待中的加购确认 */
 export interface PendingAddConfirm {
@@ -93,8 +105,6 @@ const CONFIRM_TIMEOUT_MS = 60_000
 
 /** 自增请求号 */
 let confirmSeq = 0
-
-import { translate } from '@/locales'
 
 export function useCartDestination() {
   const sharedCartStore = useSharedCartStore()
@@ -206,13 +216,14 @@ export function useCartDestination() {
     const forcedCart = options.sharedCart ?? null
     // 入口预填值先归一化一次：上游算出的值通常已合法，这里防调用方传错；
     // 用户后续改动由弹层按同一份 normalizeQuantity 处理。
-    // 活动限购（新人价每人 1 件）在这里也封一次顶：超量不是恢复原价，而是整单被
-    // 后端拒绝，不能让用户带着 2 件一路走到提交订单才失败。
-    const maxQuantity = toPositiveInt(payload.maxQuantity)
+    // 活动优惠件数（新人价每人限购 N 件）不再封顶数量：2026-11-08 起超出件由
+    // 后端按替换前生效价拆行结算，弹层只负责把混价小计与超限提示讲清楚；
+    // 硬性限购（秒杀 capQuantity=true）预填仍封一次顶，避免弹层初值超限。
+    const hardCap = payload.capQuantity === true ? toPositiveInt(payload.maxQuantity) : null
     const initialPayload = rule
       ? {
           ...payload,
-          quantity: Math.min(normalizeQuantity(payload.quantity, rule), maxQuantity ?? Number.MAX_SAFE_INTEGER),
+          quantity: Math.min(normalizeQuantity(payload.quantity, rule), hardCap ?? Number.MAX_SAFE_INTEGER),
         }
       : payload
 

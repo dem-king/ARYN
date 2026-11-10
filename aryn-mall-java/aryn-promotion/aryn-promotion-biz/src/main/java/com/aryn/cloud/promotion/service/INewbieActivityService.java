@@ -16,10 +16,12 @@ public interface INewbieActivityService {
 	/**
 	 * 取当前进行中的新人专享活动（含新人价商品列表）；无进行中活动返回 null。
 	 *
-	 * <p>固定返回活动配置的新人价，不做按人出价与资格判定（资格在下单链路硬校验）。
-	 * 商品条数按首页楼层的展示上限截断。
+	 * <p>固定返回活动配置价，不做按人出价；传 userId 时附带当前用户的资格判定，
+	 * 展示端据此对已登录老客隐藏楼层（未登录不下发资格）。商品条数按首页楼层的展示上限截断。
+	 *
+	 * @param userId 当前登录用户 ID；null/空表示未登录，资格字段不下发
 	 */
-	AppNewbieFloorVO getCurrentFloor();
+	AppNewbieFloorVO getCurrentFloor(String userId);
 
 	/**
 	 * 取当前进行中的新人专享活动，并指定商品返回条数。
@@ -28,8 +30,9 @@ public interface INewbieActivityService {
 	 * 入参在实现内收敛到 [1, 200]，避免列表页请求把响应体无限放大。
 	 *
 	 * @param limit 期望返回的商品条数
+	 * @param userId 当前登录用户 ID；null/空表示未登录，资格字段不下发
 	 */
-	AppNewbieFloorVO getCurrentFloor(int limit);
+	AppNewbieFloorVO getCurrentFloor(int limit, String userId);
 
 	/**
 	 * 批量查询指定 SKU 的新人价（商详 / 购物车等已聚焦商品的页面用）。

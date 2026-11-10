@@ -31,7 +31,7 @@ export default {
     member: '会员',
     memberOnly: '会员专享 ¥{price}',
     joinToEnjoy: '开通即享',
-    newbieLimit: '新人专享价每人限购 {count} 件',
+    newbieLimit: '新人专享价每人限购 {count} 件，超出按销售价',
     newbieAlreadyPaid: '新人专享价仅限首单，你已下过单',
     newbieRegisterLimit: '新人专享价仅限注册 {days} 天内的新用户',
     newbieNewUserOnly: '新人专享价仅限新注册用户',

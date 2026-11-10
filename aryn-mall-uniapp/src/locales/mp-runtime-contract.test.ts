@@ -58,7 +58,7 @@ describe('小程序 runtime-only 构建下的插值契约', () => {
     expect(i18n.global.t('cart.checkoutWithCount', { count: 5 })).toBe('去结算(5)')
     expect(i18n.global.t('diy.activityStrip.groupBuyTitle', { groupNum: 3 })).toBe('3人拼团')
     expect(i18n.global.t('diy.newbieFloor.perks', { registerDays: 7, limit: 2 }))
-      .toBe('注册7天内新人 · 每人每款限2件')
+      .toBe('注册7天内新人 · 首件享新人价，超出按销售价')
     expect(i18n.global.t('userSetting.pointsBalance', { points: 1, balance: 2 })).toBe('积分1 | 余额2')
 
     i18n.global.locale.value = 'en-US'

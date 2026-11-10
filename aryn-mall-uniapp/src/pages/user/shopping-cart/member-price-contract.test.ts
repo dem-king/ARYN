@@ -71,10 +71,15 @@ describe('shopping cart member price contract', () => {
     expect(discountAt).toBeGreaterThan(newbieAt)
     expect(unit).toContain('memberPriceUnitPrice(fallback')
 
-    // 合计与行价同源：不再直接读 salesPrice，否则行价会员价、合计原价
+    // 合计与行价同源：走 cartLineSubtotal（同一套优先级分支；新人价行按
+    // 「首件新人价 + 超出件销售价」混价，与后端拆行结算一致），不直接读 salesPrice
     const compute = functionSource(cart, 'computePrice')
-    expect(compute).toContain('cartUnitPrice(val)')
+    expect(compute).toContain('cartLineSubtotal(val)')
     expect(compute).not.toContain('goodsSku.salesPrice')
+
+    // 新人价行的行小计必须走混价口径（newbieLineSubtotal），不能按单价 × 数量放大让利
+    const lineSubtotal = functionSource(cart, 'cartLineSubtotal')
+    expect(lineSubtotal).toContain('newbieLineSubtotal(fallback, newbie, quantity, identityOverUnitOf(row))')
   })
 
   it('renders the member price as main price with badge, guide and strike-through price', () => {
@@ -151,7 +156,7 @@ describe('shopping cart clearance price priority contract', () => {
     const guide = functionSource(source(CART_PAGE), 'memberGuideOf')
     // 主价已是捡漏价时再引导「会员专享 ¥x」会让用户以为价格还没生效
     expect(guide).toContain('clearanceWins(row)')
-    expect(guide).toMatch(/clearanceWins\(row\)\)\s*\n\s*return ''/)
+    expect(guide).toMatch(/clearanceWins\(row\)\)[\t\v\f\r \xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]*\n\s*return ''/)
   })
 
   it('renders a clearance expiry hint only when clearance wins and expire time exists', () => {

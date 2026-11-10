@@ -18,7 +18,8 @@ export default {
     newbieAlreadyPaid: 'New User Price is for first orders only. You have already placed an order.',
     newbieRegisterWithin: 'New User Price is only for users registered within {days} days',
     newbieRegisterOnly: 'New User Price is only for newly registered users',
-    newbieLimitHint: 'New User Price: limit {count} per customer',
+    newbieLimitHint: 'New User Price: limit {count} per customer, extra units at sales price',
+    newbieOverLimitHint: 'Over {count}: ¥{price} per unit',
     categoryBadgeRecommend: 'Rec',
     categoryBadgeHot: 'Hot',
 

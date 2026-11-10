@@ -3,6 +3,7 @@ import { captureDistributionShareParams, flushPendingDistributionShareBinding } 
 import { refreshBindingOnShow } from '@/api/core/tenant-identity'
 import { translate } from '@/locales'
 import { useAuthStore } from '@/store/authStore'
+import { COPYRIGHT_REFRESH_THROTTLE_MS, useCopyrightStore } from '@/store/copyrightStore'
 import { useLocaleStore } from '@/store/localeStore'
 import { MALL_THEME_REFRESH_THROTTLE_MS, useMallThemeStore } from '@/store/mallThemeStore'
 import { useUserStore } from '@/store/userStore'
@@ -42,6 +43,8 @@ onShow((options) => {
   // useMallThemeSync 拉取，这里覆盖后台切回前台的场景（带节流，
   // 避免频繁 onShow 重复请求；失败/无变化静默保持当前配色）
   void useMallThemeStore().refresh({ maxAgeMs: MALL_THEME_REFRESH_THROTTLE_MS })
+  // 版权/品牌配置同理：管理端改完「下次打开生效」
+  void useCopyrightStore().refresh({ maxAgeMs: COPYRIGHT_REFRESH_THROTTLE_MS })
 })
 
 function updateManager() {

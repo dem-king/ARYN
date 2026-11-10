@@ -53,6 +53,26 @@ describe('新人专享独立页', () => {
     expect(api).toContain('params: { limit }')
   })
 
+  it('楼层接口不 skipToken：带登录态由后端判定资格', () => {
+    const api = source(API)
+    const start = api.indexOf('export function getCurrentNewbieFloor')
+    const end = api.indexOf('\n}', start)
+    const body = api.slice(start, end === -1 ? undefined : end)
+    // skipToken 会让老客也被当成未登录，后端拿不到 userId，无法隐藏楼层
+    expect(body).not.toContain('skipToken')
+  })
+
+  it('已登录老客（eligible=false）隐藏楼层并在专享页阻断', () => {
+    const floor = source(FLOOR)
+    // 楼层强制隐藏不受 emptyStrategy 影响：老客不该看到「活动存在」的任何痕迹
+    expect(floor).toContain('hiddenForOldUser')
+    expect(floor).toMatch(/shouldRender\s*&&\s*!hiddenForOldUser/)
+    const page = source(PAGE)
+    expect(page).toContain('const ineligible = computed')
+    expect(page).toContain('promotion.newbie.ineligibleTitle')
+    expect(page).toContain('v-else-if="ineligible"')
+  })
+
   it('长期有效活动不显示倒计时，改为「长期有效」标签', () => {
     const page = source(PAGE)
     expect(page).toContain('activity.value?.longTerm === true')

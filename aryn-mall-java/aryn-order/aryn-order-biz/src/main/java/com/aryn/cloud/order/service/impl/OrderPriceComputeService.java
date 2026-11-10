@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
@@ -262,15 +263,22 @@ public class OrderPriceComputeService {
 				// 既有命中优先级更高（拼团/秒杀/会员价）：保留原命中与叠加策略
 				continue;
 			}
-			// 会员价/出清价带落价前基价（取优用）；新人价/拼团/秒杀/折扣传入 null，互斥语义不变
+			// 会员价/出清价带落价前基价（取优用）；新人价部分覆盖同样带基价（会员折扣据此
+			// 识别「超出行保留身份价」：成交价低于基价=身份权益已落价，不再重复打折），
+			// 并带优惠行单价（行级区分用，存量无优惠件数的覆盖按整 SKU 语义处理）；
+			// 拼团/秒杀/折扣传入 null，互斥语义不变
 			BigDecimal originalUnitPrice = activityType == StackActivityTypeEnum.MEMBER_PRICE
-					|| activityType == StackActivityTypeEnum.CLEARANCE ? override.getOriginalPrice() : null;
+					|| activityType == StackActivityTypeEnum.CLEARANCE
+					|| (activityType == StackActivityTypeEnum.NEWBIE && override.getDiscountedQuantity() != null)
+					? override.getOriginalPrice() : null;
+			BigDecimal discountedUnitPrice = activityType == StackActivityTypeEnum.NEWBIE
+					&& override.getDiscountedQuantity() != null ? override.getUnitPrice() : null;
 			plan.putHit(override.getSkuId(), activityType, override.getActivityId(),
 					override.getCouponStackable() == null ? activityType.isDefaultCouponStackable()
 							: override.getCouponStackable(),
 					override.getPointsStackable() == null ? activityType.isDefaultPointsStackable()
 							: override.getPointsStackable(),
-					originalUnitPrice);
+					originalUnitPrice, discountedUnitPrice);
 		}
 	}
 
@@ -454,30 +462,37 @@ public class OrderPriceComputeService {
 
 		private void putHit(String skuId, StackActivityTypeEnum activityType, String activityId,
 				Boolean couponStackable, Boolean pointsStackable) {
-			putHit(skuId, activityType, activityId, couponStackable, pointsStackable, null);
+			putHit(skuId, activityType, activityId, couponStackable, pointsStackable, null, null);
 		}
 
 		/**
 		 * 记录活动命中；{@code originalUnitPrice} 仅会员价命中填充引擎落价前基价，
-		 * 供结算时与会员折扣率取优，其它类型（拼团/秒杀/新人价/限时折扣）保持 null。
+		 * 供结算时与会员折扣率取优；{@code discountedUnitPrice} 仅新人价部分覆盖填充
+		 * 优惠行单价，供订单侧区分同 SKU 的优惠行与原价行。其余类型（拼团/秒杀/限时折扣）均保持 null。
 		 */
 		private void putHit(String skuId, StackActivityTypeEnum activityType, String activityId,
-				Boolean couponStackable, Boolean pointsStackable, BigDecimal originalUnitPrice) {
+				Boolean couponStackable, Boolean pointsStackable, BigDecimal originalUnitPrice,
+				BigDecimal discountedUnitPrice) {
 			hits.put(skuId, new ActivityPriceHit(activityType, activityId,
 					couponStackable == null ? activityType.isDefaultCouponStackable() : couponStackable,
 					pointsStackable == null ? activityType.isDefaultPointsStackable() : pointsStackable,
-					originalUnitPrice));
+					originalUnitPrice, discountedUnitPrice));
 		}
 
 		/**
-		 * 单 SKU 的活动价命中（活动类型 + 叠加策略 + 会员价落价前基价）。
+		 * 单 SKU 的活动价命中（活动类型 + 叠加策略 + 会员价落价前基价 + 新人价优惠行单价）。
 		 *
 		 * <p>{@code originalUnitPrice} 可空：仅会员价（type=10）有值，结算时用于
 		 * 「会员价 vs 原价 × 该等级会员折扣率取优」；其它活动类型恒为 null，保持
 		 * 「活动价不叠会员折扣」的互斥语义。
+		 *
+		 * <p>{@code discountedUnitPrice} 可空：仅新人价部分覆盖（首件优惠）有值——
+		 * 同 SKU 拆出的首件行 salesPrice 等于它、超出行不等；行级标签/叠加策略据此区分，
+		 * 原价行按普通商品参与（可叠券/积分、承接整船分摊）。
 		 */
 		public record ActivityPriceHit(StackActivityTypeEnum activityType, String activityId,
-				boolean couponStackable, boolean pointsStackable, BigDecimal originalUnitPrice) {
+				boolean couponStackable, boolean pointsStackable, BigDecimal originalUnitPrice,
+				BigDecimal discountedUnitPrice) {
 		}
 
 	}
@@ -632,13 +647,14 @@ public class OrderPriceComputeService {
 		Set<String> excludedSpus = pointsExcludedSpuIds == null ? Set.of() : pointsExcludedSpuIds;
 		for (OrderItemEntity item : orderItemEntityList) {
 			PromotionPricePlan.ActivityPriceHit hit = plan == null ? null : plan.hit(item.getSkuId());
-			if (hit != null) {
+			if (hit != null && hitAppliesToRow(item, hit)) {
 				item.setActivityType(hit.activityType().getCode());
 				item.setActivityId(hit.activityId());
 				item.setCouponStackable(plan.couponStackable(item.getSkuId()));
 				item.setPointsStackable(plan.pointsStackable(item.getSkuId()));
 			}
 			else {
+				// 无命中，或新人价部分覆盖下的原价行：按普通明细展示（不挂活动标签）
 				item.setActivityType(null);
 				item.setActivityId(null);
 				item.setCouponStackable(null);
@@ -647,11 +663,47 @@ public class OrderPriceComputeService {
 			if (item.getSpuId() != null && excludedSpus.contains(item.getSpuId())) {
 				item.setPointsStackable(Boolean.FALSE);
 			}
-			if (plan == null || plan.couponStackable(item.getSkuId())) {
+			if (rowCouponStackable(item, plan)) {
 				couponEligibleAmount = couponEligibleAmount.add(discountedGoodsPrice(item));
 			}
 		}
 		orderInfo.setCouponEligibleAmount(couponEligibleAmount);
+	}
+
+	/**
+	 * 活动命中是否作用于该行：无部分覆盖语义（discountedUnitPrice 为空）时整 SKU 作用；
+	 * 新人价部分覆盖下仅优惠行（salesPrice 等于优惠行单价）作用，原价行返回 false，
+	 * 按普通明细展示与参与。
+	 */
+	private boolean hitAppliesToRow(OrderItemEntity item, PromotionPricePlan.ActivityPriceHit hit) {
+		return hit.discountedUnitPrice() == null || rowCarriesPrice(item, hit.discountedUnitPrice());
+	}
+
+	/** 行是否按指定单价成交（优惠行/原价行判别的共享谓词，避免多处各写一遍比较） */
+	private boolean rowCarriesPrice(OrderItemEntity item, BigDecimal unitPrice) {
+		return unitPrice != null && item.getSalesPrice() != null
+				&& unitPrice.compareTo(item.getSalesPrice()) == 0;
+	}
+
+	/**
+	 * 行级券可叠判定：新人价部分覆盖下仅优惠行受活动不可叠约束，原价行按普通商品参与；
+	 * 其余情况与 SKU 级口径一致（{@link PromotionPricePlan#couponStackable}）。
+	 */
+	private boolean rowCouponStackable(OrderItemEntity item, PromotionPricePlan plan) {
+		return rowStackable(item, plan, plan == null || plan.couponStackable(item.getSkuId()));
+	}
+
+	/** 行级积分可叠判定，口径同 {@link #rowCouponStackable}。 */
+	private boolean rowPointsStackable(OrderItemEntity item, PromotionPricePlan plan) {
+		return rowStackable(item, plan, plan == null || plan.pointsStackable(item.getSkuId()));
+	}
+
+	private boolean rowStackable(OrderItemEntity item, PromotionPricePlan plan, boolean skuStackable) {
+		if (skuStackable) {
+			return true;
+		}
+		PromotionPricePlan.ActivityPriceHit hit = plan.hit(item.getSkuId());
+		return hit != null && !hitAppliesToRow(item, hit);
 	}
 
 	public void computeItemPayPrice(OrderItemEntity orderItemEntity) {
@@ -747,7 +799,7 @@ public class OrderPriceComputeService {
 		Set<String> excludedSpus = pointsExcludedSpuIds == null ? Set.of() : pointsExcludedSpuIds;
 		List<OrderItemEntity> pointsEligibleItems = orderItemEntityList.stream()
 			.filter(item -> item.getSpuId() == null || !excludedSpus.contains(item.getSpuId()))
-			.filter(item -> plan == null || plan.pointsStackable(item.getSkuId()))
+			.filter(item -> rowPointsStackable(item, plan))
 			.collect(Collectors.toList());
 		if (pointsEligibleItems.isEmpty()) {
 			orderInfo.setPointsDeductRate(0);
@@ -1000,6 +1052,9 @@ public class OrderPriceComputeService {
 	 * 会员折扣更低时改为原价成交 + 会员折扣（salesPrice 回原价、memberDiscountPrice 为差额），
 	 * 否则维持会员价成交（memberDiscountPrice=0）。这是两种优惠取一，不是会员价再打折，
 	 * 不会产生叠加让利。其它活动类型（新人价/秒杀/拼团/限时折扣）仍严格互斥、不参与取优。
+	 *
+	 * <p>新人价部分覆盖按行级判定：优惠行互斥；超出行保留身份价（成交价低于基价）时互斥
+	 * （身份权益已落价，不重复让利），回落基价时按普通商品参与等级折扣。
 	 */
 	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			MemberBenefitsVO benefits, PromotionPricePlan plan) {
@@ -1031,8 +1086,17 @@ public class OrderPriceComputeService {
 		orderInfo.setPointsMultiplier(pointsMultiplier);
 		for (OrderItemEntity item : orderItemEntityList) {
 			PromotionPricePlan.ActivityPriceHit hit = plan == null ? null : plan.hit(item.getSkuId());
+			boolean hitApplies = hit != null && hitAppliesToRow(item, hit);
 			BigDecimal discountPrice;
-			if (hit == null) {
+			if (hit != null && !hitApplies && hit.originalUnitPrice() != null
+					&& item.getSalesPrice() != null
+					&& item.getSalesPrice().compareTo(hit.originalUnitPrice()) < 0) {
+				// 新人价部分覆盖的超出行保留身份价：身份权益已落在成交价里，
+				// 再吃会员折扣会双重让利（也会击穿引擎会员明细按全量记账的口径）
+				discountPrice = BigDecimal.ZERO;
+			}
+			else if (!hitApplies) {
+				// 无命中，或新人价部分覆盖下回落基价的超出行：按普通商品参与会员折扣
 				discountPrice = item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
 					.setScale(2, RoundingMode.HALF_UP);
 			}
@@ -1044,7 +1108,7 @@ public class OrderPriceComputeService {
 				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate, costFloor);
 			}
 			else {
-				// 其它活动价（新人价/秒杀/拼团/限时折扣）与会员折扣互斥：只享受活动价
+				// 其它活动价（新人价优惠行/秒杀/拼团/限时折扣）与会员折扣互斥：只享受活动价
 				discountPrice = BigDecimal.ZERO;
 			}
 			item.setMemberDiscountPrice(discountPrice);
@@ -1162,9 +1226,10 @@ public class OrderPriceComputeService {
 		else {
 			scopeItems = orderItemEntityList;
 		}
-		// 叠加策略：券只作用于「券范围 ∩ 允许叠券」的明细（秒杀强制不可叠、新人价默认不可叠，会员价默认可叠）
+		// 叠加策略：券只作用于「券范围 ∩ 允许叠券」的明细（秒杀强制不可叠、新人价默认不可叠，会员价默认可叠；
+		// 新人价部分覆盖下原价行按普通商品可叠）
 		List<OrderItemEntity> couponEligibleItems = scopeItems.stream()
-			.filter(item -> plan == null || plan.couponStackable(item.getSkuId()))
+			.filter(item -> rowCouponStackable(item, plan))
 			.collect(Collectors.toList());
 		if (couponEligibleItems.isEmpty()) {
 			orderInfo.setCouponStackReason("本单商品不支持使用优惠券");
@@ -1180,7 +1245,7 @@ public class OrderPriceComputeService {
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			BigDecimal couponPrice = BigDecimal.ZERO;
 			if (couponTotalAmount.compareTo(BigDecimal.ZERO) > 0) {
-				boolean isComputeCoupon = plan == null || plan.couponStackable(orderItemEntity.getSkuId());
+				boolean isComputeCoupon = rowCouponStackable(orderItemEntity, plan);
 				if (MallEventConstants.USE_RANGE_2.equals(couponUseRange)) {
 					isComputeCoupon = isComputeCoupon && listCouponGoods.stream()
 						.anyMatch(a -> a.getSkuId().equals(orderItemEntity.getSkuId()));
@@ -1316,16 +1381,6 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 从营销试算结果中提取命中新人价（type=9）的 SKU 集合。
-	 *
-	 * <p>仅用于新人价限购校验：会员价是身份常态权益、无每人限购，因此不能把 type=10 混进来，
-	 * 否则达标会员买 2 件会员价商品会被误拦。限时折扣覆盖保护请用 {@link #enginePricedSkuIds}。
-	 */
-	public Set<String> newbiePriceSkuIds(PromotionCalculationVO calculation) {
-		return ladderOverrideSkuIds(calculation, PromotionActivity.TYPE_NEWBIE_PRICE);
-	}
-
-	/**
 	 * 从营销试算结果中提取「已由引擎落定成交基价」的 SKU 集合：
 	 * 会员价（type=10）∪ 出清价（type=11）∪ 新人价（type=9）。
 	 *
@@ -1347,38 +1402,6 @@ public class OrderPriceComputeService {
 							|| PromotionActivity.TYPE_NEWBIE_PRICE.equals(override.getActivityType())))
 			.map(PromotionCalculationVO.UnitPriceOverride::getSkuId)
 			.collect(Collectors.toSet());
-	}
-
-	private Set<String> ladderOverrideSkuIds(PromotionCalculationVO calculation, String activityType) {
-		if (calculation == null || calculation.getLadderOverrides() == null) {
-			return Set.of();
-		}
-		return calculation.getLadderOverrides().stream()
-			.filter(override -> override.getActivityType() != null
-					&& override.getActivityType().equals(activityType))
-			.map(PromotionCalculationVO.UnitPriceOverride::getSkuId)
-			.collect(Collectors.toSet());
-	}
-
-	/**
-	 * 新人价限购校验：命中新人价的 SKU 在整单内合计数量必须为 1。
-	 *
-	 * <p>按 SKU 聚合数量（共享购物车按成员拆行后同一 SKU 会有多条明细），
-	 * 超量直接拦截整单；仅在提交订单时调用，结算页不拦（用户改数量时才提示）。
-	 * 会员价无每人限购（身份权益），因此校验集合只取 type=9。
-	 */
-	public void assertNewbieQuantityLimit(PromotionCalculationVO calculation, List<OrderItemEntity> orderItemEntityList) {
-		Set<String> newbieSkuIds = newbiePriceSkuIds(calculation);
-		if (newbieSkuIds.isEmpty()) {
-			return;
-		}
-		Map<String, Integer> quantityBySku = orderItemEntityList.stream()
-			.filter(item -> newbieSkuIds.contains(item.getSkuId()))
-			.collect(Collectors.toMap(OrderItemEntity::getSkuId, OrderItemEntity::getBuyQuantity, Integer::sum));
-		boolean overLimit = quantityBySku.values().stream().anyMatch(quantity -> quantity != null && quantity > 1);
-		if (overLimit) {
-			throw new ArynBusinessException("新人专享商品每人限购 1 件");
-		}
 	}
 
 	/**
@@ -1450,7 +1473,7 @@ public class OrderPriceComputeService {
 	 *
 	 * <p>改价来源 = 引擎 ladderOverrides：阶梯价（type=4）、会员价（type=10）、新人价（type=9）。
 	 * 会员价/新人价改完后须把命中集合交给 {@link #applyPromotionPricePlan} 保护，避免被限时折扣覆盖。
-	 * 返回计算结果供叠加策略回填与券后整单优惠分摊；营销服务不可用时按无优惠处理，不阻断交易。
+	 * 返回计算结果供叠加策略回填与券后整船优惠分摊；营销服务不可用时按无优惠处理，不阻断交易。
 	 */
 	public PromotionCalculationVO applyPromotionLadder(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			PromotionPricePlan plan) {
@@ -1463,16 +1486,7 @@ public class OrderPriceComputeService {
 			if (calculation == null || calculation.getLadderOverrides() == null) {
 				return calculation;
 			}
-			for (OrderItemEntity item : orderItemEntityList) {
-				calculation.getLadderOverrides().stream()
-					.filter(override -> override.getSkuId().equals(item.getSkuId()))
-					.findFirst()
-					.ifPresent(override -> {
-						item.setSalesPrice(override.getUnitPrice());
-						item.setTotalPrice(override.getUnitPrice().multiply(BigDecimal.valueOf(item.getBuyQuantity())));
-						item.setPaymentPrice(item.getTotalPrice());
-					});
-			}
+			applyLadderOverrides(orderItemEntityList, calculation);
 			return calculation;
 		}
 		catch (Exception ex) {
@@ -1482,10 +1496,78 @@ public class OrderPriceComputeService {
 	}
 
 	/**
+	 * 把引擎单价覆盖落到明细：常规覆盖（阶梯/会员/出清/足量新人价）整行按活动单价成交；
+	 * 新人价部分覆盖（优惠件数 &lt; 购买量）按同 SKU 拆两行——首件行按新人价、超出行按
+	 * 替换前生效价（身份价保留时取身份价，否则原价）成交，行金额不变式 totalPrice = salesPrice × buyQuantity 在两行上各自成立。
+	 *
+	 * <p>同 SKU 多行（共享购物车按成员拆行）按行序依次消耗优惠件数额度，额度耗尽后的行
+	 * 整行按原价。追加的原价行不挂活动标记，后续叠加策略/整船分摊按普通商品参与。
+	 * 直接在传入 list 上追加：下游所有处理器复用同一引用。
+	 */
+	private void applyLadderOverrides(List<OrderItemEntity> orderItemEntityList, PromotionCalculationVO calculation) {
+		Map<String, Integer> remainingDiscountedQtyBySku = new HashMap<>();
+		for (PromotionCalculationVO.UnitPriceOverride override : calculation.getLadderOverrides()) {
+			if (override.getSkuId() != null && override.getDiscountedQuantity() != null) {
+				remainingDiscountedQtyBySku.merge(override.getSkuId(), override.getDiscountedQuantity(), Integer::sum);
+			}
+		}
+		List<OrderItemEntity> appendedRows = new ArrayList<>();
+		for (OrderItemEntity item : orderItemEntityList) {
+			PromotionCalculationVO.UnitPriceOverride override = calculation.getLadderOverrides().stream()
+				.filter(candidate -> candidate.getSkuId() != null && candidate.getSkuId().equals(item.getSkuId()))
+				.findFirst()
+				.orElse(null);
+			if (override == null) {
+				continue;
+			}
+			Integer allowance = remainingDiscountedQtyBySku.get(item.getSkuId());
+			if (allowance == null) {
+				// 全量件数按活动单价覆盖（阶梯价/会员价/出清价/足量新人价）
+				applyFullOverride(item, override.getUnitPrice());
+				continue;
+			}
+			int discountedQuantity = Math.min(allowance, item.getBuyQuantity());
+			remainingDiscountedQtyBySku.put(item.getSkuId(), allowance - discountedQuantity);
+			if (discountedQuantity <= 0) {
+				// 优惠额度已被同 SKU 其前行消耗殆尽：整行保持原价正常成交
+				continue;
+			}
+			if (discountedQuantity >= item.getBuyQuantity()) {
+				applyFullOverride(item, override.getUnitPrice());
+				continue;
+			}
+			// 首件行：改写当前行为优惠行
+			int remainderQuantity = item.getBuyQuantity() - discountedQuantity;
+			item.setBuyQuantity(discountedQuantity);
+			applyFullOverride(item, override.getUnitPrice());
+			// 超出行：按替换前生效价成交（身份价保留时取身份价，否则原价），不挂活动标记
+			BigDecimal remainderUnitPrice = override.getRemainderUnitPrice() != null
+					? override.getRemainderUnitPrice() : override.getOriginalPrice();
+			OrderItemEntity originalRow = BeanUtil.toBean(item, OrderItemEntity.class);
+			originalRow.setBuyQuantity(remainderQuantity);
+			originalRow.setSalesPrice(remainderUnitPrice);
+			originalRow.setTotalPrice(remainderUnitPrice.multiply(BigDecimal.valueOf(remainderQuantity)));
+			originalRow.setPaymentPrice(originalRow.getTotalPrice());
+			originalRow.setPromoPrice(BigDecimal.ZERO);
+			appendedRows.add(originalRow);
+		}
+		orderItemEntityList.addAll(appendedRows);
+	}
+
+	private void applyFullOverride(OrderItemEntity item, BigDecimal unitPrice) {
+		item.setSalesPrice(unitPrice);
+		item.setTotalPrice(unitPrice.multiply(BigDecimal.valueOf(item.getBuyQuantity())));
+		item.setPaymentPrice(item.getTotalPrice());
+	}
+
+	/**
 	 * 整船/整单优惠分摊：在优惠券之后调用，只分摊给未享活动价的明细。
 	 *
 	 * <p>已享活动价（拼团/秒杀/会员价/新人价/阶梯价/限时折扣）的 SKU 不参与门槛也不参与分摊，
 	 * 否则活动价商品会被整船优惠二次让利；判定集合与营销试算保持同一口径。
+	 *
+	 * <p>例外——新人价部分覆盖（首件优惠）：超出行按原价成交，与普通商品同权参与门槛
+	 * 与分摊（引擎侧门槛基数同口径），仅首件优惠行排除，避免分摊金额与试算基数对不上。
 	 */
 	public void applyShipWholeDiscount(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			PromotionCalculationVO calculation) {
@@ -1502,11 +1584,20 @@ public class OrderPriceComputeService {
 		if (plan != null) {
 			activityPricedSkuIds.addAll(plan.activityPricedSkuIds());
 		}
+		Map<String, BigDecimal> discountedUnitPriceBySku = new HashMap<>();
 		if (calculation.getLadderOverrides() != null) {
-			calculation.getLadderOverrides().forEach(override -> activityPricedSkuIds.add(override.getSkuId()));
+			for (PromotionCalculationVO.UnitPriceOverride override : calculation.getLadderOverrides()) {
+				if (override.getSkuId() == null) {
+					continue;
+				}
+				activityPricedSkuIds.add(override.getSkuId());
+				if (override.getDiscountedQuantity() != null) {
+					discountedUnitPriceBySku.put(override.getSkuId(), override.getUnitPrice());
+				}
+			}
 		}
 		List<OrderItemEntity> eligibleItems = orderItemEntityList.stream()
-			.filter(item -> !activityPricedSkuIds.contains(item.getSkuId()))
+			.filter(item -> wholeDiscountEligibleRow(item, activityPricedSkuIds, discountedUnitPriceBySku))
 			.toList();
 		BigDecimal discountableBase = eligibleItems.stream()
 			.map(this::discountedGoodsPrice)
@@ -1520,7 +1611,7 @@ public class OrderPriceComputeService {
 		}
 		allocateWholeDiscount(eligibleItems, discountableBase, wholeDiscount);
 		for (OrderItemEntity item : orderItemEntityList) {
-			if (activityPricedSkuIds.contains(item.getSkuId())) {
+			if (!wholeDiscountEligibleRow(item, activityPricedSkuIds, discountedUnitPriceBySku)) {
 				// 活动价明细不承接整船优惠，显式清零避免历史分摊残留
 				item.setPromoPrice(BigDecimal.ZERO);
 				computeItemPayPrice(item);
@@ -1528,6 +1619,19 @@ public class OrderPriceComputeService {
 		}
 		orderInfo.setPromotionDetails(calculation.getDetails());
 		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
+	/**
+	 * 明细是否参与整船优惠门槛与分摊：非活动价 SKU 全部参与；活动价 SKU 中，
+	 * 新人价部分覆盖的原价行（salesPrice ≠ 优惠行单价）按普通商品参与。
+	 */
+	private boolean wholeDiscountEligibleRow(OrderItemEntity item, Set<String> activityPricedSkuIds,
+			Map<String, BigDecimal> discountedUnitPriceBySku) {
+		if (!activityPricedSkuIds.contains(item.getSkuId())) {
+			return true;
+		}
+		BigDecimal discountedUnitPrice = discountedUnitPriceBySku.get(item.getSkuId());
+		return discountedUnitPrice != null && !rowCarriesPrice(item, discountedUnitPrice);
 	}
 
 	/**

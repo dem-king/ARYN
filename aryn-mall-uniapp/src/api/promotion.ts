@@ -259,6 +259,13 @@ export interface AppNewbieFloorVO {
   endTime: string
   /** 是否长期有效（true 时不展示结束倒计时） */
   longTerm?: boolean
+  /**
+   * 当前用户是否可享：`true` 可享；`false` 已登录但确定不符合（老客，隐藏楼层/专区）；
+   * `null`/缺省 未登录或未知（按潜在新人展示）。
+   */
+  eligible?: boolean | null
+  /** 不满足资格的原因：ALREADY_PAID/REGISTER_TIMEOUT/PARAM_INVALID/ERROR */
+  ineligibleReason?: null | string
   goodsList: AppNewbieGoodsVO[]
 }
 
@@ -266,7 +273,10 @@ export interface AppNewbieFloorVO {
  * 获取当前进行中的新人专享活动（含新人价商品）
  * GET /promotion/app/newbie/current
  *
- * 免登可访问：楼层对所有人展示新人价做营销吸引，资格在下单链路硬校验。
+ * **可选登录**：接口在免登白名单内（未登录也能看到活动价），这里**故意不传
+ * `skipToken`** —— 带上登录态时后端才判定当前用户资格：`eligible=false`
+ * （已下过单的老客）由页面隐藏楼层/专区，避免「看得到却买不到」。未登录时资格为
+ * null，按潜在新人正常展示。
  *
  * @param limit 返回商品条数；不传走首页楼层默认上限（20），独立专享页传 200 取全量
  */
@@ -274,7 +284,6 @@ export function getCurrentNewbieFloor(limit?: number) {
   return alovaInstance.Get<AppNewbieFloorVO | null>(
     '/promotion/app/newbie/current',
     {
-      headers: { skipToken: true },
       ...(limit ? { params: { limit } } : {}),
     },
   )

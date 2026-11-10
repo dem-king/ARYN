@@ -31,7 +31,7 @@ export default {
     member: 'Member',
     memberOnly: 'Members only ¥{price}',
     joinToEnjoy: 'Join to enjoy',
-    newbieLimit: 'New user price: max {count}',
+    newbieLimit: 'New user price: first {count} unit(s), extra at sales price',
     newbieAlreadyPaid: 'New user price: first order only',
     newbieRegisterLimit: 'New user price: sign-up within {days} days',
     newbieNewUserOnly: 'New user price: new users only',

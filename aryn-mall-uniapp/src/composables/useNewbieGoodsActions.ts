@@ -129,7 +129,8 @@ export function useNewbieGoodsActions(options: NewbieGoodsActionsOptions) {
    *
    * 价格与限购必须与卡片同一口径：
    * - 会员价/出清价命中：按身份价加购，不限新人件数；
-   * - 新人价命中：按活动价加购，并按活动限购封顶；
+   * - 新人价命中：按活动价加购，首件享新人价、超出件由后端按销售价拆行结算
+   *   （2026-11-08 放宽，不再封顶数量）；
    * - 秒杀/价格未命中：不伪造活动价，回商详处理（秒杀有独立购买链路）。
    *
    * 活动 SKU 与 quick-cart 选中的 SKU 不一致时回商详：后者按库存挑 SKU，
@@ -188,6 +189,8 @@ export function useNewbieGoodsActions(options: NewbieGoodsActionsOptions) {
             skuId: activitySkuId,
             unitPrice: Number(goods?.newbiePrice) || 0,
             maxQuantity: limitPerUser(),
+            // 超出件保留身份价（会员/出清被取低替换时），与后端拆行结算同口径；无身份价回落售价
+            originalPrice: skuZonePrice(goods),
             hint: t('diy.newbieFloor.limitToast', { limit: limitPerUser() }),
           }
         : null

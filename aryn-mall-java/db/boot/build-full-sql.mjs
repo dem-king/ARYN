@@ -182,6 +182,9 @@ const sections = [
   ['SKU 每日价格快照（近N天最低价判定底表）', '216goods_sku_price_daily_incremental.sql'],
   ['SKU 价格快照定时任务注册', '217sku_price_daily_snapshot_job.sql'],
   ['商品名称规格化回填（974 段前 302 个种子商品追加规格后缀）', '218spu_name_spec_backfill_incremental.sql'],
+  ['版权配置数据模型', '219copyright_config_incremental.sql'],
+  ['版权配置菜单权限与品牌种子', '220copyright_config_menu.sql'],
+  ['素材默认分组落库', '221material_default_group_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -287,6 +290,8 @@ DROP TABLE IF EXISTS \`replenish_direct_import_row\`;
 DROP TABLE IF EXISTS \`stat_daily_spu_sales\`;
 -- SKU 每日价格快照（216goods_sku_price_daily_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS \`goods_sku_price_daily\`;
+-- 版权配置（219copyright_config_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`sys_copyright_config\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

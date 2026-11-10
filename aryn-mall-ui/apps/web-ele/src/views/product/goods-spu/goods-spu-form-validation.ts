@@ -26,6 +26,22 @@ export interface GoodsAttrTagFormValue {
   value?: null | string;
 }
 
+/**
+ * 编辑器内的属性标签行：`normalizeAttrTags` / `createEmptyAttrTag` 之后所有字段
+ * 都已落成字符串，控件可直接双向绑定（`ElAutocomplete` 不接受 null 的 modelValue）。
+ * 接口入参仍用上面的 `GoodsAttrTagFormValue` 描述「可能缺失」的原始形态。
+ */
+export interface GoodsAttrTagFormRow {
+  icon: string;
+  label: string;
+  linkType: string;
+  linkUrl: string;
+  popupContent: string;
+  popupTitle: string;
+  tone: string;
+  value: string;
+}
+
 const MAX_ATTR_TAG_COUNT = 6;
 const MAX_ATTR_TAG_LABEL_LENGTH = 12;
 const MAX_ATTR_TAG_VALUE_LENGTH = 24;

@@ -315,6 +315,8 @@ export interface NewbieGoodsItem {
 export interface NewbieFloorItem {
   activityId: string;
   activityName: string;
+  /** 登录态资格：false=已登录老客（楼层隐藏/专区阻断）；true/null=展示 */
+  eligible: boolean | null;
   endTime: string;
   /** 每人每 SKU 限购件数（固定 1） */
   limitPerUser: number;

@@ -20,9 +20,9 @@ import java.util.List;
 /**
  * C 端新人专享楼层。
  *
- * <p>免登可访问（白名单双端登记）：楼层对所有人展示新人价做营销吸引（行业惯例），
- * 响应不含用户维度数据（固定返回活动配置价），不存在按人缓存串号问题；
- * 参与资格在下单/结算链路硬校验，非新人结算恢复原价。
+ * <p>免登可访问（白名单双端登记）：未登录时楼层按潜在新人展示活动价做营销吸引；
+ * 携带登录态时附带当前用户资格，展示端对已登录老客隐藏楼层/专区。价格始终取活动
+ * 配置价（不按人出价），参与资格仍在下单/结算链路硬校验。
  *
  * @author aryn
  * @since 2026/10/13
@@ -36,11 +36,19 @@ public class AppNewbieController {
 
 	private final INewbieActivityService newbieActivityService;
 
+	/**
+	 * 当前进行中的新人专享活动。
+	 *
+	 * <p>可选登录（与 /prices 同一语义）：未携带 token 时资格字段为 null，按潜在新人展示；
+	 * 携带登录态时附带资格，页面据此对已登录老客隐藏楼层/专区。用户身份只从登录态读取。
+	 */
 	@Operation(summary = "当前进行中的新人专享活动（含新人价商品；无活动返回 null）")
 	@GetMapping("/current")
 	public Result<AppNewbieFloorVO> current(
 			@RequestParam(value = "limit", required = false, defaultValue = "20") int limit) {
-		return Result.success(newbieActivityService.getCurrentFloor(limit));
+		ArynUser user = SecurityUtils.getUser();
+		String userId = user != null ? user.getUserId() : null;
+		return Result.success(newbieActivityService.getCurrentFloor(limit, userId));
 	}
 
 	/**

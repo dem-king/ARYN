@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { onPageScroll } from '@dcloudio/uni-app'
+import { computed, reactive, ref } from 'vue'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { deliveryLogin, getMyDeliveryStaff } from '@/api/delivery'
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { Local } from '@/utils/storage'
@@ -19,6 +20,18 @@ definePage({
 const globalLoading = useGlobalLoading()
 const { show: showToast } = useGlobalToast()
 const router = useRouter()
+const { t } = useI18n()
+const copyrightStore = useCopyrightStore()
+
+/** 配送端品牌沿用租户版权配置的名称，未配置时回落语言包内置应用名 */
+const deliveryBrand = computed(
+  () => `${copyrightStore.name || t('common.appName')}配送`,
+)
+
+// 配送登录可被直接打开（不经过商城登录页），这里也要拉一次品牌配置
+onLoad(() => {
+  void copyrightStore.ensureLoaded()
+})
 
 const submitting = ref(false)
 const form = reactive({
@@ -103,7 +116,7 @@ onPageScroll(handlePageScroll)
       <view class="mb-60rpx flex flex-col items-center">
         <text class="i-carbon:delivery-truck text-100rpx text-primary" />
         <text class="mt-20rpx text-36rpx font-bold">
-          悦航购配送
+          {{ deliveryBrand }}
         </text>
         <text class="mt-10rpx text-24rpx text-gray-400">
           配送员工作台

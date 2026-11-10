@@ -142,6 +142,8 @@ secure:
       - /tenant/register
       - /tenantpackage/list
       - /app/tenant/shop-info
+      # 版权配置（三端登录页/页脚免登读取；平台端登录页无会话，固定取平台租户配置）
+      - /app/copyright-config
       - /notify/**
       - /app/couponinfo/page
       - /app/couponinfo/byIds/**
@@ -217,6 +219,7 @@ hx:
       - sys_log
       - sys_dept
       - sys_tenant_menu
+      - sys_copyright_config
       - sys_material
       - sys_material_group
       - goods_appraise

@@ -73,7 +73,8 @@ const state = reactive<DataState>({
     desc: ['create_time', 'id'],
   },
   queryParams: {
-    groupId: '-1',
+    // 素材分组 id 由后端返回的默认分组（isDefault='1'）决定，加载完成前为空
+    groupId: '',
   },
   treeList: [],
   materialList: [],
@@ -85,6 +86,7 @@ const groupLoading = ref(false);
 const groupTitle = ref('');
 const groupName = ref('');
 const materialGroupRef = ref();
+const groupTreeRef = ref();
 const groupDrawer = ref(false);
 const visible = ref(false);
 const previewRef = ref();
@@ -95,6 +97,8 @@ const defaultProps = {
   label: 'name',
   id: 'id',
 };
+// 分组名长度与后端 sys_material_group.name varchar(10) 对齐，避免提交后才报错
+const GROUP_NAME_MAX_LENGTH = 10;
 // 选择图片逻辑
 const handleSelect = (item: MaterialObj) => {
   if (!props.selectable) return;
@@ -125,6 +129,9 @@ const isSelected = (item: MaterialObj) => {
 };
 /**
  * 文件上传
+ *
+ * groupId 必须落在真实分组上：默认分组由后端兜底，但这里仍显式传当前选中的分组，
+ * 避免「分组列表还没回来就点了上传」时把素材塞到空分组。
  */
 const handleHttpUpload = async (options: UploadRequestOptions) => {
   const formData = new FormData();
@@ -138,13 +145,17 @@ const handleHttpUpload = async (options: UploadRequestOptions) => {
  * 素材分页列表
  */
 const initPage = () => {
+  // 分组还没加载完时不查：此时 groupId 为空，查出来的是全部素材，与分组树选中项不一致
+  if (!state.queryParams.groupId) {
+    return;
+  }
   loading.value = true;
   getPage({
     current: state.page.currentPage,
     size: state.page.pageSize,
     asc: state.page.asc,
     desc: state.page.desc,
-    groupId: state.queryParams.groupId || '-1',
+    groupId: state.queryParams.groupId,
   })
     .then((response: any) => {
       // 视频素材（type=2）只供视频字段上传使用，不进入图片素材库/选择弹窗
@@ -221,15 +232,36 @@ const handleSuccess: UploadProps['onSuccess'] = () => {
 };
 /**
  * 素材分组列表查询
+ *
+ * 默认分组（isDefault='1'）由后端返回并排在第一，前端不再插入虚拟「未分组」行。
+ * 首次加载自动选中默认分组；分组被删除或改挂后，选中项失效也会回落到默认分组，
+ * 否则素材列表会带着一个不存在的 groupId 查出空结果。
  */
 const getGroup = () => {
   groupLoading.value = true;
   getList({})
-    .then((response: any) => {
-      state.treeList = response;
-      state.treeList.unshift({ id: '-1', name: '未分组' });
-      groupTitle.value = groupTitle.value ?? '未分组';
+    .then(async (response: any) => {
+      state.treeList = (response ?? []) as any[];
+      const defaultGroup = state.treeList.find(
+        (item) => String(item.isDefault) === '1',
+      );
+      const currentGroup = state.treeList.find(
+        (item) => item.id === state.queryParams.groupId,
+      );
+      if (!currentGroup) {
+        state.queryParams.groupId =
+          defaultGroup?.id ?? state.treeList[0]?.id ?? '';
+        state.page.currentPage = 1;
+        initPage();
+      }
+      // 标题始终取自分组树：改名后（管理分组抽屉会触发本方法）标题必须跟着变
+      groupTitle.value =
+        state.treeList.find((item) => item.id === state.queryParams.groupId)
+          ?.name ?? '';
       groupLoading.value = false;
+      // 分组树用 node-key="id"，选中态必须由数据驱动，否则首次进入高亮项与素材区不一致
+      await nextTick();
+      groupTreeRef.value?.setCurrentKey(state.queryParams.groupId);
     })
     .catch(() => {
       groupLoading.value = false;
@@ -237,19 +269,35 @@ const getGroup = () => {
 };
 /**
  * 切换分组
+ *
+ * 注意：getGroup 里的 setCurrentKey 也会触发 current-change，若不加判断会重复查一次素材；
+ * 选中项未变化时直接返回，用户重复点击同一分组同样无需重查。
  */
 const currentChange = (row: any) => {
+  if (!row?.id || row.id === state.queryParams.groupId) {
+    return;
+  }
   state.queryParams.groupId = row.id;
   groupTitle.value = row.name;
+  state.page.currentPage = 1;
   initPage();
 };
 /**
  * 添加分组
  */
 const addGroup = () => {
+  const name = groupName.value.trim();
+  if (name === '') {
+    ElMessage.warning('分组名不能为空');
+    return;
+  }
+  if (name.length > GROUP_NAME_MAX_LENGTH) {
+    ElMessage.warning(`分组名不能超过 ${GROUP_NAME_MAX_LENGTH} 个字符`);
+    return;
+  }
   groupLoading.value = true;
   const params = {
-    name: groupName.value,
+    name,
   };
   addObjGroup(params)
     .then(() => {
@@ -294,9 +342,11 @@ const handlePreview = async (url: string) => {
   previewShow.value = true;
 };
 getGroup();
-initPage();
 
-useKeepAliveRefresh(initPage);
+useKeepAliveRefresh(() => {
+  // 重新激活时分组可能已被改名/删除，先校正分组再查素材
+  getGroup();
+});
 </script>
 <template>
   <div :class="{ 'material-dialog-mode': props.mode === 'dialog' }">
@@ -320,8 +370,10 @@ useKeepAliveRefresh(initPage);
     <div class="material-main">
       <div class="category" v-loading="groupLoading">
         <ElTree
+          ref="groupTreeRef"
           :data="state.treeList"
           :props="defaultProps"
+          node-key="id"
           class="category-tree"
           @current-change="currentChange"
           :highlight-current="true"

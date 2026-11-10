@@ -14,6 +14,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
 import com.aryn.cloud.upms.api.entity.SysMaterial;
+import com.aryn.cloud.upms.service.ISysMaterialGroupService;
 import com.aryn.cloud.upms.service.ISysMaterialService;
 import com.aryn.cloud.upms.service.ISysStorageConfigService;
 import com.aryn.cloud.upms.support.LocalFilePathResolver;
@@ -58,6 +59,8 @@ public class SysUploadController {
 
 	private final PrivateFileUrlSigner privateFileUrlSigner;
 
+	private final ISysMaterialGroupService sysMaterialGroupService;
+
 	@Operation(summary = "文件上传")
 	@SaCheckPermission("upms:material:add")
 	@PostMapping("/upload")
@@ -76,7 +79,10 @@ public class SysUploadController {
 		SysMaterial sysMaterial = new SysMaterial();
 		sysMaterial.setUrl(url);
 		sysMaterial.setFileSize(file.getSize());
-		sysMaterial.setGroupId(groupId);
+		// groupId 为空 / '-1' / 指向不存在或已删除分组时一律落到当前租户的默认分组，
+		// 保证每条素材都能在分组管理里被找到（历史虚拟「未分组」已落库为真实记录）
+		sysMaterial.setGroupId(sysMaterialGroupService.resolveGroupIdForSave(
+				ArynTenantContextHolder.getTenantId(), groupId));
 		sysMaterial.setType(type);
 		sysMaterial.setName(file.getOriginalFilename());
 		sysMaterialService.save(sysMaterial);

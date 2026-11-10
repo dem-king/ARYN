@@ -156,6 +156,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		Map<String, BigDecimal> identityPricedPrices = applyBestIdentityPrice(context, memberHits, clearanceHits,
 				result, memberLevelCache);
 		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价/出清价）的 SKU
+		// （新人价部分覆盖只排除首件让利部分，超出件按原价计入门槛）
 		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedPrices);
 		applyBestWholeDiscount(context, wholeHits, result);
 		applyBestGift(context, giftHits, result);
@@ -318,6 +319,10 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 *
 	 * <p>已享活动价（拼团/秒杀/限时折扣等外部活动价，以及本引擎产生的阶梯价/会员价/新人价）
 	 * 的 SKU 不计入门槛、也不参与后续分摊，避免活动价商品被整船优惠二次让利。
+	 *
+	 * <p>例外——新人价部分覆盖（首件优惠）：<b>超出件按替换前生效价成交</b>（身份价保留时
+	 * 取身份价，否则基价），该部分金额计入门槛基数（与普通商品同权），仅首件让利部分排除，
+	 * 避免「小计够门槛却因新人价商品在场而被排除」；与订单侧超出行成交价同口径。
 	 */
 	private void applyBestWholeDiscount(PromotionContextDTO context, List<PromotionActivity> activities,
 			PromotionCalculationVO result) {
@@ -326,10 +331,26 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			.map(PromotionContextDTO.SkuItem::getSkuId)
 			.collect(Collectors.toSet());
 		result.getLadderOverrides().forEach(override -> activityPricedSkuIds.add(override.getSkuId()));
-		BigDecimal baseAmount = context.getSkuItems().stream()
-			.filter(item -> !activityPricedSkuIds.contains(item.getSkuId()))
-			.map(item -> item.getSalesPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
-			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		Map<String, PromotionCalculationVO.UnitPriceOverride> partialOverrideBySku = result.getLadderOverrides().stream()
+			.filter(override -> override.getDiscountedQuantity() != null)
+			.collect(Collectors.toMap(PromotionCalculationVO.UnitPriceOverride::getSkuId,
+					override -> override, (first, second) -> first));
+		BigDecimal baseAmount = BigDecimal.ZERO;
+		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
+			if (!activityPricedSkuIds.contains(item.getSkuId())) {
+				baseAmount = baseAmount
+					.add(item.getSalesPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+				continue;
+			}
+			// 新人价首件优惠 SKU：仅优惠件数让利不参与门槛，超出件按替换前生效价计入
+			PromotionCalculationVO.UnitPriceOverride partial = partialOverrideBySku.get(item.getSkuId());
+			if (partial != null && partial.getDiscountedQuantity() < item.getQuantity()) {
+				BigDecimal remainderUnitPrice = partial.getRemainderUnitPrice() != null
+						? partial.getRemainderUnitPrice() : item.getSalesPrice();
+				baseAmount = baseAmount.add(remainderUnitPrice
+					.multiply(BigDecimal.valueOf(item.getQuantity() - partial.getDiscountedQuantity())));
+			}
+		}
 
 		PromotionActivity best = null;
 		BigDecimal bestDiscount = BigDecimal.ZERO;
@@ -915,6 +936,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		PromotionActivity best = null;
 		JSONObject bestRules = null;
 		BigDecimal bestSaving = BigDecimal.ZERO;
+		int bestLimitPerUser = 1;
 		for (PromotionActivity activity : activities) {
 			try {
 				JSONObject rules = JSONUtil.parseObj(activity.getRules());
@@ -925,13 +947,15 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				if (!eligibleAsNewbie(context, rules.getInt("registerWithinDays"), eligibilityCache)) {
 					continue;
 				}
-				BigDecimal saving = newbieSaving(context, newbieSkus, identityPricedPrices);
+				int limitPerUser = normalizeNewbieLimitPerUser(rules);
+				BigDecimal saving = newbieSaving(context, newbieSkus, identityPricedPrices, limitPerUser);
 				// 资格通过即视为命中（saving 为 0 表示本次基价已等于活动价，即重放场景）；
 				// 多活动并存时仍取节省额最大者，节省额相同时取先出现的（稳定）
 				if (best == null || saving.compareTo(bestSaving) > 0) {
 					bestSaving = saving;
 					best = activity;
 					bestRules = rules;
+					bestLimitPerUser = limitPerUser;
 				}
 			}
 			catch (Exception ex) {
@@ -939,8 +963,19 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			}
 		}
 		if (best != null) {
-			mergeNewbieOverrides(context, best, bestRules, result, identityPricedPrices);
+			mergeNewbieOverrides(context, best, bestRules, result, identityPricedPrices, bestLimitPerUser);
 		}
+	}
+
+	/**
+	 * 每人限购件数：rules.limitPerUser 缺省/非法时按 1 件处理。
+	 *
+	 * <p>语义为「每人每 SKU 享受新人价的件数」：首 N 件按新人价成交，超出件按原价
+	 * 正常下单（不再整单拦截）。发布校验当前固定 1，此处归一保证规则宽松时也不放大让利。
+	 */
+	private int normalizeNewbieLimitPerUser(JSONObject rules) {
+		Integer limit = rules.getInt("limitPerUser");
+		return limit == null || limit <= 0 ? 1 : limit;
 	}
 
 	/**
@@ -948,9 +983,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 *
 	 * <p>被身份价锁定的 SKU 以「min(基价, 身份价)」为比较基准：新人价低于它才计节省
 	 * （该 SKU 的新人价合并时才会真正生效），与 {@link #mergeNewbieOverrides} 的取低口径一致。
+	 *
+	 * <p>节省额按<b>优惠件数</b>（每人限购数与购买量的较小值）计：超出件按原价成交，
+	 * 不产生让利，与订单侧首件让利口径一致。
 	 */
 	private BigDecimal newbieSaving(PromotionContextDTO context, JSONArray newbieSkus,
-			Map<String, BigDecimal> identityPricedPrices) {
+			Map<String, BigDecimal> identityPricedPrices, int limitPerUser) {
 		BigDecimal saving = BigDecimal.ZERO;
 		for (Object element : newbieSkus) {
 			JSONObject sku = (JSONObject) element;
@@ -969,8 +1007,9 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 								? identityPrice
 								: item.getSalesPrice();
 				if (price.compareTo(effectiveBase) < 0) {
+					int discountedQuantity = Math.min(limitPerUser, item.getQuantity());
 					saving = saving.add(effectiveBase.subtract(price)
-							.multiply(BigDecimal.valueOf(item.getQuantity())));
+							.multiply(BigDecimal.valueOf(discountedQuantity)));
 				}
 			}
 		}
@@ -988,10 +1027,14 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * <p><b>身份价取低</b>（2026-11-08 语义调整）：身份价/阶梯价不高于新人价的 SKU 保留
 	 * 原覆盖且<b>不构成命中</b>——新人价没生效就不写锁，避免白白消耗一次性新人资格。
 	 *
+	 * <p><b>优惠件数</b>：override 带 {@code discountedQuantity = min(limitPerUser, 购买量)}，
+	 * 首件按新人价成交、超出件由订单侧按原价拆行成单；节省额/明细让利同样只按优惠件数计。
+	 *
+	 * @param limitPerUser 每人每 SKU 享受新人价的件数（规则缺省按 1）
 	 * @return 是否命中（命中=活动对本单至少一个 SKU 的实际生效价做出了贡献）
 	 */
 	private boolean mergeNewbieOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
-			PromotionCalculationVO result, Map<String, BigDecimal> identityPricedPrices) {
+			PromotionCalculationVO result, Map<String, BigDecimal> identityPricedPrices, int limitPerUser) {
 		JSONArray newbieSkus = rules.getJSONArray("skus");
 		BigDecimal saving = BigDecimal.ZERO;
 		boolean matched = false;
@@ -1027,15 +1070,20 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				override.setSkuId(skuId);
 				override.setUnitPrice(price);
 				override.setOriginalPrice(item.getSalesPrice());
+				override.setDiscountedQuantity(Math.min(limitPerUser, item.getQuantity()));
+				// 超出件保留替换前生效价：身份价（会员/出清）被取低替换时不剥夺常态权益，
+				// 无身份价时即基价；订单侧超出行与整船门槛都按此价成交/累计
+				override.setRemainderUnitPrice(existing != null ? existing.getUnitPrice() : item.getSalesPrice());
 				override.setActivityId(activity.getId());
 				override.setActivityType(activity.getActivityType());
 				fillStackPolicy(override, activity);
 				result.getLadderOverrides().add(override);
 				// 让利只记「相对替换前生效价」的增量：替换身份价覆盖时原覆盖的让利
-				// 已计入其活动明细，按基价全额累计会与会员/出清明细重复计算
+				// 已计入其活动明细，按基价全额累计会与会员/出清明细重复计算；
+				// 且只按优惠件数计——超出件按原价成交，不产生让利
 				BigDecimal previousPrice = existing != null ? existing.getUnitPrice() : item.getSalesPrice();
 				saving = saving.add(previousPrice.subtract(price)
-						.multiply(BigDecimal.valueOf(item.getQuantity())));
+						.multiply(BigDecimal.valueOf(Math.min(limitPerUser, item.getQuantity()))));
 			}
 		}
 		if (!matched) {

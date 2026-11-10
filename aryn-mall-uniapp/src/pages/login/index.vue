@@ -5,6 +5,8 @@ import { useI18n } from 'vue-i18n'
 import { flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
+// 外链口径复用富文本链接：H5 开新页，小程序复制到剪贴板（小程序不允许任意域名跳转）
+import { handleHtmlLinkTap } from '@/utils/html-link'
 import { Local } from '@/utils/storage'
 // 引入组件
 import MobileLogin from './components/MobileLogin.vue'
@@ -50,13 +52,23 @@ const themeStyle = computed(() => {
   }
 })
 
-// 定义变量
-const copyright = ref<any>({
-  logoUrl: '/static/logo.png',
-  name: '',
-})
-const brandName = computed(() => copyright.value.name || t('common.appName'))
+// 品牌与版权来自租户版权配置（store 内同步读缓存，首帧即有值；拉取失败回落内置）
+const copyrightStore = useCopyrightStore()
+const brandLogo = computed(() => copyrightStore.logoUrl || '/static/logo.png')
+const brandName = computed(() => copyrightStore.name || t('common.appName'))
+const copyrightLine = computed(() => copyrightStore.copyrightText || t('login.copyright'))
+const copyrightLink = computed(() => copyrightStore.safeCopyrightLink)
+const icp = computed(() => copyrightStore.icp)
+const icpLink = computed(() => copyrightStore.safeIcpLink)
 const router = useRouter()
+
+function openCopyrightLink() {
+  handleHtmlLinkTap(copyrightLink.value)
+}
+
+function openIcpLink() {
+  handleHtmlLinkTap(icpLink.value)
+}
 const state = reactive<{ loginType: string, read: boolean }>({
   loginType: '1', // 1./微信授权手机号快速登录；2.密码登录；3.手机号验证码登录
   read: false,
@@ -66,6 +78,8 @@ onLoad(async () => {
   // #ifndef MP
   state.loginType = '3'
   // #endif
+  // 版权/品牌配置与商城主题同口径：首帧用缓存，随后异步刷新，失败不影响登录
+  void copyrightStore.ensureLoaded()
 })
 function getAliAuthCode(): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -181,7 +195,7 @@ onPageScroll(handlePageScroll)
       <view class="hero-glow hero-glow--b" />
       <view class="hero-brand">
         <view class="hero-brand__logo">
-          <image :src="copyright.logoUrl" mode="aspectFit" />
+          <image :src="brandLogo" mode="aspectFit" />
         </view>
         <text class="hero-brand__name">
           {{ brandName }}
@@ -316,7 +330,13 @@ onPageScroll(handlePageScroll)
         <!-- #endif -->
 
         <view class="copyright">
-          {{ t('login.copyright') }}
+          <text v-if="copyrightLink" class="copyright__link" @click="openCopyrightLink">
+            {{ copyrightLine }}
+          </text>
+          <text v-else>{{ copyrightLine }}</text>
+          <text v-if="icp" class="copyright__icp" @click="openIcpLink">
+            {{ icp }}
+          </text>
         </view>
       </view>
     </view>
@@ -674,6 +694,15 @@ $login-muted: var(--app-text-3);
   font-size: 20rpx;
   letter-spacing: 0.5rpx;
   text-align: center;
+}
+
+.copyright__link,
+.copyright__icp {
+  display: block;
+}
+
+.copyright__icp {
+  margin-top: 6rpx;
 }
 
 /* ===================== 动效 ===================== */

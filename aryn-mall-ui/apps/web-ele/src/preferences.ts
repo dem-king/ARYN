@@ -16,4 +16,11 @@ export const overridesPreferences = defineOverridesPreferences({
     loginExpiredMode: 'modal',
     name: import.meta.env.VITE_APP_TITLE,
   },
+  /**
+   * 采用 SaaS 控制台口径（Stripe/Linear）：默认不显示全站页脚，内容区直达视口底部。
+   * 框架能力保留，偏好抽屉里仍可临时开启；商户端版权只在页脚开启时渲染。
+   */
+  footer: {
+    enable: false,
+  },
 });

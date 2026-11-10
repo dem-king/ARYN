@@ -99,20 +99,40 @@ export interface QuickAddPromotion {
   skuId: string
   /** 成交单价（元） */
   unitPrice?: number | string | null
-  /** 每人限购件数：确认弹层据此封顶，避免加购超量到提交订单才被拒 */
+  /**
+   * 每人优惠件数（新人价每人限购 N 件 / 秒杀每人限购 N 件）。
+   *
+   * 新人价 2026-11-08 放宽限购后**不再封顶数量**：首 N 件按活动价成交，超出件由
+   * 后端按销售价拆行结算，这里仅用于限购提示与混价小计；秒杀仍硬性限购
+   * （后端预扣校验直接拒绝超量单），配合 capQuantity=true 在弹层封顶。
+   */
   maxQuantity?: number | string | null
-  /** 限购/活动说明（如「新人专享价每人限购 1 件」） */
+  /** maxQuantity 是否为硬性数量上限（秒杀 true；新人价混价不封顶 false/缺省） */
+  capQuantity?: boolean
+  /**
+   * 超出优惠件数后的成交单价（新人价混价基准）；身份价被新人价取低替换时传身份价
+   * （与后端 remainderUnitPrice 同口径），缺省回落 quick-cart 普通售价。
+   */
+  originalPrice?: number | string | null
+  /** 限购/活动说明（如「新人专享价每人限购 1 件，超出按销售价」） */
   hint?: string
 }
 
 /** 确认弹层的成交价口径 */
 export interface QuickAddPrice {
-  /** 展示与计算小计用的单价 */
+  /** 展示与计算小计用的单价（活动价/专区价命中时为成交价，否则为售价） */
   unitPrice: number | string | undefined
-  /** 数量上限；null 表示活动不限制（仍受库存约束） */
+  /** 每人优惠件数；null 表示活动不限制数量（仍受库存约束） */
   maxQuantity: number | null
+  /** maxQuantity 是否为硬性数量上限（秒杀 true；新人价混价不封顶 false/缺省） */
+  capQuantity?: boolean
   /** 限购/活动说明；空串表示不展示 */
   hint: string
+  /**
+   * 超出优惠件数后的销售单价（quick-cart 的普通售价）；仅活动价命中时有意义，
+   * 确认弹层据此把「首 N 件活动价 + 超出件售价」的混价小计算对。
+   */
+  originalPrice?: number | string | undefined
 }
 
 /**
@@ -122,10 +142,10 @@ export interface QuickAddPrice {
  * 角标文案只有卡片侧知道，透传上来后确认弹层可直接标在单价旁，
  * 用户一眼看出「弹层这个价就是卡片上那个身份价」。
  */
-export type QuickAddZonePriceValue =
-  | number
-  | string
-  | { price?: number | string | null, hint?: string }
+export type QuickAddZonePriceValue
+  = | number
+    | string
+    | { price?: number | string | null, hint?: string }
 
 export type QuickAddZonePrices = Record<string, QuickAddZonePriceValue>
 
@@ -217,7 +237,10 @@ export function resolveQuickAddPrice(
   return {
     unitPrice: Number(promotion.unitPrice),
     maxQuantity: toPositiveInt(promotion.maxQuantity),
+    capQuantity: promotion.capQuantity === true,
     hint: typeof promotion.hint === 'string' ? promotion.hint : '',
+    // 超出优惠件数按替换前生效价成交（身份价保留时取身份价）；缺省回落 quick-cart 售价
+    originalPrice: promotion.originalPrice ?? info?.salesPrice,
   }
 }
 

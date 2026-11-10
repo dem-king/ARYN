@@ -77,13 +77,19 @@ describe('resolveQuickAddQuantity', () => {
 describe('resolveQuickAddPrice', () => {
   const info = { mode: 'direct', skuId: 'sku-1', salesPrice: 12.9 }
 
-  it('活动 SKU 一致时采用活动价，并带上限购说明', () => {
+  it('活动 SKU 一致时采用活动价，并带优惠件数与超出件售价（混价小计基准）', () => {
     expect(resolveQuickAddPrice(info, {
       skuId: 'sku-1',
       unitPrice: 0.01,
       maxQuantity: 1,
-      hint: '新人专享价每人限购 1 件',
-    })).toEqual({ unitPrice: 0.01, maxQuantity: 1, hint: '新人专享价每人限购 1 件' })
+      hint: '新人专享价每人限购 1 件，超出按销售价',
+    })).toEqual({
+      unitPrice: 0.01,
+      maxQuantity: 1,
+      capQuantity: false,
+      hint: '新人专享价每人限购 1 件，超出按销售价',
+      originalPrice: 12.9,
+    })
   })
 
   it('活动 SKU 与快捷加购选中的 SKU 不一致时回落售价（不拿 A 的价标 B 的货）', () => {

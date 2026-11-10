@@ -578,7 +578,7 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("新人专享价：资格通过时按 SKU 覆盖单价并记活动明细")
+	@DisplayName("新人专享价：资格通过时按 SKU 覆盖单价并记活动明细（让利只按优惠件数计）")
 	void newbiePriceAppliesWhenEligible() {
 		String rules = newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}");
 		when(activityMapper.selectList(any())).thenReturn(List.of(
@@ -589,14 +589,19 @@ class PromotionEngineTest {
 		assertEquals(1, result.getLadderOverrides().size());
 		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("19.9")));
 		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, result.getLadderOverrides().get(0).getActivityType());
+		// 优惠件数 = min(limitPerUser, 购买量) = 1：首件享新人价，超出件由订单侧按原价成交
+		assertEquals(1, result.getLadderOverrides().get(0).getDiscountedQuantity());
+		// 无身份价被替换时超出件单价 = 基价
+		assertEquals(0, result.getLadderOverrides().get(0).getRemainderUnitPrice().compareTo(new BigDecimal("28.5")));
 		assertEquals(1, result.getDetails().size());
-		// 60 件 * (28.5-19.9) = 516
-		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("516.0")));
+		// 1 件 * (28.5-19.9) = 8.6（不再按全量 60 件计）
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("8.6")));
+		assertEquals(0, result.getDetails().get(0).getDiscountAmount().compareTo(new BigDecimal("8.6")));
 	}
 
 	@Test
-	@DisplayName("新人价 SKU 不计入整船优惠门槛")
-	void newbiePricedSkuIsExcludedFromWholeDiscountBase() {
+	@DisplayName("新人价首件让利不计入整船门槛，超出件按原价计入")
+	void newbieDiscountedUnitsExcludedFromWholeDiscountBaseButRemainderCounts() {
 		String newbie = newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}");
 		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
 		when(activityMapper.selectList(any())).thenReturn(List.of(
@@ -605,7 +610,26 @@ class PromotionEngineTest {
 		newbieEligible(true);
 
 		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
-		// 新人价 SKU 原价 1710 被排除，仅 sku-2 的 60 参与门槛，未达 1000
+		// sku-1 原价 1710：仅首件让利部分排除，59 件 × 28.5 = 1681.5 计入门槛，
+		// 加 sku-2 的 60 达到 1000 → 整船优惠 100 生效
+		assertEquals(2, result.getDetails().size());
+		assertEquals(0, result.getWholeDiscount().compareTo(new BigDecimal("100")));
+	}
+
+	@Test
+	@DisplayName("新人价仅买 1 件时整 SKU 不计入整船门槛（优惠件数=购买量）")
+	void newbieSingleUnitStillExcludedFromWholeDiscountBase() {
+		String newbie = newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}");
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null, newbie),
+				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null, whole)));
+		newbieEligible(true);
+
+		PromotionContextDTO context = context("1", null, null, null);
+		context.setSkuItems(List.of(skuItem("sku-1", 1, "28.5"), skuItem("sku-2", 5, "12")));
+		PromotionCalculationVO result = engine.preview(context);
+		// 优惠件数 = min(1, 1) = 1：整 SKU 无原价部分可计入，仅 sku-2 的 60 参与门槛，未达 1000
 		assertEquals(1, result.getDetails().size());
 		assertEquals(0, result.getWholeDiscount().compareTo(BigDecimal.ZERO));
 	}
@@ -951,9 +975,32 @@ class PromotionEngineTest {
 		PromotionCalculationVO.UnitPriceOverride override = result.getLadderOverrides().get(0);
 		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("10")));
 		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, override.getActivityType());
-		// 让利不重复计算：会员明细 510（(28.5-20)*60）+ 新人明细增量 600（(20-10)*60）= 实际让利 1110
+		// 超出件保留会员价 20（身份常态权益不剥夺），订单超出行按此成交
+		assertEquals(0, override.getRemainderUnitPrice().compareTo(new BigDecimal("20")));
+		// 让利账实一致：会员明细 510（(28.5-20)*60，含首件的基价→会员部分）+ 新人明细增量 10
+		// （(20-10)×优惠件数1）= 520 = 实际成交让利（1710 - (10 + 59×20)）
 		assertEquals(2, result.getDetails().size());
-		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("1110.0")));
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("520.0")));
+	}
+
+	@Test
+	@DisplayName("新人价替换会员价时整船门槛超出件按会员价累计（与订单超出行成交价同口径）")
+	void wholeDiscountBaseUsesRemainderIdentityPriceForPartialNewbie() {
+		String newbie = newbieRules("{\"skuId\":\"sku-1\",\"price\":10}");
+		String whole = "{\"tiers\":[{\"minAmount\":85,\"discountAmount\":5}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				memberActivity("act-member", memberRules("lv-1", "sku-1", "20")),
+				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null, newbie),
+				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null, whole)));
+		memberLevels(3, 2);
+		newbieEligible(true);
+
+		PromotionContextDTO context = context("1", null, null, null);
+		context.setSkuItems(List.of(skuItem("sku-1", 2, "28.5"), skuItem("sku-2", 5, "12")));
+		PromotionCalculationVO result = engine.preview(context);
+		// 门槛基数 = 超出件 1×20（会员价保留）+ sku-2 60 = 80 < 85：不命中；
+		// 若误按基价 28.5 累计则 88.5 ≥ 85 会虚命中
+		assertEquals(0, result.getWholeDiscount().compareTo(BigDecimal.ZERO));
 	}
 
 	@Test
@@ -1005,8 +1052,8 @@ class PromotionEngineTest {
 			.orElseThrow();
 		assertEquals(0, newbie.getUnitPrice().compareTo(new BigDecimal("8")));
 		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, newbie.getActivityType());
-		// 会员明细 510 + 新人明细增量 (20-10)*60 + (12-8)*5 = 620，合计实际让利 1130
-		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("1130.0")));
+		// 会员明细 510 + 新人明细增量 (20-10)×1 + (12-8)×1 = 14（各 SKU 优惠件数均 1），合计实际让利 524
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("524.0")));
 	}
 
 	@Test

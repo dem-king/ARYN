@@ -12,6 +12,7 @@ import {
   deliveryWayOptions,
 } from '@/sub-pages/utils/delivery-way'
 import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
+import { mergeNewbieSplitRows } from '@/utils/order-item-merge'
 
 interface OrderItem {
   spuId: string
@@ -31,6 +32,8 @@ interface OrderItem {
   couponStackable?: boolean | null
   /** 该行活动是否允许积分抵现（结算接口回填，非表字段）：false=活动禁积分 */
   pointsStackable?: boolean | null
+  /** 新人价拆行合并标记（展示层合并生成）：渲染「首件享新人价」提示 */
+  newbieSplitHint?: boolean
 }
 
 interface Order {
@@ -216,6 +219,20 @@ function activityLabel(goods: OrderItem) {
   return goods.activityType ? (activityTypeLabels.value[goods.activityType] || '') : ''
 }
 
+/**
+ * 展示行：新人价首件优惠在后端按同 SKU 拆「优惠行 + 原价行」落库，
+ * C 端合并回一行并附「首件享新人价」提示（对齐小象超市单行口径，
+ * 管理端仍按两行对账）。非新人价订单原样透传。
+ */
+const displayItems = computed(() =>
+  mergeNewbieSplitRows(localOrder.value.orderItemList || []),
+)
+
+/** 件数按数量求和（拆行合并后不能按行数统计，否则 1 商品 3 件显示「共 2 件」） */
+const displayTotalQuantity = computed(() =>
+  displayItems.value.reduce((sum, item) => sum + Number(item.buyQuantity || 0), 0),
+)
+
 // 监听prop变化以保持同步
 watch(() => props.order, (newOrder) => {
   localOrder.value = { ...newOrder }
@@ -333,7 +350,7 @@ function saveRemark() {
     <!-- 卡一：商品清单 -->
     <view class="section-card">
       <view
-        v-for="(goods, goodsIndex) in localOrder.orderItemList"
+        v-for="(goods, goodsIndex) in displayItems"
         :key="goodsIndex"
         class="goods-row"
       >
@@ -362,6 +379,9 @@ function saveRemark() {
           </view>
           <text v-if="goods.specsInfo" class="goods-row__specs">
             {{ goods.specsInfo }}
+          </text>
+          <text v-if="goods.newbieSplitHint" class="goods-row__split-hint">
+            {{ t('checkout.goods.newbieSplitHint') }}
           </text>
           <view class="goods-row__price-line">
             <view class="goods-row__price">
@@ -498,7 +518,7 @@ function saveRemark() {
         <wd-switch v-if="!pointsBlockReason" :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
       </view>
       <view class="fee-card__total">
-        <wd-text size="24rpx" color="#86909c" :text="t('checkout.goods.count', { count: localOrder.orderItemList.length })" />
+        <wd-text size="24rpx" color="#86909c" :text="t('checkout.goods.count', { count: displayTotalQuantity })" />
         <view class="fee-card__total-amount">
           <text class="fee-card__total-label">
             {{ t('checkout.footer.total') }}
@@ -734,6 +754,14 @@ function saveRemark() {
   line-height: 32rpx;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 新人价拆行合并提示：解释「数量里含按原价结算的件」，颜色与活动提示同系 */
+.goods-row__split-hint {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: var(--wot-color-theme-primary, #ff2e4d);
+  line-height: 30rpx;
 }
 
 .goods-row__price-line {

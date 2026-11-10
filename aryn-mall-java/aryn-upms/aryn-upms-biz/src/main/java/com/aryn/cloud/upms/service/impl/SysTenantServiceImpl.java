@@ -65,6 +65,8 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 
 	private final CacheManager cacheManager;
 
+	private final ISysCopyrightConfigService sysCopyrightConfigService;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveTenant(SysTenant sysTenant) {
@@ -238,6 +240,7 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (!sessionsRevoked && isAccessClosed(effective)) {
 			revokeSessionsAfterCommit(existing.getId(), "租户停用或授权到期");
 		}
+		evictCopyrightBrandCacheAfterCommit(existing.getId());
 		return true;
 	}
 
@@ -512,6 +515,23 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 
 	private boolean isPlatformTenant(SysTenant tenant) {
 		return tenant != null && CommonConstants.TENANT_TYPE_PLATFORM.equals(tenant.getTenantType());
+	}
+
+	/**
+	 * 版权配置的名称/Logo 留空时跟随租户品牌，且下发值带缓存；租户改名或换 Logo 后
+	 * 必须失效缓存，否则登录页与页脚会在 TTL 内继续显示旧品牌。
+	 */
+	private void evictCopyrightBrandCacheAfterCommit(String tenantId) {
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					sysCopyrightConfigService.evictTenantRenderCache(tenantId);
+				}
+			});
+			return;
+		}
+		sysCopyrightConfigService.evictTenantRenderCache(tenantId);
 	}
 
 	private void revokeSessionsAfterCommit(String tenantId, String reason) {

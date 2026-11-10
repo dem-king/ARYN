@@ -56,6 +56,8 @@ class PublicEndpointWhitelistContractTest {
 			"/sms/1/13800000000",
 			// 租户门店信息
 			"/app/tenant/shop-info",
+			// 版权配置（三端登录页/页脚免登读取）
+			"/app/copyright-config",
 			// 商品域：分类树 / 品牌列表与品牌筛选项 / 商品列表与详情 / 快捷加购 / 搜索联想
 			"/app/goodscategory/tree",
 			"/app/goodsbrand/list",
@@ -104,6 +106,8 @@ class PublicEndpointWhitelistContractTest {
 			"/app/footprint",
 			"/app/userinfo",
 			"/app/distribution/center",
+			// 版权配置的管理端读写接口不得因免登下发接口被顺带放开
+			"/copyright-config",
 			"/mall-order/app/shopping-cart/page");
 
 	/**
@@ -205,6 +209,31 @@ class PublicEndpointWhitelistContractTest {
 		assertThat(sql).doesNotContain("'    - /promotion/app/**");
 		// 锚点失效时必须由结尾自检暴露，不能「执行成功但内容没改」
 		assertThat(sql).contains("registered_discount_price_public_count");
+	}
+
+	@Test
+	void copyrightConfigIsPublicInBothCloudPrefixesWithExactBootRoute() throws IOException {
+		// 版权配置免登下发：cloud 直连前缀与 boot 兼容前缀都要放行，且 boot 兼容路由必须精确
+		// （写成 /boot/app/** 会抢走其他域接口）。存量环境靠 231 号增量脚本升级。
+		String seed = Files.readString(projectRoot.resolve("db/cloud/3aryn_nacos.sql"));
+		List<String> whitelist = yamlUrlEntries(gatewayConfigContent(seed));
+		assertThat(matchesAny(whitelist, "/upms/app/copyright-config"))
+				.as("cloud 网关应放行 /upms/app/copyright-config，实际解析到：%s", whitelist).isTrue();
+		assertThat(matchesAny(whitelist, "/boot/app/copyright-config"))
+				.as("cloud 网关应放行 boot 兼容前缀 /boot/app/copyright-config").isTrue();
+		assertThat(whitelist).as("boot 兼容白名单不得用域级通配一把放开")
+				.doesNotContain("/boot/app/**");
+
+		Path script = projectRoot.resolve("db/cloud/231copyright_config_nacos.sql");
+		assertThat(script).exists();
+		String sql = Files.readString(script);
+		assertThat(sql).contains("'aryn-gateway-dev.yml'");
+		assertThat(sql).contains("/upms/app/copyright-config");
+		assertThat(sql).contains("/boot/app/copyright-config");
+		assertThat(sql).contains("Path=/boot/app/copyright-config");
+		assertThat(sql).contains("`md5` = MD5(@gateway_content)");
+		assertThat(sql).contains("sys_copyright_config");
+		assertThat(sql).doesNotContain("Path=/boot/app/**");
 	}
 
 	private List<String> bootWhitelist() throws IOException {

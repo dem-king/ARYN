@@ -42,7 +42,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 新人专享「指定 SKU 新人价」查询契约测试。
+ * 新人专享 C 端接口契约测试：指定 SKU 新人价 + 楼层登录态资格。
  *
  * <p>接口 {@code GET /app/newbie/prices} 供商详 / 购物车使用，语义核心有三条，本类逐条守住：
  * <ol>
@@ -56,6 +56,10 @@ import static org.mockito.Mockito.when;
  *
  * <p>另守住请求上限 {@code MAX_PRICE_QUERY_SKUS}：批量查价只取前 200 个 SKU 查商品，
  * 防止请求体放大成慢查询（超出部分静默忽略，只影响价格标注、不影响下单）。
+ *
+ * <p>楼层接口 {@code GET /app/newbie/current} 的资格是「可见性」而非「出价」：
+ * eligible=false 时商品列表仍照常返回（专享页据此区分无活动/仅限新人，管理端预览同接口），
+ * 未登录不下发资格且绝不触发远程判定，远程异常 fail-closed 但不阻断楼层返回。
  */
 class NewbieActivityServiceTest {
 
@@ -329,7 +333,7 @@ class NewbieActivityServiceTest {
 				activity("act-2", newbieRules(30, 1, "sku-1", "9.9"))));
 		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
 
-		AppNewbieFloorVO floor = service.getCurrentFloor();
+		AppNewbieFloorVO floor = service.getCurrentFloor(null);
 		AppNewbiePriceVO price = service.getSkuPrices(List.of("sku-1"), USER);
 
 		assertNotNull(floor);
@@ -342,7 +346,7 @@ class NewbieActivityServiceTest {
 
 		// 全部活动都不可用时：两个出口都返回 null（同一「无可用活动」语义）
 		when(activityMapper.selectList(any())).thenReturn(List.of(activity("act-broken", "{broken json")));
-		assertNull(service.getCurrentFloor());
+		assertNull(service.getCurrentFloor(null));
 		assertNull(service.getSkuPrices(List.of("sku-1"), USER));
 	}
 
@@ -356,13 +360,13 @@ class NewbieActivityServiceTest {
 						+ "\"skus\":[{\"skuId\":\"sku-1\",\"price\":9.9}]}")));
 		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
 
-		AppNewbieFloorVO longTerm = service.getCurrentFloor();
+		AppNewbieFloorVO longTerm = service.getCurrentFloor(null);
 		assertNotNull(longTerm);
 		assertTrue(Boolean.TRUE.equals(longTerm.getLongTerm()));
 
 		when(activityMapper.selectList(any())).thenReturn(List.of(
 				activity("act-normal", newbieRules(30, 1, "sku-1", "9.9"))));
-		AppNewbieFloorVO normal = service.getCurrentFloor();
+		AppNewbieFloorVO normal = service.getCurrentFloor(null);
 		assertNotNull(normal);
 		assertFalse(Boolean.TRUE.equals(normal.getLongTerm()));
 	}
@@ -381,11 +385,86 @@ class NewbieActivityServiceTest {
 				activity("act-subtitle", newbieRules(30, 1, "sku-1", "9.9"))));
 		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(goodsSku));
 
-		AppNewbieFloorVO floor = service.getCurrentFloor();
+		AppNewbieFloorVO floor = service.getCurrentFloor(null);
 
 		assertNotNull(floor);
 		assertEquals("黄豆芽500g", floor.getGoodsList().get(0).getGoodsName());
 		assertEquals("鲜嫩爽脆，炒菜凉拌皆宜", floor.getGoodsList().get(0).getSubTitle());
+	}
+
+	// ==== 用例 16：楼层登录态资格（对已登录老客隐藏入口） ====
+
+	@Test
+	@DisplayName("未登录楼层不下发资格，且不为判定资格调用远程买家画像")
+	void anonymousFloorSkipsEligibilityCheck() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-1", newbieRules(30, 1, "sku-1", "9.9"))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+
+		AppNewbieFloorVO anonymous = service.getCurrentFloor(null);
+		assertNotNull(anonymous);
+		assertNull(anonymous.getEligible());
+		assertNull(anonymous.getIneligibleReason());
+
+		AppNewbieFloorVO blankUser = service.getCurrentFloor("");
+		assertNotNull(blankUser);
+		assertNull(blankUser.getEligible());
+
+		verify(buyerProfileService, never()).checkNewbieEligibility(any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("已登录且资格通过时楼层下发 eligible=true")
+	void eligibleFloorMarksEligible() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-1", newbieRules(30, 1, "sku-1", "9.9"))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+		when(buyerProfileService.checkNewbieEligibility(any(), eq(USER), eq(30)))
+			.thenReturn(eligibility(true, null));
+
+		AppNewbieFloorVO floor = service.getCurrentFloor(USER);
+
+		assertNotNull(floor);
+		assertTrue(floor.getEligible());
+		assertNull(floor.getIneligibleReason());
+		// 注册时效取自活动 rules，与商详/下单链判定同一口径
+		verify(buyerProfileService).checkNewbieEligibility(any(), eq(USER), eq(30));
+	}
+
+	@Test
+	@DisplayName("已登录老客楼层 eligible=false 且商品列表照常返回（专享页据此区分仅限新人）")
+	void ineligibleFloorKeepsGoodsForBlockedState() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-1", newbieRules(30, 1, "sku-1", "9.9"))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+		when(buyerProfileService.checkNewbieEligibility(any(), eq(USER), any()))
+			.thenReturn(eligibility(false, "ALREADY_PAID"));
+
+		AppNewbieFloorVO floor = service.getCurrentFloor(USER);
+
+		assertNotNull(floor);
+		assertFalse(floor.getEligible());
+		assertEquals("ALREADY_PAID", floor.getIneligibleReason());
+		// 商品列表不因不合格清空：前端需要它区分「无活动」与「仅限新人」，
+		// 管理端装修预览也走同一接口
+		assertEquals(1, floor.getGoodsList().size());
+	}
+
+	@Test
+	@DisplayName("楼层资格查询异常 fail-closed：eligible=false、原因 ERROR，活动仍返回")
+	void floorEligibilityErrorFailsClosed() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-1", newbieRules(30, 1, "sku-1", "9.9"))));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+		when(buyerProfileService.checkNewbieEligibility(any(), any(), any()))
+			.thenThrow(new RuntimeException("dubbo timeout"));
+
+		AppNewbieFloorVO floor = assertDoesNotThrow(() -> service.getCurrentFloor(USER));
+
+		assertNotNull(floor);
+		assertFalse(floor.getEligible());
+		assertEquals("ERROR", floor.getIneligibleReason());
+		assertEquals(1, floor.getGoodsList().size());
 	}
 
 	// ==== 用例 15：独立专享页的返回条数 ====
@@ -406,13 +485,13 @@ class NewbieActivityServiceTest {
 		when(goodsSkuService.getBySkuIds(any())).thenReturn(skus);
 
 		// 不传 limit 的既有楼层接口保持 20 条上限
-		assertEquals(20, service.getCurrentFloor().getGoodsList().size());
+		assertEquals(20, service.getCurrentFloor(null).getGoodsList().size());
 		// 独立专享页按请求条数取
-		assertEquals(200, service.getCurrentFloor(200).getGoodsList().size());
+		assertEquals(200, service.getCurrentFloor(200, null).getGoodsList().size());
 		// 上限 200：请求更大的条数或负数都不会放大响应体/返回空
-		assertEquals(200, service.getCurrentFloor(9999).getGoodsList().size());
+		assertEquals(200, service.getCurrentFloor(9999, null).getGoodsList().size());
 		// 非正数按至少 1 条处理，不返回空列表
-		assertEquals(1, service.getCurrentFloor(0).getGoodsList().size());
+		assertEquals(1, service.getCurrentFloor(0, null).getGoodsList().size());
 	}
 
 	// ==== 测试数据构造 ====

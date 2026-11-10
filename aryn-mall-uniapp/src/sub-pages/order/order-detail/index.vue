@@ -18,6 +18,7 @@ import {
 import { useDict } from '@/sub-pages/utils/dict'
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { customerServiceRoute } from '@/utils/message'
+import { annotateNewbieSplitRows } from '@/utils/order-item-merge'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -48,6 +49,12 @@ const router = useRouter()
 const state = reactive<{ order: any }>({
   order: {},
 })
+
+/**
+ * 新人价首件优惠拆行展示：保留逐行（退款按行 id 提交，不能合并孤儿化入口），
+ * 仅给拆行组打「首件/超出件」标注，避免同 SKU 两行被误认为重复加购。
+ */
+const displayItems = computed<any[]>(() => annotateNewbieSplitRows<any>(state.order.orderItemList || []))
 
 // 字典标签由后端下发中文，页面按状态码映射到当前语言；未知状态保留后端原文
 const ORDER_ITEM_STATUS_LABEL_KEYS: Record<string, string> = {
@@ -380,7 +387,7 @@ onPageScroll(handlePageScroll)
     <!-- 商品清单：无地址卡（自提等）时由它压盖页头 -->
     <view class="od-card" :class="{ 'od-card--overlap': heroOverlapCard }">
       <view
-        v-for="(item, index) in state.order.orderItemList"
+        v-for="(item, index) in displayItems"
         :key="index"
         class="od-item"
         :class="{ 'od-item--divided': index > 0 }"
@@ -409,6 +416,13 @@ onPageScroll(handlePageScroll)
                   {{ t('order.detail.boughtFor', { name: item.contributorName }) }}
                 </text>
               </view>
+              <!-- 新人价首件优惠拆行标注：解释同 SKU 两行，不是重复加购 -->
+              <text v-if="item.newbieSplitHint" class="od-item__split-hint">
+                {{ t('checkout.goods.newbieFirstUnitHint') }}
+              </text>
+              <text v-else-if="item.newbieRemainderHint" class="od-item__split-hint">
+                {{ t('checkout.goods.newbieRemainderHint') }}
+              </text>
             </view>
             <view class="od-item__price-wrap">
               <price-text
@@ -938,6 +952,13 @@ $hairline: var(--app-border);
 .od-item__contributor-text {
   font-size: 22rpx;
   color: #185fa5;
+}
+
+.od-item__split-hint {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: $ink-3;
 }
 
 .od-item__price-wrap {

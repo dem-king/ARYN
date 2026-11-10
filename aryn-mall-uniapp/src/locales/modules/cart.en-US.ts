@@ -37,7 +37,8 @@ export default {
 
     // Price badges and hints
     newbieBadge: 'Newcomer',
-    newbieLimitHint: 'Newcomer price: limit {count} per person',
+    newbieLimitHint: 'Newcomer price: limit {count} per person, extra units at sales price',
+    newbieOverLimitHint: 'Over {count}: ¥{price} per unit',
     memberBadge: 'Member',
     memberGuide: 'Members only ¥{price}',
     clearanceBadge: 'Clearance Price',

@@ -14,12 +14,13 @@ import {
   Notification,
   UserDropdown,
 } from '@vben/layouts';
-import { preferences } from '@vben/preferences';
+import { preferences, updatePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { Monitor, User } from '@element-plus/icons-vue';
 import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
 
+import { getPublicCopyrightConfig } from '#/api/upms/copyright-config';
 import { auditTenantSwitch, getList, getShopInfo } from '#/api/upms/tenant';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
@@ -31,6 +32,7 @@ import {
   subscribeServiceDesk,
 } from '#/store/service-window';
 
+import BrandAboutModalContent from './brand-about-modal.vue';
 import LoginDevicesModalContent from './login-devices-modal.vue';
 import SessionInvalidModal from './session-invalid-modal.vue';
 import { resolveAdminBrand } from './tenant-brand';
@@ -48,6 +50,17 @@ const { destroyWatermark, updateWatermark } = useWatermark();
  */
 const [LoginDevicesModal, loginDevicesModalApi] = useVbenModal({
   connectedComponent: LoginDevicesModalContent,
+  destroyOnClose: true,
+});
+
+/**
+ * 左上角品牌「关于」弹窗。
+ *
+ * 全站页脚按 SaaS 控制台口径关闭后，商户端版权/备案信息收进品牌入口：
+ * 点击左上角名称随时可查，不占页面底部空间；Logo 点击仍回首页。
+ */
+const [BrandAboutModal, brandAboutModalApi] = useVbenModal({
+  connectedComponent: BrandAboutModalContent,
   destroyOnClose: true,
 });
 
@@ -88,6 +101,19 @@ const brand = computed(() =>
   resolveAdminBrand(currentTenantId.value, tenantShopInfo.value),
 );
 
+function handleLogoClick() {
+  void router.push(preferences.app.defaultHomePath);
+}
+
+function openBrandAbout() {
+  brandAboutModalApi
+    .setData({
+      logo: brand.value.logo || preferences.logo.source,
+      name: brand.value.name || preferences.app.name,
+    })
+    .open();
+}
+
 // 平台租户未切换时 currentTenantId 为空，继续使用平台品牌；其余场景按当前租户取品牌
 if (currentTenantId.value) {
   getShopInfo()
@@ -98,6 +124,32 @@ if (currentTenantId.value) {
       tenantShopInfo.value = null;
     });
 }
+
+/**
+ * 登录后版权改由服务端配置驱动（商户端）。
+ *
+ * 全站页脚已按 SaaS 口径关闭，商户端版权展示在「个人信息」页底部与
+ * 左上角品牌「关于」弹窗；这里把服务端值同步进偏好。
+ * 失败时保持 app 级默认（/packages/preferences），不影响后台可用性。
+ * 年份取当前年：存量默认值写死 2025，跨年就会显示过期年份。
+ */
+getPublicCopyrightConfig('merchant', { withToken: true })
+  .then((config) => {
+    if (!config) return;
+    updatePreferences({
+      copyright: {
+        companyName: config.copyrightText || config.name || '',
+        companySiteLink: config.copyrightLink || '',
+        date: String(new Date().getFullYear()),
+        enable: true,
+        icp: config.icp || '',
+        icpLink: config.icpLink || '',
+      },
+    });
+  })
+  .catch(() => {
+    // 拉取失败沿用默认版权
+  });
 
 const avatar = computed(() => {
   return userStore.userInfo?.avatar?.trim() || undefined;
@@ -240,7 +292,17 @@ function handleViewAllNotices() {
     :app-name="brand.name"
     :logo-source="brand.logo"
     @clear-preferences-and-logout="handleLogout"
+    @click-logo="handleLogoClick"
   >
+    <!-- 名称与 Logo 分工：名称点击看「关于」，Logo 点击回首页 -->
+    <template #logo-text>
+      <span
+        class="text-foreground truncate text-nowrap font-semibold transition-opacity hover:opacity-80"
+        @click.stop="openBrandAbout"
+      >
+        {{ brand.name || preferences.app.name }}
+      </span>
+    </template>
     <template #tenant-select>
       <ElTour v-model="openTour">
         <ElTourStep
@@ -298,6 +360,8 @@ function handleViewAllNotices() {
       <SessionInvalidModal />
       <!-- 登录设备：活跃会话 + 最近登录记录，非当前会话可下线 -->
       <LoginDevicesModal />
+      <!-- 品牌关于：版权/备案信息，入口是左上角 Logo 或名称 -->
+      <BrandAboutModal />
     </template>
     <template #lock-screen>
       <LockScreen :avatar @to-login="handleLogout" />

@@ -21,6 +21,8 @@ export default {
       perksNoRegister: 'New user price · Limit {limit} per item',
       emptyTitle: 'No new user event yet',
       emptyDesc: 'New offers will appear here. Browse something else first.',
+      ineligibleTitle: 'New user offer only',
+      ineligibleDesc: 'This offer is for new users only. Explore other items.',
       footNote: 'Eligibility and purchase limits are confirmed at checkout',
     },
     discount: {

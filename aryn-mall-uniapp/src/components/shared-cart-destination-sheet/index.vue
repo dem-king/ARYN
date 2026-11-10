@@ -25,6 +25,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { pendingChoice, useCartDestination } from '@/composables/useCartDestination'
+import { mixedLineSubtotal, trimPrice } from '@/utils/newbie-price'
 import { normalizeQuantity } from '@/utils/quick-cart'
 import {
   CART_STATUS_CLOSED,
@@ -124,13 +125,26 @@ const unitPrice = computed(() => {
   const price = Number(pendingChoice.value?.payload.unitPrice)
   return Number.isFinite(price) && price > 0 ? price : null
 })
+/** 每人优惠件数（新人价每人限购 N 件）；空表示不限（单价 × 数量） */
+const newbieLimit = computed(() => toPositiveInt(pendingChoice.value?.payload.maxQuantity))
+/** 超出优惠件数后的销售单价（新人价 SKU 的售价） */
+const overLimitUnitPrice = computed(() => {
+  const price = Number(pendingChoice.value?.payload.originalPrice)
+  return Number.isFinite(price) && price > 0 ? price : null
+})
+/**
+ * 小计：优惠件数内按成交单价，超出件按销售价（与后端拆行结算同一口径）。
+ * 首件新人价 + 其余按销售价的混价在这里算清，不让用户到结算页才发现总价跳变。
+ */
 const subtotalText = computed(() => {
   if (unitPrice.value === null)
     return ''
   const quantity = Number(quantityInput.value)
   if (!Number.isFinite(quantity) || quantity <= 0)
     return ''
-  return (unitPrice.value * quantity).toFixed(2)
+  const limit = newbieLimit.value
+  const overPrice = overLimitUnitPrice.value
+  return mixedLineSubtotal(unitPrice.value, overPrice ?? unitPrice.value, limit, quantity).toFixed(2)
 })
 
 const ruleHint = computed(() => {
@@ -151,8 +165,22 @@ const ruleHint = computed(() => {
   return parts.join(' · ')
 })
 
-/** 活动限购说明（如「新人专享价每人限购 1 件」）；无活动限制时为空串 */
-const quantityHint = computed(() => pendingChoice.value?.payload.quantityHint || '')
+/**
+ * 限购说明：数量未超优惠件数时显示活动限购说明（如「新人专享价每人限购 1 件，
+ * 超出按销售价」），超限后切换为小象式超限提示（「超过 1 件，按 ¥5.9/件算」）。
+ */
+const quantityHint = computed(() => {
+  const base = pendingChoice.value?.payload.quantityHint || ''
+  const limit = newbieLimit.value
+  const overPrice = overLimitUnitPrice.value
+  if (limit === null || overPrice === null)
+    return base
+  const quantity = Number(quantityInput.value)
+  if (Number.isFinite(quantity) && quantity > limit) {
+    return t('cart.newbieOverLimitHint', { count: limit, price: trimPrice(overPrice) })
+  }
+  return base
+})
 
 function toPositiveInt(value: unknown): number | null {
   const parsed = Math.floor(Number(value))
@@ -160,15 +188,16 @@ function toPositiveInt(value: unknown): number | null {
 }
 
 /**
- * 数量上限：库存与本次加购的活动限购取小。
+ * 数量上限：库存封顶；仅当活动限购为硬性上限（秒杀 capQuantity=true）时再取小。
  *
- * 新人价每人每 SKU 限购 1 件，超量不是「恢复原价」而是整单被后端拒绝
- * （OrderPriceComputeService.assertNewbieQuantityLimit），因此必须在加购确认
- * 这一步就封顶，不能让用户加 2 件到提交订单才看到失败。
+ * 新人价 2026-11-08 放宽限购后超出优惠件数的部分由后端按销售价拆行结算
+ * （不再整单拒绝），活动限购不参与封顶，只用于提示与混价小计。
  */
 const quantityLimit = computed(() => {
   const stock = rule.value?.stock ?? null
-  const activityLimit = toPositiveInt(pendingChoice.value?.payload.maxQuantity)
+  const activityLimit = pendingChoice.value?.payload.capQuantity === true
+    ? toPositiveInt(pendingChoice.value?.payload.maxQuantity)
+    : null
   if (stock === null)
     return activityLimit
   if (activityLimit === null)
@@ -176,7 +205,7 @@ const quantityLimit = computed(() => {
   return Math.min(stock, activityLimit)
 })
 
-/** 归一化用规则：把活动限购折进库存上限，与后端校验同一口径 */
+/** 归一化用规则：硬性限购折进库存上限，与后端校验同一口径 */
 const normalizeRule = computed<QuantityRule | null>(() => {
   if (!rule.value)
     return null

@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-08
+-- 生成日期: 2026-11-10
 
 -- ============================================================================
 -- 创建数据库
@@ -100,6 +100,8 @@ DROP TABLE IF EXISTS `replenish_direct_import_row`;
 DROP TABLE IF EXISTS `stat_daily_spu_sales`;
 -- SKU 每日价格快照（216goods_sku_price_daily_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS `goods_sku_price_daily`;
+-- 版权配置（219copyright_config_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `sys_copyright_config`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -31721,5 +31723,400 @@ SELECT COUNT(*) AS unchanged_should_be_0 FROM `goods_spu` WHERE (`id` = '9740000
 SELECT `id`, `name` FROM `goods_spu`
 WHERE `id` BETWEEN '9740000000000000001' AND '9740000000000000302' AND `del_flag` = '0'
   AND `name` NOT REGEXP '[0-9]+(g|kg|ml|L|只|枚|个|盒|袋|包|份|条|罐|瓶|卷|支|根|串|颗|片|桶|杯|筒|副|盘|本|张|抽|度|m)|装|套|卷';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 版权配置数据模型
+-- Source: db/boot/219copyright_config_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 版权配置 — 数据模型（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-10 需求「版权配置可配置化」）：
+--   三端版权/品牌/备案信息此前全部写死在前端：管理端 packages/preferences 的
+--   copyright（公司名/官网/年份写死 2025）、登录页语言包 copyrightName、C 端登录页
+--   内联 copyright ref 与 locales 的「天启雨数版权所有」。改一次版权要发版，且
+--   ICP 备案号无处可填。本次收敛为租户级配置表，一行一端：
+--     app      用户端（C 端商城小程序/H5 登录页）
+--     merchant 商户端（管理后台登录后页脚）
+--     platform 平台端（管理后台登录页，登录前无会话，固定取平台租户配置）
+--   名称与 Logo 留空表示跟随租户品牌（sys_tenant.name/logoUrl），避免顶栏与页脚
+--   出现两套品牌；版权信息/链接/ICP 是本次新增的独立信息。
+--
+-- 权限口径：app 由各租户自己维护；merchant/platform 属平台级配置，仅平台管理员
+--   可读写（Controller 侧 PlatformTenantGuard 校验，菜单侧拆两个页面权限）。
+--
+-- 特性：可重复执行；CREATE TABLE IF NOT EXISTS，不 DROP/TRUNCATE 存量数据。
+-- 与 cloud 版一致性：本脚本与 db/cloud/229copyright_config_incremental.sql 内容一致，仅目标库不同。
+-- 配套：菜单与种子见 db/boot/220copyright_config_menu.sql；
+--       租户表白名单见 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables。
+-- 执行：mysql -u root -p aryn_boot < 219copyright_config_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、sys_copyright_config 版权配置表（租户级，一行一端）
+--
+-- 唯一键 (tenant_id, client_type)：同一租户同一端只有一条配置，保存走 upsert。
+-- 本表不做逻辑删除入口（配置只改不删），del_flag 仅为与全库口径一致而保留。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `sys_copyright_config` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `client_type` varchar(16) NOT NULL COMMENT '端类型：app 用户端；merchant 商户端；platform 平台端',
+  `logo_url` varchar(500) DEFAULT NULL COMMENT 'Logo（留空跟随租户品牌 sys_tenant.logo_url）',
+  `name` varchar(30) DEFAULT NULL COMMENT '名称（留空跟随租户品牌 sys_tenant.name）',
+  `copyright_text` varchar(100) DEFAULT NULL COMMENT '版权信息',
+  `copyright_link` varchar(500) DEFAULT NULL COMMENT '版权链接（http/https 或站内相对路径）',
+  `icp` varchar(100) DEFAULT NULL COMMENT 'ICP备案号',
+  `icp_link` varchar(500) DEFAULT NULL COMMENT 'ICP网站链接（http/https 或站内相对路径）',
+  `login_title` varchar(60) DEFAULT NULL COMMENT '登录页标题（仅平台端）',
+  `login_subtitle` varchar(128) DEFAULT NULL COMMENT '登录页副标题（仅平台端）',
+  `login_icon` varchar(500) DEFAULT NULL COMMENT '登录页图标（仅平台端）',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户 ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '修改时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_copyright_tenant_client` (`tenant_id`, `client_type`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '版权配置' ROW_FORMAT = DYNAMIC;
+
+-- 自检：表存在且唯一键就位（期望 table_rows=1、unique_key_rows=1）
+SELECT
+  (SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = 'sys_copyright_config') AS table_rows,
+  (SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'sys_copyright_config'
+      AND index_name = 'uk_copyright_tenant_client') AS unique_key_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 版权配置菜单权限与品牌种子
+-- Source: db/boot/220copyright_config_menu.sql
+-- ============================================================================
+-- ============================================================================
+-- 版权配置 — 菜单、权限与品牌种子（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-10 需求「版权配置可配置化」）：表见 219copyright_config_incremental.sql。
+--   权限按「平台管两端、租户管用户端」拆成两个页面，共用同一组件（读 route.path 判作用域）：
+--     /platform/copyright-config  平台管理 → 版权配置（商户端 + 平台端两个 Tab，仅平台管理员）
+--     /system/copyright-config    系统设置 → 版权配置（只有用户端，各租户自己维护）
+--   拆两个菜单而不是一个页面按身份隐藏 Tab：菜单可见性 = 角色菜单 ∩ 租户菜单，
+--   平台专属应用 sys_key 不会随套餐下发给租户，租户天然只看到用户端入口。
+--
+-- 菜单（固定 ID，已确认 db/boot 与 db/cloud 全脚本无 220 前缀冲突）：
+--   2200000000000000100 平台版权（父=平台管理 1881217134381326338，sys_key）
+--   2200000000000000101 平台版权查询 upms:copyright:platform:get
+--   2200000000000000102 平台版权修改 upms:copyright:platform:edit
+--   2200000000000000110 版权配置（租户，父=系统设置 10001，app_base）
+--   2200000000000000111 版权配置查询（租户）upms:copyright:get
+--   2200000000000000112 版权配置修改（租户）upms:copyright:edit
+--
+-- 种子：把当前写死在前端的品牌/版权文案落库，保证上线当天三端展示与改造前一致；
+--   名称与 Logo 一律留空（跟随租户品牌），年份不入库（渲染时取当前年，避免再写死过期年份）。
+--   全部 INSERT IGNORE / 条件写入，可重复执行且不覆盖运营后续修改。
+--
+-- 注意：菜单/权限在登录时快照到会话，执行后需清理 Redis `menu_cache::*` 并重新登录才可见。
+-- 执行：mysql -u root -p aryn_boot < 220copyright_config_menu.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单与按钮（固定 ID，INSERT IGNORE 幂等）
+-- ============================================================================
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2200000000000000100','平台版权','upms:copyright:platform:get','/platform/copyright-config',NULL,'1881217134381326338','carbon:certificate','upms/copyright-config/index',105,'0',NOW(),'0','0','sys_key','system'),
+('2200000000000000101','平台版权查询','upms:copyright:platform:get',NULL,NULL,'2200000000000000100','','',1,'1',NOW(),'0','0','sys_key','system'),
+('2200000000000000102','平台版权修改','upms:copyright:platform:edit',NULL,NULL,'2200000000000000100','','',2,'1',NOW(),'0','0','sys_key','system');
+
+-- 租户入口挂在「系统设置」10001 下（与文件存储配置/素材中心同级，属租户自己的品牌设置）
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2200000000000000110','版权配置','upms:copyright:get','/system/copyright-config',NULL,'10001','carbon:certificate','upms/copyright-config/index',16,'0',NOW(),'0','0','app_base','system'),
+('2200000000000000111','版权配置查询','upms:copyright:get',NULL,NULL,'2200000000000000110','','',1,'1',NOW(),'0','0','app_base','system'),
+('2200000000000000112','版权配置修改','upms:copyright:edit',NULL,NULL,'2200000000000000110','','',2,'1',NOW(),'0','0','app_base','system');
+
+-- ============================================================================
+-- 二、平台菜单授权（平台管理员走 listAllMenus，无需授权行；此处只补平台租户可见性）
+-- ============================================================================
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(t.`id`, ':menu:', m.`id`)), t.`id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant` t
+JOIN `sys_menu` m ON m.`id` IN ('1881217134381326338',
+                               '2200000000000000100','2200000000000000101','2200000000000000102')
+  AND m.`del_flag` = '0'
+WHERE t.`tenant_type` = '1' AND t.`del_flag` = '0';
+
+-- ============================================================================
+-- 三、租户菜单授权（按「文件存储配置」推导：能管存储配置的角色/租户即可管自己的用户端版权）
+-- ============================================================================
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', m.`id`)), receiver.`role_id`, m.`id`, NOW(), receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` = '1491948958826921986') receiver
+JOIN `sys_menu` m ON m.`id` IN ('2200000000000000110','2200000000000000111','2200000000000000112')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', m.`id`)), receiver.`tenant_id`, m.`id`, NOW(), 'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` = '1491948958826921986') receiver
+JOIN `sys_menu` m ON m.`id` IN ('2200000000000000110','2200000000000000111','2200000000000000112')
+  AND m.`del_flag` = '0';
+
+-- 祖先容器补齐：父容器缺失时管理端菜单树会丢弃整棵子树，入口静默消失
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', ancestor.`id`)), receiver.`role_id`, ancestor.`id`, NOW(), receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` LIKE '220000000000000011%') receiver
+JOIN `sys_menu` child ON child.`id` = '2200000000000000110' AND child.`del_flag` = '0'
+JOIN `sys_menu` ancestor ON ancestor.`id` = child.`parent_id` AND ancestor.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', ancestor.`id`)), receiver.`tenant_id`, ancestor.`id`, NOW(), 'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` LIKE '220000000000000011%') receiver
+JOIN `sys_menu` child ON child.`id` = '2200000000000000110' AND child.`del_flag` = '0'
+JOIN `sys_menu` ancestor ON ancestor.`id` = child.`parent_id` AND ancestor.`del_flag` = '0';
+
+-- ============================================================================
+-- 四、品牌种子（与改造前前端写死值一致；名称/Logo 留空跟随租户品牌）
+--
+-- 平台租户取 tenant_type='1'（196 号脚本后为悦航购），不写死租户 ID。
+-- 用户端按租户逐个铺：版权文案沿用 C 端语言包现值，租户改过之后本脚本不再覆盖。
+-- ============================================================================
+SET @platform_tenant_id = (
+  SELECT `id` FROM `sys_tenant` WHERE `tenant_type` = '1' AND `del_flag` = '0'
+  ORDER BY `create_time`, `id` LIMIT 1
+);
+
+INSERT IGNORE INTO `sys_copyright_config`
+(`id`,`client_type`,`logo_url`,`name`,`copyright_text`,`copyright_link`,`icp`,`icp_link`,
+ `login_title`,`login_subtitle`,`login_icon`,`del_flag`,`tenant_id`,`create_by`,`create_time`,`update_time`)
+SELECT MD5(CONCAT(@platform_tenant_id, ':copyright:platform')), 'platform', NULL, NULL,
+       '悦航购 Aetheryn Mall', 'https://www.iaryn.cn', NULL, NULL,
+       '账号登录', '请使用工作账号登录，成功后将进入您所属企业的管理后台。', NULL,
+       '0', @platform_tenant_id, 'system', NOW(), NOW()
+WHERE @platform_tenant_id IS NOT NULL;
+
+INSERT IGNORE INTO `sys_copyright_config`
+(`id`,`client_type`,`logo_url`,`name`,`copyright_text`,`copyright_link`,`icp`,`icp_link`,
+ `login_title`,`login_subtitle`,`login_icon`,`del_flag`,`tenant_id`,`create_by`,`create_time`,`update_time`)
+SELECT MD5(CONCAT(@platform_tenant_id, ':copyright:merchant')), 'merchant', NULL, NULL,
+       '悦航购 Aetheryn Mall', 'https://www.iaryn.cn', NULL, NULL,
+       NULL, NULL, NULL, '0', @platform_tenant_id, 'system', NOW(), NOW()
+WHERE @platform_tenant_id IS NOT NULL;
+
+INSERT IGNORE INTO `sys_copyright_config`
+(`id`,`client_type`,`logo_url`,`name`,`copyright_text`,`copyright_link`,`icp`,`icp_link`,
+ `login_title`,`login_subtitle`,`login_icon`,`del_flag`,`tenant_id`,`create_by`,`create_time`,`update_time`)
+SELECT MD5(CONCAT(t.`id`, ':copyright:app')), 'app', NULL, NULL,
+       '天启雨数版权所有', NULL, NULL, NULL,
+       NULL, NULL, NULL, '0', t.`id`, 'system', NOW(), NOW()
+FROM `sys_tenant` t
+WHERE t.`del_flag` = '0';
+
+-- ============================================================================
+-- 五、自检
+--   期望：platform_menu_rows=3、tenant_menu_rows=3、
+--         platform_seed_rows=2、app_seed_rows=租户数
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu`
+    WHERE `id` IN ('2200000000000000100','2200000000000000101','2200000000000000102')
+      AND `del_flag` = '0') AS platform_menu_rows,
+  (SELECT COUNT(*) FROM `sys_menu`
+    WHERE `id` IN ('2200000000000000110','2200000000000000111','2200000000000000112')
+      AND `del_flag` = '0') AS tenant_menu_rows,
+  (SELECT COUNT(*) FROM `sys_copyright_config`
+    WHERE `tenant_id` = @platform_tenant_id AND `client_type` IN ('platform','merchant')) AS platform_seed_rows,
+  (SELECT COUNT(*) FROM `sys_copyright_config` WHERE `client_type` = 'app') AS app_seed_rows,
+  (SELECT COUNT(*) FROM `sys_tenant` WHERE `del_flag` = '0') AS tenant_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 素材默认分组落库
+-- Source: db/boot/221material_default_group_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 素材默认分组落库（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-10 需求「素材中心-分组管理：未分组可改名」）：
+--   「未分组」此前不是真实数据——前端拿到 /upms/materialgroup/page 的结果后
+--   unshift 一条 {id:'-1'} 的虚拟行，并用 v-if="scope.row.id !== '-1'" 把它的操作
+--   按钮整行隐藏，所以这一行永远不能改名；而 sys_material.group_id 的默认值就是
+--   '-1'（DB 注释「分组ID -1.未分组」），这些素材在分组管理里没有任何归属。
+--   本次把「未分组」做成真实分组记录：每租户一条默认分组（is_default='1'），
+--   存量 group_id 为 NULL/''/'-1' 或指向不存在/已逻辑删除分组的素材全部回填到
+--   该租户的默认分组，前端随之去掉虚拟行与按钮隐藏逻辑。
+--
+-- 默认分组 ID 用公式而不是雪花 ID：
+--   MD5(CONCAT('material-default-group:', tenant_id)) → 32 位小写十六进制，
+--   正好等于 id varchar(32)。SQL 与后端 MaterialDefaultGroupSupport#defaultGroupId
+--   必须完全一致，否则「脚本建的」和「懒创建建的」会变成两条默认分组，
+--   命中下面的函数唯一索引后还会让接口 500。
+--
+-- 唯一性：每租户最多一条默认分组，靠函数唯一索引（MySQL 8.0.13+ 支持函数键）：
+--   UNIQUE KEY uk_material_group_default_tenant
+--     ((IF(is_default = '1' AND del_flag = '0', tenant_id, NULL)))
+--   非默认行与已逻辑删除行的键值为 NULL，MySQL 允许多个 NULL，因此不占唯一性；
+--   默认行按 tenant_id 互斥，并发懒创建由该索引兜底（后端捕获 DuplicateKeyException）。
+--
+-- 特性：可重复执行；加列/加索引前先查 information_schema，重复执行是空操作；
+--   种子用 INSERT IGNORE（不覆盖运营已改过的分组名），回填只改 group_id，
+--   不 DROP/TRUNCATE 任何存量数据。
+-- 与 cloud 版一致性：本脚本与 db/cloud/232material_default_group_incremental.sql
+--   内容一致，仅目标库不同。
+-- 配套代码：SysMaterialGroup（isDefault 字段）、SysMaterialGroupServiceImpl
+--   （ensureDefaultGroupId / resolveGroupIdForSave / removeGroup）。
+-- 执行：mysql -u root -p aryn_boot < 221material_default_group_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、sys_material_group 增加 is_default 列
+--   放在 name 之后，与实体字段顺序一致，便于对表排查。
+-- ============================================================================
+SET @material_group_is_default_column_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'sys_material_group'
+    AND column_name = 'is_default'
+);
+SET @material_group_is_default_column_sql := IF(
+  @material_group_is_default_column_exists = 0,
+  'ALTER TABLE `sys_material_group` ADD COLUMN `is_default` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''0'' COMMENT ''是否默认分组：1.是；0.否'' AFTER `name`',
+  'SELECT 1'
+);
+PREPARE material_group_is_default_column_stmt FROM @material_group_is_default_column_sql;
+EXECUTE material_group_is_default_column_stmt;
+DEALLOCATE PREPARE material_group_is_default_column_stmt;
+
+-- ============================================================================
+-- 二、每租户唯一默认分组：函数唯一索引
+--   索引表达式与后端口径一致：只有「未删除的默认分组」参与唯一性，
+--   普通分组与已删除分组取 NULL，互不影响。
+-- ============================================================================
+SET @material_group_default_index_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'sys_material_group'
+    AND index_name = 'uk_material_group_default_tenant'
+);
+SET @material_group_default_index_sql := IF(
+  @material_group_default_index_exists = 0,
+  'ALTER TABLE `sys_material_group` ADD UNIQUE KEY `uk_material_group_default_tenant` ((IF(`is_default` = ''1'' AND `del_flag` = ''0'', `tenant_id`, NULL)))',
+  'SELECT 1'
+);
+PREPARE material_group_default_index_stmt FROM @material_group_default_index_sql;
+EXECUTE material_group_default_index_stmt;
+DEALLOCATE PREPARE material_group_default_index_stmt;
+
+-- 结构自检：列与索引各 1 行（期望 is_default_column_rows=1、default_index_rows=1）
+SELECT
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'sys_material_group'
+      AND column_name = 'is_default') AS is_default_column_rows,
+  (SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'sys_material_group'
+      AND index_name = 'uk_material_group_default_tenant') AS default_index_rows;
+
+-- ============================================================================
+-- 三、为所有租户补默认分组
+--   id 由公式决定，因此 INSERT IGNORE 天然幂等：主键已存在或该租户已有
+--   默认分组（函数唯一索引冲突）时静默跳过，不会覆盖运营改过的分组名。
+--   sys_tenant.del_flag 为 char(1)，取值 '0'.正常 / '1'.隐藏，已按实际列核对。
+-- ============================================================================
+INSERT IGNORE INTO `sys_material_group`
+(`id`, `name`, `create_time`, `sort`, `type`, `tenant_id`, `create_by`, `del_flag`, `is_default`)
+SELECT
+  MD5(CONCAT('material-default-group:', t.`id`)),
+  '未分组',
+  NOW(),
+  0,
+  '1',
+  t.`id`,
+  'system',
+  '0',
+  '1'
+FROM `sys_tenant` AS t
+WHERE t.`del_flag` = '0';
+
+-- ============================================================================
+-- 四、素材回填：改挂到所属租户的默认分组
+--   命中条件（任一）：
+--     1) group_id 为 NULL 或空串；
+--     2) group_id = '-1'（历史虚拟「未分组」）；
+--     3) group_id 指向不存在、已逻辑删除、或属于其它租户的分组（g.id IS NULL）。
+--   只处理租户仍有效的素材（JOIN sys_tenant 且 del_flag='0'）：租户已删除时没有
+--   默认分组可挂，硬写公式 ID 只会造出一条指向不存在分组的脏数据，保持原值更安全。
+--   已逻辑删除的素材同样回填：它们只是「已删除」，恢复后仍应落在默认分组而不是
+--   指向一个已消失的分组；本步骤只改 group_id，不动 del_flag / update_time。
+-- ============================================================================
+UPDATE `sys_material` AS m
+  JOIN `sys_tenant` AS t
+    ON t.`id` = m.`tenant_id` AND t.`del_flag` = '0'
+  JOIN `sys_material_group` AS d
+    ON d.`tenant_id` = m.`tenant_id` AND d.`is_default` = '1' AND d.`del_flag` = '0'
+  LEFT JOIN `sys_material_group` AS g
+    ON g.`id` = m.`group_id` AND g.`tenant_id` = m.`tenant_id` AND g.`del_flag` = '0'
+   SET m.`group_id` = d.`id`
+ WHERE m.`group_id` IS NULL
+    OR m.`group_id` = ''
+    OR m.`group_id` = '-1'
+    OR g.`id` IS NULL;
+
+-- ============================================================================
+-- 五、数据自检（全部应为期望值，出现异常需人工核对后再继续）
+--   default_group_rows        默认分组条数（= 有效租户数）
+--   invalid_default_flag_rows is_default 非法值行数（期望 0）
+--   ungrouped_material_rows   有效租户下 group_id 仍为 NULL/''/'-1' 的素材数（期望 0）
+--   dangling_material_rows    有效租户下 group_id 指向不存在/已删除/跨租户分组的素材数（期望 0）
+--   max_default_per_tenant    每租户默认分组数的最大值（期望 1）
+--   tenant_without_default_rows 没有默认分组的有效租户数（期望 0）
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_material_group`
+    WHERE `is_default` = '1' AND `del_flag` = '0') AS default_group_rows,
+  (SELECT COUNT(*) FROM `sys_material_group`
+    WHERE `is_default` NOT IN ('0', '1')) AS invalid_default_flag_rows,
+  (SELECT COUNT(*) FROM `sys_material` AS m
+     JOIN `sys_tenant` AS t ON t.`id` = m.`tenant_id` AND t.`del_flag` = '0'
+    WHERE m.`group_id` IS NULL OR m.`group_id` = '' OR m.`group_id` = '-1') AS ungrouped_material_rows,
+  (SELECT COUNT(*) FROM `sys_material` AS m
+     JOIN `sys_tenant` AS t ON t.`id` = m.`tenant_id` AND t.`del_flag` = '0'
+     LEFT JOIN `sys_material_group` AS g
+       ON g.`id` = m.`group_id` AND g.`tenant_id` = m.`tenant_id` AND g.`del_flag` = '0'
+    WHERE g.`id` IS NULL) AS dangling_material_rows,
+  (SELECT IFNULL(MAX(c), 0) FROM (
+     SELECT COUNT(*) AS c FROM `sys_material_group`
+      WHERE `is_default` = '1' AND `del_flag` = '0'
+      GROUP BY `tenant_id`) AS per_tenant) AS max_default_per_tenant,
+  (SELECT COUNT(*) FROM `sys_tenant` AS t
+    WHERE t.`del_flag` = '0'
+      AND NOT EXISTS (SELECT 1 FROM `sys_material_group` AS g
+                       WHERE g.`tenant_id` = t.`id` AND g.`is_default` = '1' AND g.`del_flag` = '0')
+  ) AS tenant_without_default_rows;
 
 SET FOREIGN_KEY_CHECKS = 1;

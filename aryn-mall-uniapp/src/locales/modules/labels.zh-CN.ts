@@ -18,7 +18,8 @@ export default {
     newbieAlreadyPaid: '新人专享价仅限首单，你已下过单',
     newbieRegisterWithin: '新人专享价仅限注册 {days} 天内的新用户',
     newbieRegisterOnly: '新人专享价仅限新注册用户',
-    newbieLimitHint: '新人专享价每人限购 {count} 件',
+    newbieLimitHint: '新人专享价每人限购 {count} 件，超出部分按销售价',
+    newbieOverLimitHint: '超过 {count} 件，按 ¥{price}/件算',
     categoryBadgeRecommend: '荐',
     categoryBadgeHot: '热',
 

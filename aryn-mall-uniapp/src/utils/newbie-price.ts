@@ -183,8 +183,8 @@ export function resolveNewbiePriceDisplay(
 /**
  * 该 SKU 的实际成交单价：可享新人价时取新人价，否则回落商品自身售价。
  *
- * 购物车合计、加购确认弹层的展示价都走这里，保证「行价 × 数量 = 合计」
- * 与页面标价一致（否则会出现合计与逐行对不上）。
+ * 行单价展示（购物车/弹层主价）走这里；行小计/合计须用 {@link newbieLineSubtotal}，
+ * 首件享新人价后小计不再等于单价 × 数量。
  */
 export function effectiveUnitPrice(
   fallbackPrice: unknown,
@@ -196,21 +196,6 @@ export function effectiveUnitPrice(
   return fallback === null || fallback < 0 ? 0 : fallback
 }
 
-/**
- * 新人价 SKU 的采购数量是否超出限购。
- *
- * 与后端 `OrderPriceComputeService.assertNewbieQuantityLimit`（> limit 即拦截）
- * 同一口径：前端只做「能提前拦住的提示」，真正拦截仍在结算链。
- */
-export function exceedsNewbieLimit(quantity: unknown, display: NewbiePriceDisplay): boolean {
-  if (!display.showNewbiePrice)
-    return false
-  const count = toFiniteNumber(quantity)
-  if (count === null)
-    return false
-  return count > toPositiveLimit(display.limitPerUser)
-}
-
 /** 限购提示文案（仅在可享新人价时出现；否则新人限购与用户无关） */
 export function newbieLimitHint(display: NewbiePriceDisplay): string {
   if (!display.showNewbiePrice)
@@ -219,18 +204,90 @@ export function newbieLimitHint(display: NewbiePriceDisplay): string {
 }
 
 /**
- * 把数量收敛到合法值：可享新人价时封顶到限购件数，否则原样返回。
+ * 行小计：首 `limitPerUser` 件按新人价、超出件按销售价（与后端拆行结算同一口径）。
  *
- * 购物车步进器用它设置 `max`（用户点「+」到 2 会被拦在 1），
- * 同时把历史遗留的超限数量（活动上线前就加了 2 件）拉回合法值，
- * 避免用户在结算页才被后端拒绝。
+ * 2026-11-08 放宽限购后超出件不再被拦截，而是按替换前生效价正常成交（对齐小象超市
+ * 「超过 1 盒按原价算」的混价模式）；身份价（会员/出清）被新人价取低替换时超出件保留
+ * 身份价，调用方经 `overUnitPrice` 传入同一口径，未传时回落划线原价/售价。
+ * 未命中新人价时回落 单价 × 数量。
  */
-export function clampNewbieQuantity(quantity: unknown, display: NewbiePriceDisplay): number {
+export function newbieLineSubtotal(
+  fallbackPrice: unknown,
+  display: NewbiePriceDisplay,
+  quantity: unknown,
+  overUnitPrice?: number | null,
+): number {
   const parsed = Math.floor(Number(quantity))
   const count = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  const fallback = toFiniteNumber(fallbackPrice)
+  const unit = fallback === null || fallback < 0 ? 0 : fallback
+  if (!display.showNewbiePrice || display.newbiePrice === null)
+    return round2(unit * count)
+  const overUnit = resolveOverUnit(display, unit, overUnitPrice)
+  return mixedLineSubtotal(display.newbiePrice, overUnit, toPositiveLimit(display.limitPerUser), count)
+}
+
+/**
+ * 混价小计共享公式：首 limit 件按 unit、超出件按 overUnit（limit 空=全部按 unit）。
+ * 购物车/加购弹层共用，避免两处各写一遍漂移（与后端拆行结算同口径）。
+ */
+export function mixedLineSubtotal(
+  unit: number,
+  overUnit: number,
+  limit: number | null,
+  count: number,
+): number {
+  const discounted = limit === null ? count : Math.min(limit, count)
+  const over = count - discounted
+  return round2(unit * discounted + overUnit * over)
+}
+
+/** 超出件单价：调用方传入（身份感知）优先，其次划线原价，最后回落行单价 */
+function resolveOverUnit(
+  display: NewbiePriceDisplay,
+  unit: number,
+  overUnitPrice?: number | null,
+): number {
+  const passed = toFiniteNumber(overUnitPrice)
+  if (passed !== null && passed > 0)
+    return passed
+  return display.originalPrice !== null && display.originalPrice > 0
+    ? display.originalPrice
+    : unit
+}
+
+/**
+ * 超出优惠件数后的说明文案（小象式：「超过 1 件，按 ¥5.9/件算」）。
+ *
+ * 数量未超限时空串（此时展示限购提示 {@link newbieLimitHint} 即可）；
+ * 原价缺失时也返回空串，避免出现「按 ¥0/件算」的怪文案。
+ */
+export function newbieOverLimitHint(
+  display: NewbiePriceDisplay,
+  quantity: unknown,
+  overUnitPrice?: number | null,
+): string {
   if (!display.showNewbiePrice)
-    return count
-  return Math.min(count, toPositiveLimit(display.limitPerUser))
+    return ''
+  const count = toFiniteNumber(quantity)
+  if (count === null)
+    return ''
+  const limit = toPositiveLimit(display.limitPerUser)
+  if (count <= limit)
+    return ''
+  const passed = toFiniteNumber(overUnitPrice)
+  const overUnit = passed !== null && passed > 0 ? passed : display.originalPrice
+  if (overUnit === null || overUnit <= 0)
+    return ''
+  return translate('labels.newbieOverLimitHint', { count: limit, price: trimPrice(overUnit) })
+}
+
+export function trimPrice(value: number): string {
+  return (Math.round(value * 100) / 100).toString()
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
 }
 
 /** 页面级汇总：本次展示是否出现了新人价（决定整页提示条是否渲染） */

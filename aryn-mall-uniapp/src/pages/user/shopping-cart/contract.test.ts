@@ -294,11 +294,20 @@ describe('shopping cart limited-discount price contract', () => {
     // 无新人价时才落到折扣成交价，未命中由 discountUnitPrice 回落售价
     expect(unit).toContain('discountUnitPrice(fallback')
 
-    // 合计与行价同源：不再直接读 salesPrice，否则行价折后、合计原价
+    // 合计与行价同源：走 cartLineSubtotal，不直接读 salesPrice，否则行价折后、合计原价
     const compute = functionSource(cart, 'computePrice')
-    expect(compute).toContain('cartUnitPrice(val)')
+    expect(compute).toContain('cartLineSubtotal(val)')
     expect(compute).not.toContain('goodsSku.salesPrice')
     expect(compute).not.toContain('effectiveUnitPrice(')
+
+    // 新人价行混价口径：首件享新人价、超出件按替换前生效价（后端拆行结算的同源展示）
+    const lineSubtotal = functionSource(cart, 'cartLineSubtotal')
+    expect(lineSubtotal).toContain('newbieLineSubtotal(fallback, newbie, quantity, identityOverUnitOf(row))')
+    // 超限提示随数量变化：行内渲染「超过 N 件，按 ¥X/件算」
+    expect(cart).toContain('newbieOverHintOf(goods)')
+    // 步进器不再按限购封顶（仅库存），超量件由后端按销售价拆行结算
+    const quantityMax = functionSource(cart, 'quantityMax')
+    expect(quantityMax).not.toContain('limitPerUser')
   })
 })
 

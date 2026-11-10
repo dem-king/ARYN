@@ -3,14 +3,15 @@ import type { AppNewbiePriceVO } from '@/api/promotion'
 import { describe, expect, it } from 'vitest'
 
 import {
-  clampNewbieQuantity,
   effectiveUnitPrice,
   emptyNewbieDisplay,
-  exceedsNewbieLimit,
   hasNewbiePrice,
-  newbieIneligibleText,
+  mixedLineSubtotal,
   newbieIneligibleNotice,
+  newbieIneligibleText,
   newbieLimitHint,
+  newbieLineSubtotal,
+  newbieOverLimitHint,
   newbieSkuPriceMap,
   resolveNewbiePriceDisplay,
 } from './newbie-price'
@@ -183,38 +184,78 @@ describe('effectiveUnitPrice', () => {
   })
 })
 
-describe('限购口径', () => {
-  it('可享新人价且超限时拦截', () => {
+describe('混价小计（首件新人价 + 超出件销售价）', () => {
+  it('数量未超限：全部按新人价', () => {
     const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
-    expect(exceedsNewbieLimit(1, display)).toBe(false)
-    expect(exceedsNewbieLimit(2, display)).toBe(true)
+    expect(newbieLineSubtotal(5.9, display, 1)).toBe(0.01)
   })
 
-  it('不展示新人价时不判限购（与后端只在命中时才校验一致）', () => {
-    const display = resolveNewbiePriceDisplay(vo({ eligible: false }), 'sku-1')
-    expect(exceedsNewbieLimit(5, display)).toBe(false)
-  })
-
-  it('数量非法时不算超限', () => {
+  it('数量超限：首件新人价 + 超出件按销售价（与后端拆行金额一致）', () => {
     const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
-    expect(exceedsNewbieLimit(undefined, display)).toBe(false)
-    expect(exceedsNewbieLimit('abc', display)).toBe(false)
+    // 0.01 × 1 + 5.9 × 2 = 11.81
+    expect(newbieLineSubtotal(5.9, display, 3)).toBe(11.81)
   })
 
-  it('限购提示仅在可享时出现', () => {
-    expect(newbieLimitHint(resolveNewbiePriceDisplay(vo(), 'sku-1'))).toBe('新人专享价每人限购 1 件')
+  it('不展示新人价时回落 单价 × 数量', () => {
+    const display = resolveNewbiePriceDisplay(vo({ eligible: false, ineligibleReason: 'ALREADY_PAID' }), 'sku-1')
+    expect(newbieLineSubtotal(5.9, display, 3)).toBe(17.7)
+  })
+
+  it('划线原价缺失时超出件按传入售价兜底', () => {
+    const display = resolveNewbiePriceDisplay(vo({
+      items: [{ newbiePrice: 1, originalPrice: undefined as unknown as number, skuId: 'sku-1', spuId: 'spu-1' }],
+    }), 'sku-1')
+    // 1 × 1 + 5.9 × 2 = 12.8
+    expect(newbieLineSubtotal(5.9, display, 3)).toBe(12.8)
+  })
+
+  it('数量非法按 1 件计', () => {
+    const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
+    expect(newbieLineSubtotal(5.9, display, 0)).toBe(0.01)
+    expect(newbieLineSubtotal(5.9, display, Number.NaN)).toBe(0.01)
+  })
+
+  it('身份价被取低替换时超出件按传入身份价（与后端 remainderUnitPrice 同口径）', () => {
+    const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
+    // 0.01 × 1 + 3.15 × 2 = 6.31（会员价保留，而非售价 5.9）
+    expect(newbieLineSubtotal(5.9, display, 3, 3.15)).toBe(6.31)
+    expect(newbieOverLimitHint(display, 3, 3.15)).toBe('超过 1 件，按 ¥3.15/件算')
+  })
+})
+
+describe('mixedLineSubtotal 共享公式', () => {
+  it('limit 空=全部按成交价（秒杀封顶场景不混价）', () => {
+    expect(mixedLineSubtotal(9.9, 12.9, null, 3)).toBe(29.7)
+  })
+
+  it('首 limit 件成交价 + 超出件基准价，两位小数收敛', () => {
+    expect(mixedLineSubtotal(1.9, 5.9, 1, 3)).toBe(13.7)
+    expect(mixedLineSubtotal(0.01, 5.9, 1, 3)).toBe(11.81)
+  })
+})
+
+describe('超限提示（小象式混价说明）', () => {
+  it('数量超限时给出「超过 N 件按销售价」提示', () => {
+    const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
+    expect(newbieOverLimitHint(display, 3)).toBe('超过 1 件，按 ¥5.9/件算')
+  })
+
+  it('数量未超限/不展示新人价/原价缺失时不提示', () => {
+    const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
+    expect(newbieOverLimitHint(display, 1)).toBe('')
+    expect(newbieOverLimitHint(emptyNewbieDisplay(), 3)).toBe('')
+    const noOriginal = resolveNewbiePriceDisplay(vo({
+      items: [{ newbiePrice: 1, originalPrice: undefined as unknown as number, skuId: 'sku-1', spuId: 'spu-1' }],
+    }), 'sku-1')
+    expect(newbieOverLimitHint(noOriginal, 3)).toBe('')
+  })
+})
+
+describe('限购提示口径', () => {
+  it('限购提示仅在可享时出现，文案说明超出部分按销售价', () => {
+    expect(newbieLimitHint(resolveNewbiePriceDisplay(vo(), 'sku-1')))
+      .toBe('新人专享价每人限购 1 件，超出部分按销售价')
     expect(newbieLimitHint(emptyNewbieDisplay())).toBe('')
-  })
-
-  it('历史超限数量被拉回限购件数', () => {
-    const display = resolveNewbiePriceDisplay(vo(), 'sku-1')
-    expect(clampNewbieQuantity(3, display)).toBe(1)
-    expect(clampNewbieQuantity(1, display)).toBe(1)
-    expect(clampNewbieQuantity(0, display)).toBe(1)
-  })
-
-  it('不可享新人价时原样保留数量（不做无依据的收敛）', () => {
-    expect(clampNewbieQuantity(3, emptyNewbieDisplay())).toBe(3)
   })
 })
 

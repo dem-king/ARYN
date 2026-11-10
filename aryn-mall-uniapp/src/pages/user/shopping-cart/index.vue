@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { ClearancePriceDisplay } from '@/utils/clearance-price'
+import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { MemberPriceDisplay } from '@/utils/member-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
@@ -8,9 +8,8 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { delShoppingCart, editShoppingCart, getPage, transferCartRowsToCall } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
-import { getById } from '@/api/product/spu'
+import { getById, getClearanceSkuPrices } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
-import { getClearanceSkuPrices } from '@/api/product/spu'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
@@ -43,10 +42,11 @@ import {
   resolvePromotionPriority,
 } from '@/utils/member-price'
 import {
-  clampNewbieQuantity,
   effectiveUnitPrice,
   emptyNewbieDisplay,
   hasNewbiePrice,
+  newbieLineSubtotal,
+  newbieOverLimitHint,
   resolveNewbiePriceDisplay,
 } from '@/utils/newbie-price'
 
@@ -619,17 +619,58 @@ function toggleAllCheck() {
   computePrice()
 }
 /**
- * 步进器上限：可享新人价的行取 `min(库存, 限购数)`，其余行沿用库存。
+ * 步进器上限：仅受库存约束。
  *
- * 提前在步进器上拦住「+」比让用户点完再被后端拒绝友好得多；库存仍要参与取小，
- * 否则限购 1 件、库存 0 时上限不会是 0（虽然这类行本身不渲染步进器）。
+ * 2026-11-08 放宽新人价限购后，超出优惠件数的件按销售价正常结算（后端拆行），
+ * 不再在步进器上封顶限购数；新人价行的混价小计与超限提示见 cartLineSubtotal /
+ * newbieOverHintOf。
  */
 function quantityMax(row: any): number {
-  const stock = Number(row?.goodsSku?.stock) || 0
-  const display = newbieDisplayOf(row)
-  if (!display.showNewbiePrice)
-    return stock
-  return Math.min(stock, display.limitPerUser)
+  return Number(row?.goodsSku?.stock) || 0
+}
+
+/**
+ * 行小计：与 cartUnitPrice 同一套优先级分支（出清 > 会员 > 新人价 > 折扣 > 售价），
+ * 唯独新人价行走 {@link newbieLineSubtotal} 混价口径——首件按新人价、超出件按
+ * 销售价（与后端拆行结算金额一致），其余仍为 单价 × 数量。
+ */
+function cartLineSubtotal(row: any): number {
+  const quantity = Number(row?.quantity) || 0
+  if (quantity <= 0)
+    return 0
+  const fallback = row?.goodsSku?.salesPrice
+  const clearance = clearanceDisplayOf(row)
+  if (clearanceWins(row) && clearance.clearancePrice !== null)
+    return clearance.clearancePrice * quantity
+  const priority = resolvePromotionPriority({
+    discount: discountDisplayOf(row),
+    member: memberDisplayOf(row),
+    newbie: newbieDisplayOf(row),
+    seckill: false,
+  })
+  const member = priority.member
+  if (member.showMemberPrice)
+    return memberPriceUnitPrice(fallback, member) * quantity
+  const newbie = priority.newbie
+  if (newbie.showNewbiePrice)
+    return newbieLineSubtotal(fallback, newbie, quantity, identityOverUnitOf(row))
+  return discountUnitPrice(fallback, priority.discount) * quantity
+}
+
+/** 行级新人价混价提示：数量超出优惠件数时出现（「超过 1 件，按 ¥5.9/件算」） */
+function newbieOverHintOf(row: any): string {
+  return newbieOverLimitHint(newbieDisplayOf(row), row?.quantity, identityOverUnitOf(row))
+}
+
+/**
+ * 新人价超出件基准价：身份价（会员/出清）被新人价取低替换时保留身份价，
+ * 与后端 remainderUnitPrice 同口径；无身份价返回 null 回落售价。
+ */
+function identityOverUnitOf(row: any): number | null {
+  if (clearanceWins(row))
+    return clearanceDisplayOf(row).clearancePrice
+  const member = memberDisplayOf(row)
+  return member.showMemberPrice ? member.memberPrice : null
 }
 
 // 计算合计金额
@@ -638,9 +679,10 @@ function computePrice() {
   let amount = 0
   state.checkedList.forEach((val: any) => {
     if (val.checked && val.goodsSku) {
-      // 走页面内与行价同源的 cartUnitPrice（新人价 > 限时折扣 > 售价）。
-      // 不能继续写 salesPrice —— 否则行价显示折后价、合计按原价，两个数字对不上
-      amount += cartUnitPrice(val) * val.quantity
+      // 走与行价同源的 cartLineSubtotal：新人价行按「首件新人价 + 超出件销售价」
+      // 混价，其余行 单价 × 数量。不能继续写 salesPrice —— 否则行价显示折后价、
+      // 合计按原价，两个数字对不上
+      amount += cartLineSubtotal(val)
     }
   })
   state.totalAmount = amount.toFixed(2)
@@ -676,31 +718,6 @@ async function loadNewbiePrices() {
   catch {
     // 接口失败按原价展示（空表即全部回落 salesPrice）
     newbieDisplays.value = {}
-  }
-  clampOverLimitQuantities()
-}
-
-/**
- * 历史超限数量收敛（只改展示层，不写回后端）。
- *
- * 活动上线前用户可能已加了 2 件同款，此时步进器上限会小于当前值，
- * 若不处理，输入框会显示 2 而「+」是灰的、合计却按 2 件算——用户点结算
- * 才被后端以「限购 1 件」拒绝，是最差的一种体验。
- *
- * 取舍：只把本地 `row.quantity` 收敛到限购数并以此计算合计，**不调用
- * editShoppingCart 写回**。理由是写回属于用户购物数据的静默变更：
- * 用户可能只是暂时超量、之后还想按原数量改买其他活动商品，
- * 而活动结束后这份限制也不复存在。真正的拦截仍在提交订单链路（后端硬校验），
- * 这里只保证「页面显示的数量 / 合计 / 提交数量」三者一致。
- */
-function clampOverLimitQuantities() {
-  for (const row of state.cartList) {
-    if (!row?.goodsSku)
-      continue
-    const clamped = clampNewbieQuantity(row.quantity, newbieDisplayOf(row))
-    if (clamped !== Number(row.quantity)) {
-      row.quantity = clamped
-    }
   }
   computePrice()
 }
@@ -1294,6 +1311,10 @@ onPageScroll(handlePageScroll)
                 <view v-if="memberGuideOf(goods)" class="member-guide">
                   {{ memberGuideOf(goods) }}
                 </view>
+                <!-- 新人价混价提示：数量超出优惠件数才出现，说明超出件按销售价结算 -->
+                <view v-if="newbieOverHintOf(goods)" class="newbie-over-hint">
+                  {{ newbieOverHintOf(goods) }}
+                </view>
               </view>
               <wd-input-number
                 v-if="goods.goodsSku && goods.goodsSku.stock > 0" v-model="goods.quantity" :min="1" :index="goods.id"
@@ -1746,6 +1767,14 @@ onPageScroll(handlePageScroll)
       margin-top: 4rpx;
       color: #b0803a;
       font-size: 18rpx;
+      line-height: 1.5;
+    }
+
+    /* 新人价混价提示：与新人角标同色系（主题橙），只解释超出件的计价方式 */
+    .newbie-over-hint {
+      margin-top: 4rpx;
+      color: #ff976a;
+      font-size: 20rpx;
       line-height: 1.5;
     }
 

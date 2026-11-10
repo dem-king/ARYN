@@ -111,13 +111,14 @@ class AppNewbieControllerBindingTest {
 	void currentDelegatesToService() throws Exception {
 		AppNewbieFloorVO floor = new AppNewbieFloorVO();
 		floor.setActivityId("act-1");
-		when(newbieActivityService.getCurrentFloor(20)).thenReturn(floor);
+		when(newbieActivityService.getCurrentFloor(20, null)).thenReturn(floor);
 
 		mockMvc.perform(get("/app/newbie/current"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.activityId").value("act-1"));
 
-		verify(newbieActivityService).getCurrentFloor(20);
+		// 未携带登录态：userId 为 null，资格字段不下发
+		verify(newbieActivityService).getCurrentFloor(20, null);
 	}
 
 	@Test
@@ -125,13 +126,13 @@ class AppNewbieControllerBindingTest {
 	void currentAcceptsLimit() throws Exception {
 		AppNewbieFloorVO floor = new AppNewbieFloorVO();
 		floor.setActivityId("act-1");
-		when(newbieActivityService.getCurrentFloor(200)).thenReturn(floor);
+		when(newbieActivityService.getCurrentFloor(200, null)).thenReturn(floor);
 
 		mockMvc.perform(get("/app/newbie/current").param("limit", "200"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.activityId").value("act-1"));
 
-		verify(newbieActivityService).getCurrentFloor(200);
+		verify(newbieActivityService).getCurrentFloor(200, null);
 	}
 
 }

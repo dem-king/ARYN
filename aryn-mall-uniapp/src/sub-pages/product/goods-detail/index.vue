@@ -476,6 +476,8 @@ const quickAddPromotion = computed(() => {
       skuId,
       unitPrice: seckill.seckillPrice,
       maxQuantity,
+      // 秒杀是硬性限购（后端预扣校验拒绝超量单），确认弹层仍要封顶
+      capQuantity: true,
       hint: maxQuantity ? t('product.seckillLimit', { count: maxQuantity }) : '',
     }
   }

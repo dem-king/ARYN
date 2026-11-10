@@ -8,6 +8,7 @@ import { getById, orderAppraise } from '@/api/order/orderInfo'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { getUserPage } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
+import { annotateNewbieSplitRows } from '@/utils/order-item-merge'
 import {
   APPRAISE_MAX_CONTENT,
   APPRAISE_MAX_PICS,
@@ -38,6 +39,9 @@ interface AppraiseCard {
   picUrl: string
   spuName: string
   specsInfo: string
+  /** 新人价拆行标注（首件行/超出价行），解释同 SKU 两行 */
+  newbieSplitHint?: boolean
+  newbieRemainderHint?: boolean
   goodsScore: number
   /** 用户是否单独动过这一卡的星级（整单星级变化时不覆盖已单独调整的卡） */
   scoreTouched: boolean
@@ -183,7 +187,7 @@ async function loadPage() {
     const reviewedMap = reviewedResult.status === 'fulfilled'
       ? buildReviewedItemMap(reviewedResult.value?.records || [])
       : new Map()
-    const orderItemList = orderResult.value?.orderItemList || []
+    const orderItemList = annotateNewbieSplitRows(orderResult.value?.orderItemList || [])
     state.items = orderItemList.map((item: any) => {
       const reviewed = reviewedMap.get(item.id)
       return {
@@ -192,6 +196,9 @@ async function loadPage() {
         picUrl: item.picUrl || '',
         spuName: item.spuName || '',
         specsInfo: item.specsInfo || '',
+        // 新人价拆行标注：评价按行提交，保留逐行但解释同 SKU 两行
+        newbieSplitHint: item.newbieSplitHint === true,
+        newbieRemainderHint: item.newbieRemainderHint === true,
         goodsScore: 5,
         scoreTouched: false,
         content: '',
@@ -557,6 +564,9 @@ onPageScroll(handlePageScroll)
             </view>
             <view v-if="item.specsInfo" class="p-t-10rpx">
               <wd-text size="24rpx" color="#909090" :text="item.specsInfo" />
+            </view>
+            <view v-if="item.newbieSplitHint || item.newbieRemainderHint" class="p-t-6rpx">
+              <wd-text size="22rpx" color="#909090" :text="item.newbieSplitHint ? t('checkout.goods.newbieFirstUnitHint') : t('checkout.goods.newbieRemainderHint')" />
             </view>
             <view v-if="item.reviewed" class="p-t-10rpx text-22rpx text-gray-400">
               <text v-if="item.systemDefault" class="p-r-8rpx">{{ t('order.appraise.systemDefault') }}</text>

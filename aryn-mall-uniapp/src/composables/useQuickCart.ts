@@ -1,7 +1,5 @@
 import type { SharedCart } from '@/api/order/sharedCart'
-import { translate } from '@/locales'
-import type { QuickAddPromotion, QuickAddZonePrices, QuickCartInfo } from '@/utils/quick-cart'
-
+import type { QuickAddPrice, QuickAddPromotion, QuickAddZonePrices, QuickCartInfo } from '@/utils/quick-cart'
 /**
  * 快捷加购 composable。
  *
@@ -17,13 +15,15 @@ import type { QuickAddPromotion, QuickAddZonePrices, QuickCartInfo } from '@/uti
 import { ref } from 'vue'
 
 import { getQuickCartInfo } from '@/api/product/spu'
+
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useRequireLogin } from '@/composables/useRequireLogin'
+import { translate } from '@/locales'
 import { useAuthStore } from '@/store/authStore'
 import {
+  isQuickAddPromotionApplicable,
   QUICK_CART_MODE_DIRECT,
   QUICK_CART_MODE_UNAVAILABLE,
-  isQuickAddPromotionApplicable,
   quickAddBlockedText,
   resolveQuantityRule,
   resolveQuickAddMode,
@@ -120,19 +120,23 @@ export function useQuickCart() {
         ? resolveQuickAddPrice(info, options.promotion)
         : (resolveQuickAddZonePrice(info, options.zonePrices)
           ?? resolveQuickAddPrice(info, options.promotion))
-      // 限购件数低于起订量时，任何合法数量都享不到活动价：不展示活动价也不封顶，
+      // 优惠件数低于起订量时，任何合法数量都享不到活动价：不展示活动价，
       // 交给弹层按常规商品处理（楼层入口已提前把这种冲突挡到商详）
       const promotionUsable = pricing.maxQuantity === null || pricing.maxQuantity >= rule.moq
-      const finalPricing = promotionUsable
+      const finalPricing: QuickAddPrice = promotionUsable
         ? pricing
         : { unitPrice: info.salesPrice, maxQuantity: null, hint: '' }
-      const finalQuantity = finalPricing.maxQuantity === null
-        ? quantity
-        : Math.min(quantity, finalPricing.maxQuantity)
+      // 硬性限购（秒杀 capQuantity=true）预填仍封顶，避免弹层初值超限；
+      // 混价（新人价）不封顶：超出件由后端按替换前生效价拆行结算
+      const finalQuantity = finalPricing.capQuantity === true && finalPricing.maxQuantity !== null
+        ? Math.min(quantity, finalPricing.maxQuantity)
+        : quantity
 
       // 去向与数量由统一入口决定：数量按 MOQ/步长预填并允许用户改大
       // （采购量大时一次输入到位，不必反复点击加购）；有进行中的共享车时
       // 在同一次确认里选择加入哪张车。skuId 已由 DIRECT 分支保证存在。
+      // 活动优惠件数（新人价每人限购 N 件）不再封顶数量：超出件由后端按
+      // 销售价拆行结算，弹层用 originalPrice 展示混价小计与超限提示。
       const dest = await submitCartAdd(
         {
           skuId: String(info.skuId),
@@ -141,6 +145,8 @@ export function useQuickCart() {
           goodsName: info.name,
           unitPrice: finalPricing.unitPrice,
           maxQuantity: finalPricing.maxQuantity,
+          capQuantity: finalPricing.capQuantity === true,
+          originalPrice: finalPricing.originalPrice,
           quantityHint: finalPricing.hint,
         },
         { rule, sharedCart: options.sharedCart },

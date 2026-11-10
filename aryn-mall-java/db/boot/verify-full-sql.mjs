@@ -237,6 +237,12 @@ const required = [
   'ADD COLUMN `platform_type`',
   'ADD COLUMN `buyer_identity_mode`',
   "212alipay_mini_identity_incremental.sql",
+  // 素材默认分组落库（2026-11-10）：is_default 列、每租户唯一默认分组的函数索引、
+  // 默认分组 id 公式（MD5('material-default-group:' || tenant_id)）与存量素材回填
+  'ADD COLUMN `is_default`',
+  'material-default-group:',
+  'uk_material_group_default_tenant',
+  "221material_default_group_incremental.sql",
 ];
 
 for (const token of required) {
@@ -298,6 +304,7 @@ const sourceFiles = [
   '210payment_closure_incremental.sql',
   '211order_pay_submit_gate_incremental.sql',
   '212alipay_mini_identity_incremental.sql',
+  '221material_default_group_incremental.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);
@@ -367,6 +374,7 @@ for (const [bootFile, cloudFile, label] of [
   ['210payment_closure_incremental.sql', '216payment_closure_incremental.sql', '支付交易闭环'],
   ['211order_pay_submit_gate_incremental.sql', '218order_pay_submit_gate_incremental.sql', '订单支付提交门禁'],
   ['212alipay_mini_identity_incremental.sql', '219alipay_mini_identity_incremental.sql', '支付宝小程序身份模式'],
+  ['221material_default_group_incremental.sql', '232material_default_group_incremental.sql', '素材默认分组'],
 ]) {
   const bootContent = semantic(readFileSync(join(root, bootFile), 'utf8'));
   const cloudPath = join(root, '..', 'cloud', cloudFile);

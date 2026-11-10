@@ -313,6 +313,8 @@ export function normalizeRetailNewbieFloor(value: unknown): NewbieFloorItem[] {
   return [{
     activityId,
     activityName: toText(record.activityName),
+    // 三态资格：只有明确的 false 才是「已登录老客」，缺省/未知按可展示处理
+    eligible: record.eligible === true ? true : record.eligible === false ? false : null,
     endTime: toText(record.endTime),
     limitPerUser: toNumber(record.limitPerUser) || 1,
     longTerm: record.longTerm === true,

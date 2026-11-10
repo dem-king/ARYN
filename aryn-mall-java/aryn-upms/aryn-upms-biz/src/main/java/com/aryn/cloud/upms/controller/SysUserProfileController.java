@@ -10,7 +10,6 @@ import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
-import com.aryn.cloud.common.security.service.SmsCodeVerifier;
 import com.aryn.cloud.common.security.util.PasswordPolicy;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
@@ -39,7 +38,7 @@ import java.util.regex.Pattern;
  *
  * <p>只操作会话中的登录用户，不接受客户端传入 userId：普通员工也能自助维护头像、
  * 昵称、邮箱与密码，不需要账号管理权限。修改登录账号、密码与手机号都要求校验当前密码，
- * 换绑手机号还要求新号短信验证码，避免会话被劫持后直接改掉登录凭证。</p>
+ * 避免会话被劫持后直接改掉登录凭证。</p>
  *
  * <p>所有读写都在登录用户自己的租户上下文下执行：平台管理员切换租户后，请求头里的
  * 租户是“正在查看的租户”，不能用来定位或更新自己的账号。</p>
@@ -73,8 +72,6 @@ public class SysUserProfileController {
 	private final StorageFactory storageFactory;
 
 	private final UploadFileValidator uploadFileValidator;
-
-	private final SmsCodeVerifier smsCodeVerifier;
 
 	@DubboReference
 	private final RemoteDeliveryAccountService remoteDeliveryAccountService;
@@ -150,8 +147,7 @@ public class SysUserProfileController {
 	}
 
 	/**
-	 * 自助换绑手机号：当前密码 + 新手机号短信验证码双因子，验证码最后校验并一次性消费，
-	 * 前面任何一项失败都不消耗验证码。
+	 * 自助换绑手机号：当前密码校验通过后直接换绑，不再要求新号短信验证码。
 	 *
 	 * <p>全程强制在登录用户自己的租户上下文内执行（含配送同步 RPC）：平台管理员切换租户后
 	 * 请求头里的租户是「正在查看的租户」，不能用来定位自己的账号或同步配送资料。</p>
@@ -187,10 +183,6 @@ public class SysUserProfileController {
 			query.setPhone(phone);
 			if (sysUserService.getCount(query) > 0) {
 				return Result.fail("该手机号已被使用");
-			}
-			String codeError = verifyPhoneCode(phone, dto.getCode());
-			if (codeError != null) {
-				return Result.fail(codeError);
 			}
 			SysUser update = new SysUser();
 			update.setId(loginUser.getUserId());
@@ -293,26 +285,6 @@ public class SysUserProfileController {
 		catch (IllegalArgumentException e) {
 			return false;
 		}
-	}
-
-	/**
-	 * 新手机号短信验证码校验，返回 null 表示通过。
-	 *
-	 * <p>空验证码直接拒绝，不白跑一次 Redis；非空时原子「校验 + 消费 + 失败计数」，
-	 * 错误 5 次验证码即作废，用户需要重新获取。</p>
-	 */
-	private String verifyPhoneCode(String phone, String code) {
-		if (StrUtil.isBlank(code)) {
-			return "请输入验证码";
-		}
-		SmsCodeVerifier.Result verifyResult = smsCodeVerifier.verifyAndConsume(phone, code);
-		if (verifyResult == SmsCodeVerifier.Result.TOO_MANY_ATTEMPTS) {
-			return "验证码错误次数过多，请重新获取验证码";
-		}
-		if (verifyResult != SmsCodeVerifier.Result.SUCCESS) {
-			return "验证码不合法";
-		}
-		return null;
 	}
 
 	/**

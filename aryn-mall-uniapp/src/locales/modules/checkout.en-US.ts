@@ -40,6 +40,9 @@ export default {
       seckillPrice: 'Flash Sale Price',
       discountPrice: 'Discounted Price',
       newbiePrice: 'New Customer Price',
+      newbieSplitHint: 'First unit at new customer price, excess priced separately',
+      newbieFirstUnitHint: 'First unit at new customer price',
+      newbieRemainderHint: 'Excess units priced separately',
     },
     coupon: {
       label: 'Coupon',

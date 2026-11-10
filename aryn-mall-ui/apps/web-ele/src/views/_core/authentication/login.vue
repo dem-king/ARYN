@@ -7,6 +7,7 @@ import { ArrowRight, InfoFilled, Lock, User } from '@element-plus/icons-vue';
 import { ElButton, ElForm, ElFormItem, ElIcon, ElInput } from 'element-plus';
 
 import Verify from '#/components/verifition/index.vue';
+import { usePublicCopyright } from '#/composables/use-public-copyright';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 
@@ -24,6 +25,17 @@ const props = withDefaults(
 );
 
 const authStore = useAuthStore();
+const { config: copyrightConfig } = usePublicCopyright();
+
+/** 标题/副标题/图标由平台端版权配置覆盖，未配置时回落语言包文案 */
+const loginTitle = computed(
+  () => copyrightConfig.value?.loginTitle || $t('page.auth.loginWelcome'),
+);
+const loginSubtitle = computed(
+  () =>
+    copyrightConfig.value?.loginSubtitle || $t('page.auth.loginWelcomeDesc'),
+);
+const loginIcon = computed(() => copyrightConfig.value?.loginIcon || '');
 
 const submitText = computed(
   () => props.submitText || $t('page.auth.loginSubmit'),
@@ -93,10 +105,17 @@ const verifySuccess = async (params: any) => {
         {{ $t('page.auth.loginEyebrow') }}
       </p>
       <h1 class="auth-login__title">
-        {{ $t('page.auth.loginWelcome') }}
+        <img
+          v-if="loginIcon"
+          alt=""
+          aria-hidden="true"
+          class="auth-login__icon"
+          :src="loginIcon"
+        />
+        {{ loginTitle }}
       </h1>
       <p class="auth-login__desc">
-        {{ $t('page.auth.loginWelcomeDesc') }}
+        {{ loginSubtitle }}
       </p>
     </header>
 
@@ -201,12 +220,21 @@ const verifySuccess = async (params: any) => {
 }
 
 .auth-login__title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
   margin-top: 18px;
   font-size: 30px;
   font-weight: 600;
   line-height: 1.25;
   color: hsl(var(--foreground));
   letter-spacing: -0.01em;
+}
+
+.auth-login__icon {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
 }
 
 .auth-login__desc {

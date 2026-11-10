@@ -40,7 +40,18 @@ const mallThemeStore = useMallThemeStore()
 
 /** 楼层只展示一个「进行中的新人价活动」，取第一个（后端已按优先级排序） */
 const floor = computed(() => items.value[0])
-const goodsList = computed(() => (floor.value?.goodsList || []).slice(0, showData.value.count))
+
+/**
+ * 已登录老客（eligible=false）直接隐藏楼层：新人价对他不可用，
+ * 「看得到却买不到」比不展示更伤体验。未登录/资格未知按潜在新人展示。
+ */
+const hiddenForOldUser = computed(() => floor.value?.eligible === false)
+
+const goodsList = computed(() =>
+  hiddenForOldUser.value
+    ? []
+    : (floor.value?.goodsList || []).slice(0, showData.value.count),
+)
 
 /**
  * 卡片展示价与「抢」加购统一走 useNewbieGoodsActions：
@@ -301,7 +312,7 @@ function newbieLimitPerUser() {
 </script>
 
 <template>
-  <view v-if="shouldRender" class="newbie-floor" :style="dynamicStyles">
+  <view v-if="shouldRender && !hiddenForOldUser" class="newbie-floor" :style="dynamicStyles">
     <view class="nf-panel" :style="colorVars">
       <view class="nf-head">
         <view v-if="showData.showTag" class="nf-mark">

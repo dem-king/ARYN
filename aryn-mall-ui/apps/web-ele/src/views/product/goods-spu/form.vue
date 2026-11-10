@@ -1,7 +1,10 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import type { GoodsAttrTagFormValue } from './goods-spu-form-validation';
+import type {
+  GoodsAttrTagFormRow,
+  GoodsAttrTagFormValue,
+} from './goods-spu-form-validation';
 
 import type { ZoneTagDetail } from '#/views/product/zone-batch/types';
 
@@ -10,9 +13,13 @@ import { useRoute, useRouter } from 'vue-router';
 
 import {
   ElAlert,
+  ElAutocomplete,
   ElButton,
   ElCascader,
   ElCol,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
   ElForm,
   ElFormItem,
   ElInput,
@@ -37,6 +44,15 @@ import { useDict } from '#/utils/dict';
 import ZoneSkuEditor from '#/views/product/zone-batch/components/ZoneSkuEditor.vue';
 
 import {
+  buildAttrTagFromTemplate,
+  filterAttrSuggestions,
+  getAttrLabelPreset,
+  getAttrValuePresets,
+  GOODS_ATTR_TAG_LABEL_PRESETS,
+  GOODS_ATTR_TAG_TEMPLATES,
+  isAttrValueUsed,
+} from './goods-attr-tag-presets';
+import {
   validateGoodsAttrTags,
   validateGoodsIntroduction,
   validateGoodsSkus,
@@ -52,7 +68,7 @@ const Sku = defineAsyncComponent(() => import('#/components/sku/index.vue'));
 
 interface DataState {
   form: {
-    attrTags: Array<GoodsAttrTagFormValue>;
+    attrTags: Array<GoodsAttrTagFormRow>;
     brandId: string;
     categoryFirstId: string;
     categoryIds: Array<string>;
@@ -273,6 +289,77 @@ const attrLinkTypeOptions = [
   { label: '弹窗说明', value: 'popup' },
   { label: '页面跳转', value: 'page' },
 ];
+/** 属性名候选：预设词表 + 已用词条，用于输入框自动补全 */
+const attrLabelCandidates = GOODS_ATTR_TAG_LABEL_PRESETS.map(
+  (item) => item.label,
+);
+/** 属性值候选池：所有预设值的并集，未选属性名时也能给运营一点参照 */
+const attrValueCandidatePool = GOODS_ATTR_TAG_LABEL_PRESETS.flatMap(
+  (item) => item.values,
+);
+
+/**
+ * 属性名自动补全：包含匹配，输入为空时展示全部预设。
+ * 已用过的词条置后但仍可选（同一属性名允许多行）。
+ */
+const queryAttrLabelSuggestions = (
+  keyword: string,
+  callback: (items: Array<{ value: string }>) => void,
+) => {
+  callback(
+    filterAttrSuggestions(attrLabelCandidates, keyword).map((value) => ({
+      value,
+    })),
+  );
+};
+
+/**
+ * 属性值自动补全：选了属性名就收敛到该属性的预设值，否则给全局候选池。
+ */
+const queryAttrValueSuggestions = (
+  tag: GoodsAttrTagFormRow,
+  keyword: string,
+  callback: (items: Array<{ value: string }>) => void,
+) => {
+  const scoped = getAttrValuePresets(tag.label);
+  const pool = scoped.length > 0 ? scoped : attrValueCandidatePool;
+  callback(filterAttrSuggestions(pool, keyword).map((value) => ({ value })));
+};
+
+/**
+ * 属性名变化（手输或选中预设）：命中预设词条时补默认图标/色调。
+ * 只在运营还没主动选过图标/色调时补，不覆盖手工选择。
+ */
+const handleAttrLabelInput = (index: number, label: number | string) => {
+  const tag = state.form.attrTags[index];
+  if (!tag) return;
+  const text = String(label);
+  tag.label = text;
+  const preset = getAttrLabelPreset(text);
+  if (!preset) return;
+  if (!tag.icon || tag.icon === 'none') tag.icon = preset.icon;
+  if (!tag.tone || tag.tone === 'gray') tag.tone = preset.tone;
+};
+
+/** 该行属性值是否已在同属性名下出现过（仅用于下拉标「已添加」，不阻断提交） */
+const isValueUsedInForm = (index: number, value: string) => {
+  const tag = state.form.attrTags[index];
+  if (!tag) return false;
+  return isAttrValueUsed(state.form.attrTags, tag.label, value, index);
+};
+
+/**
+ * 一键套用模板：已达上限时提示而不是静默失败。
+ */
+const applyAttrTagTemplate = (templateIndex: number) => {
+  const template = GOODS_ATTR_TAG_TEMPLATES[templateIndex];
+  if (!template) return;
+  if (state.form.attrTags.length >= MAX_ATTR_TAGS) {
+    ElMessage.warning(`商品属性标签最多配置 ${MAX_ATTR_TAGS} 个`);
+    return;
+  }
+  state.form.attrTags.push(buildAttrTagFromTemplate(template));
+};
 
 /**
  * 下一步
@@ -332,7 +419,7 @@ const resetForm = (formEl: FormInstance | undefined) => {
   loading.value = false;
   // formEl.resetFields();
 };
-const createEmptyAttrTag = (): GoodsAttrTagFormValue => ({
+const createEmptyAttrTag = (): GoodsAttrTagFormRow => ({
   icon: 'none',
   label: '',
   linkType: 'none',
@@ -345,7 +432,7 @@ const createEmptyAttrTag = (): GoodsAttrTagFormValue => ({
 /**
  * 属性标签回显：兼容历史商品 attrTags 为 null/undefined 或字段缺失
  */
-const normalizeAttrTags = (attrTags: unknown): GoodsAttrTagFormValue[] => {
+const normalizeAttrTags = (attrTags: unknown): GoodsAttrTagFormRow[] => {
   if (!Array.isArray(attrTags)) return [];
   return (attrTags as GoodsAttrTagFormValue[]).map((tag) => ({
     icon: tag?.icon || 'none',
@@ -664,6 +751,41 @@ initForm();
                 <div class="attr-tag-editor">
                   <div class="attr-tag-editor__tip">
                     商详首屏属性卡，按顺序展示，最多 6 个；属性名和值必填。
+                    输入框可直接输入，也可从下拉预设里选；没思路时用右侧「常用预设」一键添加。
+                  </div>
+                  <div class="attr-tag-editor__presets">
+                    <span class="attr-tag-editor__presets-label">常用预设</span>
+                    <ElDropdown trigger="click" @command="applyAttrTagTemplate">
+                      <ElButton
+                        class="attr-tag-editor__presets-trigger"
+                        :disabled="state.form.attrTags.length >= MAX_ATTR_TAGS"
+                      >
+                        一键添加常用标签
+                      </ElButton>
+                      <template #dropdown>
+                        <ElDropdownMenu class="attr-tag-presets-menu">
+                          <ElDropdownItem
+                            v-for="(
+                              item, templateIndex
+                            ) in GOODS_ATTR_TAG_TEMPLATES"
+                            :key="`${item.label}-${item.value}`"
+                            :command="templateIndex"
+                          >
+                            <span class="attr-tag-presets-menu__item">
+                              <span class="attr-tag-presets-menu__value">
+                                {{ item.value }}
+                              </span>
+                              <span class="attr-tag-presets-menu__label">
+                                {{ item.label }}
+                              </span>
+                            </span>
+                          </ElDropdownItem>
+                        </ElDropdownMenu>
+                      </template>
+                    </ElDropdown>
+                    <span class="attr-tag-editor__presets-hint">
+                      套用后仍可改文案、图标与色调
+                    </span>
                   </div>
                   <div
                     v-for="(tag, index) in state.form.attrTags"
@@ -672,20 +794,60 @@ initForm();
                   >
                     <div class="attr-tag-row__fields">
                       <div class="attr-tag-row__text-fields">
-                        <ElInput
+                        <ElAutocomplete
                           v-model="tag.value"
                           class="attr-tag-row__value"
                           maxlength="24"
                           placeholder="属性值，如 地标"
                           show-word-limit
-                        />
-                        <ElInput
+                          :fetch-suggestions="
+                            (keyword, callback) =>
+                              queryAttrValueSuggestions(tag, keyword, callback)
+                          "
+                        >
+                          <template #default="{ item }">
+                            <span class="attr-tag-suggestion">
+                              <span class="attr-tag-suggestion__text">
+                                {{ item.value }}
+                              </span>
+                              <span
+                                v-if="
+                                  isValueUsedInForm(index, String(item.value))
+                                "
+                                class="attr-tag-suggestion__used"
+                              >
+                                已添加
+                              </span>
+                            </span>
+                          </template>
+                        </ElAutocomplete>
+                        <ElAutocomplete
                           v-model="tag.label"
                           class="attr-tag-row__label"
                           maxlength="12"
                           placeholder="属性名，如 系列"
                           show-word-limit
-                        />
+                          :fetch-suggestions="queryAttrLabelSuggestions"
+                          @input="(label) => handleAttrLabelInput(index, label)"
+                        >
+                          <template #default="{ item }">
+                            <span class="attr-tag-suggestion">
+                              <span class="attr-tag-suggestion__text">
+                                {{ item.value }}
+                              </span>
+                              <span
+                                v-if="
+                                  getAttrLabelPreset(String(item.value))?.hint
+                                "
+                                class="attr-tag-suggestion__hint"
+                              >
+                                {{
+                                  getAttrLabelPreset(String(item.value))?.hint
+                                }}
+                              </span>
+                            </span>
+                          </template>
+                        </ElAutocomplete>
                       </div>
                       <div class="attr-tag-row__meta-fields">
                         <ElSelect
@@ -993,6 +1155,74 @@ initForm();
 
       &__tip {
         margin-bottom: 8px;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--el-text-color-secondary);
+      }
+
+      // 预设区放在提示与列表之间：先给「能填什么」的样例，再让运营改
+      &__presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        background-color: var(--el-fill-color-lighter);
+        border-radius: 8px;
+      }
+
+      &__presets-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--el-text-color-regular);
+      }
+
+      &__presets-hint {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+
+    // 下拉项：主文案 + 右侧说明，宽度与输入框对齐
+    .attr-tag-suggestion {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      justify-content: space-between;
+      min-width: 0;
+
+      &__text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      &__hint,
+      &__used {
+        flex: 0 0 auto;
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+
+      &__used {
+        color: var(--el-color-warning);
+      }
+    }
+
+    .attr-tag-presets-menu {
+      &__item {
+        display: inline-flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+
+      &__value {
+        font-weight: 600;
+        color: var(--el-text-color-primary);
+      }
+
+      &__label {
         font-size: 12px;
         color: var(--el-text-color-secondary);
       }

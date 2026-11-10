@@ -82,4 +82,12 @@ public interface CacheConstants {
 	/** 租户到期提醒去重 key 前缀（租户ID + 提醒阶段） */
 	String TENANT_EXPIRY_REMIND_KEY = "tenant:expiry:remind:";
 
+	/**
+	 * 版权配置缓存 key 前缀（租户ID + 端类型）。
+	 *
+	 * <p>登录页每次冷启动都要免登读取，故缓存下发值；保存时按「租户 + 端」精确失效
+	 * （平台端配置被所有租户的登录页共用，保存平台端需清掉全部租户的该端缓存）。</p>
+	 */
+	String COPYRIGHT_CONFIG_CACHE = "copyright:config:";
+
 }

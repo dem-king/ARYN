@@ -54,13 +54,24 @@ const QUICK_CART_FLOORS = [
 const NEWBIE_FLOOR = 'src/components/diy/diy-newbie-floor/index.vue'
 
 describe('装修商品楼层专区价接线契约', () => {
-  it.each([...ZONE_PRICE_FLOORS, NEWBIE_FLOOR])('%s 列表加载后批量补会员价/出清价，不阻塞渲染', (file) => {
+  it.each(ZONE_PRICE_FLOORS)('%s 列表加载后批量补会员价/出清价，不阻塞渲染', (file) => {
     const code = source(file)
     expect(code).toContain('useZonePrices')
     // 必须真的发起补价：只引入 composable 不调用 = 卡片永远原价
     expect(code).toContain('zone.loadForSpuIds(')
     // 列表先渲染、价格后补：补价不能 await 阻塞首屏
     expect(code).toMatch(/void zone\.loadForSpuIds\(/)
+  })
+
+  it('新人价楼层经 useNewbieGoodsActions 接线补价（2026-11-08 逻辑下沉 composable）', () => {
+    const floor = source(NEWBIE_FLOOR)
+    // 楼层不再直持 useZonePrices：卡片展示价与「抢」加购统一走 composable
+    expect(floor).toContain('useNewbieGoodsActions')
+    expect(floor).toContain('loadZonePrices')
+    // composable 内部必须真的发起补价且不阻塞首屏
+    const actions = source('src/composables/useNewbieGoodsActions.ts')
+    expect(actions).toContain('useZonePrices')
+    expect(actions).toMatch(/void zone\.loadForSpuIds\(/)
   })
 
   it.each(ZONE_PRICE_FLOORS)('%s 主价/划线/角标/引导都走共享 zone-price 口径', (file) => {
@@ -75,12 +86,13 @@ describe('装修商品楼层专区价接线契约', () => {
 
   it('新人价楼层：命中更高优先级身份价时切换主价/角标并给加购弹层同一成交价', () => {
     const floor = source(NEWBIE_FLOOR)
-    // 会员价/出清价优先级高于新人价：命中时卡片展示身份价并给角标
-    expect(floor).toContain('zone.cardPriceOf(')
+    const actions = source('src/composables/useNewbieGoodsActions.ts')
+    // 会员价/出清价优先级高于新人价：命中时卡片展示身份价并给角标（判定下沉 composable）
+    expect(actions).toContain('resolveListZonePrice(')
     expect(floor).toContain('cardZoneBadgeText')
     // 「抢」弹层单价取身份价（SKU 级优先），避免「卡片一个价、弹层另一个价」
-    expect(floor).toContain('zone.skuZonePriceOf(')
-    expect(floor).toContain('zonePriced')
+    expect(actions).toContain('zone.skuZonePriceOf(')
+    expect(actions).toContain('identityPriced')
   })
 
   it('所有 Tab 统一补会员价/出清价，会员专区卡片优先用数据层会员价', () => {

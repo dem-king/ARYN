@@ -160,4 +160,14 @@ describe('normalizeRetailNewbieFloor', () => {
     expect(normalizeRetailNewbieFloor({ activityId: 'act-1', longTerm: true })[0].longTerm).toBe(true)
     expect(normalizeRetailNewbieFloor({ activityId: 'act-2' })[0].longTerm).toBe(false)
   })
+
+  it('资格三态透传：false 保留老客标记，true/缺失/脏值按可展示', () => {
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1', eligible: false })[0].eligible).toBe(false)
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1', eligible: true })[0].eligible).toBe(true)
+    // 未登录时后端不下发（null/缺省）：按潜在新人展示
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1' })[0].eligible).toBeNull()
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1', eligible: null })[0].eligible).toBeNull()
+    // 脏值不能当老客处理（否则会误隐藏真实新人的楼层）
+    expect(normalizeRetailNewbieFloor({ activityId: 'act-1', eligible: 'false' })[0].eligible).toBeNull()
+  })
 })

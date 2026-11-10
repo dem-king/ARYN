@@ -79,6 +79,8 @@ export const useAuthStore = defineStore('auth', {
         useTenantCapabilityStore().reset()
         // 商城默认主题按租户配置，登出/切换账号后回内置配色并重新拉取
         useMallThemeStore().reset()
+        // 版权/品牌按租户配置，登出后清缓存，下次登录页重新拉取
+        useCopyrightStore().reset()
         console.log('📝 用户信息已清除')
       }
       catch (error) {

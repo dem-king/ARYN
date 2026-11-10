@@ -12,8 +12,10 @@ import java.util.List;
 /**
  * C 端新人专享楼层 VO。
  *
- * <p>价格策略：接口固定返回新人价（楼层展示用），资格判定在下单/结算链路做，
- * 不在本接口按人出价——避免用户维度缓存与免登态复杂性；未登录前端本地渲染原价兜底。
+ * <p>价格策略：接口固定返回活动配置价与当前售价（不在本接口按人出价）；资格以三态
+ * {@code eligible} 下发，供展示端决定「露出楼层/专区」还是「对老客隐藏」：
+ * null=未登录/未知（按潜在新人展示），true=可享，false=已登录且确定不符合。
+ * 真正拦截仍在下单链路，展示端的资格只影响可见性。
  *
  * @author aryn
  * @since 2026/10/13
@@ -42,6 +44,12 @@ public class AppNewbieFloorVO implements Serializable {
 
 	@Schema(description = "是否长期有效（true 时 C 端不展示结束倒计时）")
 	private Boolean longTerm;
+
+	@Schema(description = "当前用户是否可享：true 可享；false 已登录但确定不符合；null 未登录/未知")
+	private Boolean eligible;
+
+	@Schema(description = "不具备资格的原因：ALREADY_PAID/REGISTER_TIMEOUT/PARAM_INVALID/ERROR；仅 eligible=false 时有值")
+	private String ineligibleReason;
 
 	@Schema(description = "新人价商品列表")
 	private List<NewbieGoodsVO> goodsList;

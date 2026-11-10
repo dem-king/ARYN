@@ -514,8 +514,8 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
 
 - **两个入口、两套安全口径**：管理员入口 `PUT /upms/user/{id}/phone` 走独立权限
   `upms:sysuser:phone:edit`（与查看权限 `upms:sysuser:phone` 分开，按「重置密码」同敏感度授权，
-  boot `182` / cloud `184` 种子）；本人入口 `PUT /upms/profile/phone` 无额外权限，但必须同时校验
-  当前密码 + 新手机号短信验证码（`SmsCodeVerifier` 原子消费），不能只凭登录态换绑。
+  boot `182` / cloud `184` 种子）；本人入口 `PUT /upms/profile/phone` 无额外权限，但必须校验
+  当前密码，不能只凭登录态换绑（2026-11-10 起不再要求新号短信验证码，请求体只有 `phone` + `password`）。
 - **手机号全局唯一**：`sys_user` 的 `uk_sys_user_phone`（仅 `del_flag='0'`）跨租户生效；应用层用
   `ISysUserService#getCount` 预检并捕获唯一键冲突。不要改成租户内唯一——`selectUserByPhone` 是
   免租户旁路，短信登录按全局唯一解析账号。

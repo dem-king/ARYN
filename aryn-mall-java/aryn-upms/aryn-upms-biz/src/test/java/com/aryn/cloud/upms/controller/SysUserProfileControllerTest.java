@@ -5,7 +5,6 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
-import com.aryn.cloud.common.security.service.SmsCodeVerifier;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
 import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
@@ -38,7 +37,7 @@ import static org.mockito.Mockito.when;
  *   <li>资料修改只接受昵称/邮箱，用户 id 取自会话；</li>
  *   <li>修改登录账号必须校验当前密码，且用户名全租户唯一；</li>
  *   <li>改密必须校验旧密码与密码强度，落库只存 BCrypt hash；</li>
- *   <li>换绑手机号必须校验当前密码与新号短信验证码，验证码最后消费，成功后刷新会话快照并同步配送资料；</li>
+ *   <li>换绑手机号必须校验当前密码（不要求短信验证码），成功后刷新会话快照并同步配送资料；</li>
  *   <li>修改成功后同步刷新会话中的用户快照。</li>
  * </ol>
  */
@@ -52,8 +51,6 @@ class SysUserProfileControllerTest {
 
 	private static final String NEW_PHONE = "13800138000";
 
-	private static final String SMS_CODE = "1234";
-
 	private final ISysUserService userService = mock(ISysUserService.class);
 
 	private final ISysStorageConfigService storageConfigService = mock(ISysStorageConfigService.class);
@@ -62,13 +59,11 @@ class SysUserProfileControllerTest {
 
 	private final UploadFileValidator uploadFileValidator = mock(UploadFileValidator.class);
 
-	private final SmsCodeVerifier smsCodeVerifier = mock(SmsCodeVerifier.class);
-
 	private final RemoteDeliveryAccountService remoteDeliveryAccountService = mock(
 			RemoteDeliveryAccountService.class);
 
 	private final SysUserProfileController controller = new SysUserProfileController(userService, storageConfigService,
-			storageFactory, uploadFileValidator, smsCodeVerifier, remoteDeliveryAccountService);
+			storageFactory, uploadFileValidator, remoteDeliveryAccountService);
 
 	private ArynUser loginUser;
 
@@ -124,10 +119,9 @@ class SysUserProfileControllerTest {
 		return dto;
 	}
 
-	private SysUserProfilePhoneUpdateDTO phoneChange(String phone, String code, String password) {
+	private SysUserProfilePhoneUpdateDTO phoneChange(String phone, String password) {
 		SysUserProfilePhoneUpdateDTO dto = new SysUserProfilePhoneUpdateDTO();
 		dto.setPhone(phone);
-		dto.setCode(code);
 		dto.setPassword(password);
 		return dto;
 	}
@@ -251,9 +245,8 @@ class SysUserProfileControllerTest {
 			assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-1");
 			return true;
 		});
-		when(smsCodeVerifier.verifyAndConsume(NEW_PHONE, SMS_CODE)).thenReturn(SmsCodeVerifier.Result.SUCCESS);
 
-		Result<Boolean> result = controller.updatePhone(phoneChange(" " + NEW_PHONE + " ", SMS_CODE, OLD_PASSWORD));
+		Result<Boolean> result = controller.updatePhone(phoneChange(" " + NEW_PHONE + " ", OLD_PASSWORD));
 
 		assertThat(result.getCode()).isZero();
 		assertThat(result.getData()).isTrue();
@@ -269,7 +262,6 @@ class SysUserProfileControllerTest {
 		assertThat(queryCaptor.getValue().getPhone()).isEqualTo(NEW_PHONE);
 		assertThat(queryCaptor.getValue().getId()).isNull();
 		assertThat(loginUser.getPhone()).isEqualTo(NEW_PHONE);
-		verify(smsCodeVerifier).verifyAndConsume(NEW_PHONE, SMS_CODE);
 		verify(remoteDeliveryAccountService).syncStaffPhone("user-1", NEW_PHONE);
 		// 调用结束后恢复原租户上下文
 		assertThat(ArynTenantContextHolder.getTenantId()).isNull();
@@ -277,13 +269,12 @@ class SysUserProfileControllerTest {
 
 	@Test
 	void updatePhoneRejectsBlankAndInvalidPhone() {
-		Result blank = controller.updatePhone(phoneChange("   ", SMS_CODE, OLD_PASSWORD));
-		Result invalid = controller.updatePhone(phoneChange("12345", SMS_CODE, OLD_PASSWORD));
+		Result blank = controller.updatePhone(phoneChange("   ", OLD_PASSWORD));
+		Result invalid = controller.updatePhone(phoneChange("12345", OLD_PASSWORD));
 
 		assertThat(blank.getMsg()).isEqualTo("请输入手机号");
 		assertThat(invalid.getMsg()).isEqualTo("手机号格式不正确");
 		verify(userService, never()).updateById(any());
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
 	}
 
 	@Test
@@ -296,75 +287,45 @@ class SysUserProfileControllerTest {
 	}
 
 	@Test
-	void updatePhoneRejectsWrongPasswordWithoutConsumingSmsCode() {
+	void updatePhoneRejectsWrongPassword() {
 		when(userService.getById("user-1")).thenReturn(currentUser());
 
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, "wrong-password"));
+		Result result = controller.updatePhone(phoneChange(NEW_PHONE, "wrong-password"));
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("当前密码错误");
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
 		verify(userService, never()).updateById(any());
 	}
 
 	@Test
-	void updatePhoneRejectsSamePhoneBeforeConsumingSmsCode() {
+	void updatePhoneRejectsBlankPassword() {
 		when(userService.getById("user-1")).thenReturn(currentUser());
 
-		Result result = controller.updatePhone(phoneChange(OLD_PHONE, SMS_CODE, OLD_PASSWORD));
+		Result result = controller.updatePhone(phoneChange(NEW_PHONE, "  "));
 
-		assertThat(result.getMsg()).isEqualTo("新手机号与当前手机号相同");
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
-		verify(userService, never()).getCount(any());
+		assertThat(result.getMsg()).isEqualTo("当前密码错误");
+		verify(userService, never()).updateById(any());
 	}
 
 	@Test
-	void updatePhoneRejectsDuplicatePhoneBeforeConsumingSmsCode() {
+	void updatePhoneRejectsSamePhone() {
+		when(userService.getById("user-1")).thenReturn(currentUser());
+
+		Result result = controller.updatePhone(phoneChange(OLD_PHONE, OLD_PASSWORD));
+
+		assertThat(result.getMsg()).isEqualTo("新手机号与当前手机号相同");
+		verify(userService, never()).getCount(any());
+		verify(userService, never()).updateById(any());
+	}
+
+	@Test
+	void updatePhoneRejectsDuplicatePhone() {
 		when(userService.getById("user-1")).thenReturn(currentUser());
 		when(userService.getCount(any())).thenReturn(1);
 
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD));
+		Result result = controller.updatePhone(phoneChange(NEW_PHONE, OLD_PASSWORD));
 
 		assertThat(result.getMsg()).isEqualTo("该手机号已被使用");
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
-		verify(userService, never()).updateById(any());
-	}
-
-	@Test
-	void updatePhoneRejectsBlankSmsCode() {
-		when(userService.getById("user-1")).thenReturn(currentUser());
-		when(userService.getCount(any())).thenReturn(0);
-
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, "  ", OLD_PASSWORD));
-
-		assertThat(result.getMsg()).isEqualTo("请输入验证码");
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
-		verify(userService, never()).updateById(any());
-	}
-
-	@Test
-	void updatePhoneRejectsInvalidSmsCode() {
-		when(userService.getById("user-1")).thenReturn(currentUser());
-		when(userService.getCount(any())).thenReturn(0);
-		when(smsCodeVerifier.verifyAndConsume(NEW_PHONE, SMS_CODE)).thenReturn(SmsCodeVerifier.Result.INVALID);
-
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD));
-
-		assertThat(result.getMsg()).isEqualTo("验证码不合法");
-		verify(userService, never()).updateById(any());
-		verify(remoteDeliveryAccountService, never()).syncStaffPhone(anyString(), anyString());
-	}
-
-	@Test
-	void updatePhoneRejectsTooManySmsCodeAttempts() {
-		when(userService.getById("user-1")).thenReturn(currentUser());
-		when(userService.getCount(any())).thenReturn(0);
-		when(smsCodeVerifier.verifyAndConsume(NEW_PHONE, SMS_CODE))
-			.thenReturn(SmsCodeVerifier.Result.TOO_MANY_ATTEMPTS);
-
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD));
-
-		assertThat(result.getMsg()).isEqualTo("验证码错误次数过多，请重新获取验证码");
 		verify(userService, never()).updateById(any());
 	}
 
@@ -372,10 +333,9 @@ class SysUserProfileControllerTest {
 	void updatePhoneMapsUniqueKeyConflictToFriendlyMessage() {
 		when(userService.getById("user-1")).thenReturn(currentUser());
 		when(userService.getCount(any())).thenReturn(0);
-		when(smsCodeVerifier.verifyAndConsume(NEW_PHONE, SMS_CODE)).thenReturn(SmsCodeVerifier.Result.SUCCESS);
 		when(userService.updateById(any())).thenThrow(new DuplicateKeyException("uk_sys_user_phone"));
 
-		Result result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD));
+		Result result = controller.updatePhone(phoneChange(NEW_PHONE, OLD_PASSWORD));
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("该手机号已被使用");
@@ -387,12 +347,11 @@ class SysUserProfileControllerTest {
 	void updatePhoneSucceedsEvenWhenDeliverySyncFails() {
 		when(userService.getById("user-1")).thenReturn(currentUser());
 		when(userService.getCount(any())).thenReturn(0);
-		when(smsCodeVerifier.verifyAndConsume(NEW_PHONE, SMS_CODE)).thenReturn(SmsCodeVerifier.Result.SUCCESS);
 		when(userService.updateById(any())).thenReturn(true);
 		when(remoteDeliveryAccountService.syncStaffPhone("user-1", NEW_PHONE))
 			.thenThrow(new IllegalStateException("配送服务不可用"));
 
-		Result<Boolean> result = controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD));
+		Result<Boolean> result = controller.updatePhone(phoneChange(NEW_PHONE, OLD_PASSWORD));
 
 		assertThat(result.getCode()).isZero();
 		assertThat(result.getData()).isTrue();
@@ -403,10 +362,9 @@ class SysUserProfileControllerTest {
 	void updatePhoneRejectsMissingCurrentAccount() {
 		when(userService.getById("user-1")).thenReturn(null);
 
-		assertThatThrownBy(() -> controller.updatePhone(phoneChange(NEW_PHONE, SMS_CODE, OLD_PASSWORD)))
+		assertThatThrownBy(() -> controller.updatePhone(phoneChange(NEW_PHONE, OLD_PASSWORD)))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					e -> assertThat(e.getMsg()).isEqualTo("当前账号信息不存在"));
-		verify(smsCodeVerifier, never()).verifyAndConsume(anyString(), anyString());
 	}
 
 }

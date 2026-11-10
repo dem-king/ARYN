@@ -34,8 +34,9 @@ import java.util.Set;
  * 新人专享楼层实现：读进行中的新人价活动并组装商品列表。
  *
  * <p>两个 C 端入口共用同一份「活动选择」口径（优先级最高且规则可用的活动）：
- * 楼层接口返回全部配置商品、不判资格（营销面，免登）；指定 SKU 接口只返回请求命中的
- * 商品，并在携带登录态时附带当前用户的资格判定（商详 / 购物车展示用）。
+ * 楼层接口返回全部配置商品，未登录不判资格（营销面，按潜在新人展示）；指定 SKU 接口
+ * 只返回请求命中的商品。两者都在携带登录态时附带当前用户资格——楼层用于对已登录
+ * 老客隐藏入口，指定 SKU 用于商详 / 购物车按原价展示并说明原因。
  *
  * <p>商品信息（名称/图/当前售价）经 RemoteGoodsSkuService 批量查询后回填；
  * 商品下架或查询失败时对应项降级剔除，不阻断楼层整体渲染。
@@ -76,15 +77,15 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 	private RemoteBuyerProfileService remoteBuyerProfileService;
 
 	@Override
-	public AppNewbieFloorVO getCurrentFloor() {
-		return getCurrentFloor(MAX_FLOOR_GOODS);
+	public AppNewbieFloorVO getCurrentFloor(String userId) {
+		return getCurrentFloor(MAX_FLOOR_GOODS, userId);
 	}
 
 	@Override
-	public AppNewbieFloorVO getCurrentFloor(int limit) {
+	public AppNewbieFloorVO getCurrentFloor(int limit, String userId) {
 		int maxGoods = Math.max(1, Math.min(limit, MAX_LIST_GOODS));
 		for (PromotionActivity activity : activeActivities()) {
-			AppNewbieFloorVO floor = toFloor(activity, maxGoods);
+			AppNewbieFloorVO floor = toFloor(activity, maxGoods, userId);
 			if (floor != null) {
 				return floor;
 			}
@@ -132,7 +133,7 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 					.orderByDesc(PromotionActivity::getCreateTime));
 	}
 
-	private AppNewbieFloorVO toFloor(PromotionActivity activity, int maxGoods) {
+	private AppNewbieFloorVO toFloor(PromotionActivity activity, int maxGoods, String userId) {
 		// 楼层展示有上限（防单活动配过多 SKU 拖慢接口）：按调用方要求的上限截断
 		Map<String, BigDecimal> priceBySku = parseSkuPrices(activity, maxGoods);
 		if (priceBySku.isEmpty()) {
@@ -165,6 +166,14 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 			return null;
 		}
 		floor.setGoodsList(goodsList);
+		// 未登录不下发资格（null）：按潜在新人展示，资格最终在下单链路硬校验。
+		// 登录态下失败一律按不合格返回（fail-closed），与商详/购物车/下单链同一份远程实现。
+		// 商品列表照常返回：专享页据此区分「无活动」与「仅限新人」，管理端预览也不受影响。
+		if (StringUtils.hasText(userId)) {
+			NewbieEligibilityVO eligibility = checkEligibility(userId, floor.getRegisterWithinDays());
+			floor.setEligible(eligibility != null && Boolean.TRUE.equals(eligibility.getEligible()));
+			floor.setIneligibleReason(eligibility != null ? eligibility.getReason() : "ERROR");
+		}
 		return floor;
 	}
 

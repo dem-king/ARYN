@@ -37,7 +37,8 @@ export default {
 
     // 价格角标与说明
     newbieBadge: '新人价',
-    newbieLimitHint: '新人专享价每人限购 {count} 件',
+    newbieLimitHint: '新人专享价每人限购 {count} 件，超出部分按销售价',
+    newbieOverLimitHint: '超过 {count} 件，按 ¥{price}/件算',
     memberBadge: '会员价',
     memberGuide: '会员专享 ¥{price}',
     clearanceBadge: '捡漏价',

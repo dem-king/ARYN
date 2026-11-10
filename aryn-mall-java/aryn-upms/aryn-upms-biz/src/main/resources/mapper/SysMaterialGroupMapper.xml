@@ -8,10 +8,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aryn.cloud.upms.mapper.SysMaterialGroupMapper">
 
-    <select id="selectMaterialGroupPage" resultType="com.aryn.cloud.upms.api.entity.SysMaterialGroup">
-        SELECT
+    <!--
+      默认分组必须排第一：分组管理页把「未分组」当作真实记录展示，若靠 sort 排序，
+      运营把某个普通分组 sort 设成负数就能插到它前面，前端又得写特判。
+      is_default DESC 是唯一的置顶依据，其余按 sort/create_time/id 保证顺序稳定（分页不重不漏）。
+    -->
+    <sql id="materialGroupColumns">
             sys_material_group.id,
             sys_material_group.`name`,
+            sys_material_group.is_default,
             sys_material_group.create_time,
             sys_material_group.update_time,
             sys_material_group.sort,
@@ -20,31 +25,34 @@
             sys_material_group.create_by,
             sys_material_group.update_by,
             sys_material_group.del_flag
+    </sql>
+
+    <sql id="materialGroupOrderBy">
+        ORDER BY sys_material_group.is_default DESC, sys_material_group.sort ASC, sys_material_group.create_time ASC, sys_material_group.id ASC
+    </sql>
+
+    <select id="selectMaterialGroupPage" resultType="com.aryn.cloud.upms.api.entity.SysMaterialGroup">
+        SELECT
+            <include refid="materialGroupColumns"/>
         FROM
             sys_material_group AS sys_material_group
         <where>
             AND  sys_material_group.del_flag = '0'
         </where>
+        <include refid="materialGroupOrderBy"/>
     </select>
     <select id="selectMaterialGroupList" resultType="com.aryn.cloud.upms.api.entity.SysMaterialGroup">
         SELECT
-        sys_material_group.id,
-        sys_material_group.`name`,
-        sys_material_group.create_time,
-        sys_material_group.update_time,
-        sys_material_group.sort,
-        sys_material_group.type,
-        sys_material_group.tenant_id,
-        sys_material_group.create_by,
-        sys_material_group.update_by,
-        sys_material_group.del_flag
+            <include refid="materialGroupColumns"/>
         FROM
-        sys_material_group AS sys_material_group
+            sys_material_group AS sys_material_group
         <where>
             AND  sys_material_group.del_flag = '0'
+            <!-- 修复既有 bug：原写法是 `v` = #{query.name}，列 v 不存在，带 name 查询直接 Unknown column -->
             <if test="query.name != null and query.name != ''">
-                AND sys_material_group.`v`=#{query.name}
+                AND sys_material_group.`name` LIKE CONCAT('%', #{query.name}, '%')
             </if>
         </where>
+        <include refid="materialGroupOrderBy"/>
     </select>
 </mapper>

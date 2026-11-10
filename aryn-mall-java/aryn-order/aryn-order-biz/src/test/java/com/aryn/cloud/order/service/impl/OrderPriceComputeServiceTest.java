@@ -394,31 +394,214 @@ class OrderPriceComputeServiceTest {
 	}
 
 	/**
-	 * 限购硬校验：命中新人价的 SKU 整单合计数量必须为 1；
-	 * 共享购物车拆行后同一 SKU 两条明细各 1 件合计 2 件也应拦截。
+	 * 新人价部分覆盖（首件优惠）：落价时按同 SKU 拆两行——首件行按新人价成交，
+	 * 超出行保持原价正常成交（不再整单拦截），行金额不变式在两行上各自成立。
 	 */
 	@Test
-	void newbieQuantityLimitRejectsAggregatedOverOne() {
-		PromotionCalculationVO calculation = newbieCalculation("sku-1");
-		OrderItemEntity first = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
-		OrderItemEntity second = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
+	void applyPromotionLadderSplitsPartialNewbieQuantity() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		when(remoteEngine.preview(any())).thenReturn(partialNewbieCalculation("sku-1", 1));
 
-		org.assertj.core.api.Assertions.assertThatThrownBy(
-				() -> service.assertNewbieQuantityLimit(calculation, List.of(first, second)))
-			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
-			// ArynBusinessException 的真实原因在 msg 字段，getMessage() 为 null
-			.satisfies(ex -> assertThat(((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
-				.contains("每人限购 1 件"));
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(3)
+			.setSalesPrice(new BigDecimal("28.50")).setTotalPrice(new BigDecimal("85.50"))
+			.setPaymentPrice(new BigDecimal("85.50"));
+		List<OrderItemEntity> rows = new java.util.ArrayList<>(List.of(orderItem));
+
+		local.applyPromotionLadder(order, rows, null);
+
+		assertThat(rows).hasSize(2);
+		OrderItemEntity discountedRow = rows.get(0);
+		OrderItemEntity originalRow = rows.get(1);
+		assertThat(discountedRow.getBuyQuantity()).isEqualTo(1);
+		assertThat(discountedRow.getSalesPrice()).isEqualByComparingTo("19.90");
+		assertThat(discountedRow.getTotalPrice()).isEqualByComparingTo("19.90");
+		assertThat(discountedRow.getPaymentPrice()).isEqualByComparingTo("19.90");
+		assertThat(originalRow.getBuyQuantity()).isEqualTo(2);
+		assertThat(originalRow.getSalesPrice()).isEqualByComparingTo("28.50");
+		assertThat(originalRow.getTotalPrice()).isEqualByComparingTo("57.00");
+		assertThat(originalRow.getPaymentPrice()).isEqualByComparingTo("57.00");
 	}
 
+	/** 新人价购买量不超优惠件数时整行按新人价成交，不拆行（qty=1 的常规路径不变）。 */
 	@Test
-	void newbieQuantityLimitPassesAtExactlyOne() {
-		PromotionCalculationVO calculation = newbieCalculation("sku-1");
-		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
-		OrderItemEntity other = new OrderItemEntity().setSkuId("sku-2").setBuyQuantity(5);
+	void applyPromotionLadderKeepsSingleRowWithinDiscountedQuantity() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		when(remoteEngine.preview(any())).thenReturn(partialNewbieCalculation("sku-1", 1));
 
-		// 非新人价 SKU 数量不受限
-		service.assertNewbieQuantityLimit(calculation, List.of(item, other));
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("28.50")).setTotalPrice(new BigDecimal("28.50"))
+			.setPaymentPrice(new BigDecimal("28.50"));
+		List<OrderItemEntity> rows = new java.util.ArrayList<>(List.of(orderItem));
+
+		local.applyPromotionLadder(order, rows, null);
+
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0).getSalesPrice()).isEqualByComparingTo("19.90");
+		assertThat(rows.get(0).getTotalPrice()).isEqualByComparingTo("19.90");
+	}
+
+	/**
+	 * 共享购物车按成员拆行后同 SKU 多行：优惠件数按行序依次消耗，
+	 * 额度耗尽后的行整行保持原价成交（同 SKU 合计只有 1 件享新人价）。
+	 */
+	@Test
+	void applyPromotionLadderConsumesDiscountedAllowanceAcrossRows() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		when(remoteEngine.preview(any())).thenReturn(partialNewbieCalculation("sku-1", 1));
+
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity first = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("28.50")).setTotalPrice(new BigDecimal("28.50"))
+			.setPaymentPrice(new BigDecimal("28.50"));
+		OrderItemEntity second = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("28.50")).setTotalPrice(new BigDecimal("28.50"))
+			.setPaymentPrice(new BigDecimal("28.50"));
+		List<OrderItemEntity> rows = new java.util.ArrayList<>(List.of(first, second));
+
+		local.applyPromotionLadder(order, rows, null);
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0).getSalesPrice()).isEqualByComparingTo("19.90");
+		// 额度已被首行消耗：第二行（另一成员）整行保持原价
+		assertThat(rows.get(1).getSalesPrice()).isEqualByComparingTo("28.50");
+		assertThat(rows.get(1).getTotalPrice()).isEqualByComparingTo("28.50");
+	}
+
+	/**
+	 * 新人价部分覆盖的行级展示与叠加策略：优惠行挂新人价标签与不可叠标记，
+	 * 原价行按普通明细展示（不挂标签）且计入券可叠基数。
+	 */
+	@Test
+	void stackPolicyDisplayTagsOnlyDiscountedRowForPartialNewbie() {
+		OrderItemEntity discountedRow = item("19.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+		OrderItemEntity originalRow = item("57.00").setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("28.50"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(discountedRow, originalRow), null);
+		PromotionCalculationVO calculation = partialNewbieCalculation("sku-1", 1);
+		calculation.getLadderOverrides().get(0).setCouponStackable(false);
+		service.mergeStackPolicyHits(plan, calculation);
+
+		OrderInfo order = new OrderInfo();
+		service.fillStackPolicyDisplay(order, List.of(discountedRow, originalRow), plan);
+
+		assertThat(discountedRow.getActivityType()).isEqualTo("newbie");
+		assertThat(discountedRow.getCouponStackable()).isFalse();
+		assertThat(originalRow.getActivityType()).isNull();
+		assertThat(originalRow.getCouponStackable()).isNull();
+		// 券可叠基数只含原价行 57.00：优惠行受活动不可叠约束
+		assertThat(order.getCouponEligibleAmount()).isEqualByComparingTo("57.00");
+	}
+
+	/**
+	 * 整船优惠分摊：新人价首件优惠的原价行按普通商品参与门槛与分摊，
+	 * 仅优惠行排除（与引擎门槛基数口径一致）。
+	 */
+	@Test
+	void shipWholeDiscountIncludesPartialNewbieOriginalRow() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity discountedRow = item("19.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+		OrderItemEntity originalRow = item("57.00").setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("28.50"));
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("100.00"));
+		PromotionCalculationVO calculation = partialNewbieCalculation("sku-1", 1);
+		calculation.setWholeDiscount(new BigDecimal("30.00"));
+		calculation.setDetails(new java.util.ArrayList<>());
+
+		service.applyShipWholeDiscount(order, List.of(discountedRow, originalRow, normalItem), calculation, null);
+
+		assertThat(discountedRow.getPromoPrice()).isEqualByComparingTo("0.00");
+		// 分摊基数 = 原价行 57 + 普通行 100 = 157：原价行 30×57/157 = 10.89，普通行 19.11（尾差补大余数）
+		assertThat(originalRow.getPromoPrice()).isEqualByComparingTo("10.89");
+		assertThat(normalItem.getPromoPrice()).isEqualByComparingTo("19.11");
+	}
+
+	/**
+	 * 新人价部分覆盖且替换前存在身份价：超出行按替换前生效价（会员价）成交，
+	 * 会员常态权益不被剥夺（remainderUnitPrice 由引擎填充）。
+	 */
+	@Test
+	void applyPromotionLadderRemainderRowKeepsIdentityPrice() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		PromotionCalculationVO calculation = partialNewbieCalculation("sku-1", 1);
+		calculation.getLadderOverrides().get(0).setRemainderUnitPrice(new BigDecimal("20.00"));
+		when(remoteEngine.preview(any())).thenReturn(calculation);
+
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(3)
+			.setSalesPrice(new BigDecimal("28.50")).setTotalPrice(new BigDecimal("85.50"))
+			.setPaymentPrice(new BigDecimal("85.50"));
+		List<OrderItemEntity> rows = new java.util.ArrayList<>(List.of(orderItem));
+
+		local.applyPromotionLadder(order, rows, null);
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0).getSalesPrice()).isEqualByComparingTo("19.90");
+		assertThat(rows.get(1).getSalesPrice()).isEqualByComparingTo("20.00");
+		assertThat(rows.get(1).getTotalPrice()).isEqualByComparingTo("40.00");
+		assertThat(rows.get(1).getPaymentPrice()).isEqualByComparingTo("40.00");
+	}
+
+	/**
+	 * 会员折扣行级口径：新人价优惠行互斥；超出行回落基价时按普通商品吃等级折扣
+	 * （券/积分/整船已把超出行当普通商品，会员折扣同口径）。
+	 */
+	@Test
+	void memberDiscountAppliesToPartialNewbieRemainderRowAtBasePrice() {
+		OrderItemEntity discountedRow = item("19.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+		OrderItemEntity originalRow = item("57.00").setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("28.50"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(discountedRow, originalRow), null);
+		service.mergeStackPolicyHits(plan, partialNewbieCalculation("sku-1", 1));
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(discountedRow, originalRow),
+				memberBenefits("0.90"), plan);
+
+		assertThat(discountedRow.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		// 超出行 57.00 × (1-0.9) = 5.70
+		assertThat(originalRow.getMemberDiscountPrice()).isEqualByComparingTo("5.70");
+	}
+
+	/**
+	 * 超出行保留身份价（成交价低于基价）时不再重复吃会员折扣：
+	 * 身份权益已落在成交价里，二次打折会双重让利并击穿引擎明细记账。
+	 */
+	@Test
+	void memberDiscountSkipsPartialNewbieRemainderRowRetainingIdentityPrice() {
+		OrderItemEntity discountedRow = item("19.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+		OrderItemEntity originalRow = item("40.00").setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("20.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(discountedRow, originalRow), null);
+		PromotionCalculationVO calculation = partialNewbieCalculation("sku-1", 1);
+		calculation.getLadderOverrides().get(0).setRemainderUnitPrice(new BigDecimal("20.00"));
+		service.mergeStackPolicyHits(plan, calculation);
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(discountedRow, originalRow),
+				memberBenefits("0.90"), plan);
+
+		assertThat(discountedRow.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(originalRow.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
 	}
 
 	/**
@@ -565,6 +748,13 @@ class OrderPriceComputeServiceTest {
 		override.setActivityId("act-newbie");
 		override.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE);
 		calculation.setLadderOverrides(new java.util.ArrayList<>(List.of(override)));
+		return calculation;
+	}
+
+	/** 新人价部分覆盖（首件优惠）：优惠件数可指定，供拆行/行级叠加策略用例复用。 */
+	private PromotionCalculationVO partialNewbieCalculation(String skuId, int discountedQuantity) {
+		PromotionCalculationVO calculation = newbieCalculation(skuId);
+		calculation.getLadderOverrides().get(0).setDiscountedQuantity(discountedQuantity);
 		return calculation;
 	}
 
@@ -889,8 +1079,6 @@ class OrderPriceComputeServiceTest {
 		calculation.getLadderOverrides().add(ladder);
 
 		assertThat(service.enginePricedSkuIds(calculation)).containsExactlyInAnyOrder("sku-member", "sku-newbie");
-		// 新人价限购集合只认 type=9：会员价不能混入，否则达标会员买多件会被误拦
-		assertThat(service.newbiePriceSkuIds(calculation)).containsExactly("sku-newbie");
 	}
 
 	/** 无会员价/新人价时既有行为不变：普通 SKU 的限时折扣照常生效。 */
@@ -1116,16 +1304,26 @@ class OrderPriceComputeServiceTest {
 		assertThat(order.getPromoPrice()).isEqualByComparingTo("30.00");
 	}
 
-	/**
-	 * 会员价无每人限购：同一会员价 SKU 整单 3 件不触发新人价限购拦截；
-	 * 新人价 SKU 仍按既有规则限购 1 件（见 newbieQuantityLimit* 用例）。
-	 */
+	/** 会员价覆盖无优惠件数语义：多件不拆行，整行按会员价成交。 */
 	@Test
-	void memberPriceDoesNotTriggerNewbieQuantityLimit() {
-		PromotionCalculationVO calculation = memberCalculation("sku-member");
-		OrderItemEntity memberItem = new OrderItemEntity().setSkuId("sku-member").setBuyQuantity(3);
+	void memberPriceOverrideDoesNotSplitRows() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		when(remoteEngine.preview(any())).thenReturn(memberCalculation("sku-member"));
 
-		service.assertNewbieQuantityLimit(calculation, List.of(memberItem));
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity memberItem = new OrderItemEntity().setSkuId("sku-member").setBuyQuantity(3)
+			.setSalesPrice(new BigDecimal("100.00")).setTotalPrice(new BigDecimal("300.00"))
+			.setPaymentPrice(new BigDecimal("300.00"));
+		List<OrderItemEntity> rows = new java.util.ArrayList<>(List.of(memberItem));
+
+		local.applyPromotionLadder(order, rows, null);
+
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0).getSalesPrice()).isEqualByComparingTo("90.00");
+		assertThat(rows.get(0).getTotalPrice()).isEqualByComparingTo("270.00");
 	}
 
 	/**

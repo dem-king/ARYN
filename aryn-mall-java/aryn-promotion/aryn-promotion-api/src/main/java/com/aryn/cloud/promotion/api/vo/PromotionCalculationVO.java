@@ -80,6 +80,12 @@ public class PromotionCalculationVO implements Serializable {
 		@Schema(description = "原结算基价")
 		private BigDecimal originalPrice;
 
+		@Schema(description = "享受活动价的件数（新人价专用；空=全部件数按活动价覆盖，超出部分按超出件单价成交）")
+		private Integer discountedQuantity;
+
+		@Schema(description = "超出件成交单价（新人价部分覆盖专用；=替换前生效价，身份价保留时取身份价，否则基价；空回落 originalPrice）")
+		private BigDecimal remainderUnitPrice;
+
 		@Schema(description = "命中活动ID")
 		private String activityId;
 

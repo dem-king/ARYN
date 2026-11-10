@@ -29,7 +29,9 @@ const GOODS_LIMIT = 200
 const activity = ref<AppNewbieFloorVO | null>(null)
 const loading = ref(true)
 const refreshing = ref(false)
-const goodsList = computed(() => activity.value?.goodsList ?? [])
+/** 已登录老客：活动对他不可用，整页显示「仅限新人」阻断态（分享链接/直达入口仍需兜底） */
+const ineligible = computed(() => activity.value?.eligible === false)
+const goodsList = computed(() => (ineligible.value ? [] : (activity.value?.goodsList ?? [])))
 const { now } = useCountdownTicker()
 
 const {
@@ -55,7 +57,9 @@ async function loadActivity() {
   try {
     const vo = await getCurrentNewbieFloor(GOODS_LIMIT)
     activity.value = vo && vo.activityId ? vo : null
-    loadZonePrices(goodsList.value)
+    // 老客没有可展示的商品（也不该再为不可用的价格发查价请求）
+    if (!ineligible.value)
+      loadZonePrices(goodsList.value)
   }
   catch {
     uni.showToast({ title: t('promotion.common.loadFailed'), icon: 'none' })
@@ -142,6 +146,16 @@ function goHome() {
         art="group"
         :title="t('promotion.newbie.emptyTitle')"
         :desc="t('promotion.newbie.emptyDesc')"
+        :action-text="t('promotion.common.goHome')"
+        @action="goHome"
+      />
+
+      <!-- 已登录老客：活动仅限新人，直接给结论，不再展示不可用的活动价 -->
+      <hall-state
+        v-else-if="ineligible"
+        art="group"
+        :title="t('promotion.newbie.ineligibleTitle')"
+        :desc="t('promotion.newbie.ineligibleDesc')"
         :action-text="t('promotion.common.goHome')"
         @action="goHome"
       />

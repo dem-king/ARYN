@@ -12,6 +12,7 @@ import com.aryn.cloud.upms.api.entity.SysTenant;
 import com.aryn.cloud.upms.api.entity.SysTenantMenu;
 import com.aryn.cloud.upms.api.entity.SysTenantPackage;
 import com.aryn.cloud.upms.mapper.SysTenantMapper;
+import com.aryn.cloud.upms.service.ISysCopyrightConfigService;
 import com.aryn.cloud.upms.service.ISysDeptService;
 import com.aryn.cloud.upms.service.ISysMenuService;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
@@ -84,7 +85,7 @@ class SysTenantServiceImplTest {
 		CacheManager cacheManager = mock(CacheManager.class);
 		service = new SysTenantServiceImpl(sysRoleService, mock(ISysDeptService.class), mock(ISysUserService.class),
 				mock(ISysUserRoleService.class), sysMenuService, sysRoleMenuService, sysTenantPackageService,
-				sysTenantMenuService, tenantSessionRevoker, cacheManager);
+				sysTenantMenuService, tenantSessionRevoker, cacheManager, mock(ISysCopyrightConfigService.class));
 		ReflectionTestUtils.setField(service, "baseMapper", sysTenantMapper);
 		when(cacheManager.getCache(CacheConstants.MENU_CACHE)).thenReturn(mock(Cache.class));
 		when(sysTenantMapper.updateById(any(SysTenant.class))).thenReturn(1);

@@ -33,6 +33,14 @@ async function initApplication() {
     updatePreferences({ app: { loginExpiredMode: 'modal' } });
   }
 
+  // SaaS 控制台口径：全站不显示页脚。Vben 的偏好缓存优先于代码默认值，
+  // 存量用户缓存里仍是 footer.enable=true（此前为承载商户端版权而强制开启），
+  // 仅改 preferences.ts 默认值不生效，这里做代码级迁移强制关闭。
+  // 需要恢复页脚时删除本段，并把 preferences.ts 的 footer.enable 改回 true。
+  if (preferences.footer.enable) {
+    updatePreferences({ footer: { enable: false } });
+  }
+
   // 启动应用并挂载
   // vue应用主要逻辑及视图
   const { bootstrap } = await import('./bootstrap');

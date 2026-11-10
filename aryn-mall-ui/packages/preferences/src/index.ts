@@ -24,11 +24,15 @@ function defineOverridesPreferences(preferences: DeepPartial<Preferences>) {
     enable: true,
     source: '/static/logo.png',
   };
+  // 版权默认值只在服务端配置拉取前短暂生效（登录后由 sys_copyright_config 覆盖）。
+  // 年份取当前年：写死年份跨年即过期；settingShow 关闭默认的「版权」本地编辑区，
+  // 因为该配置已改为服务端下发，本地改动会在下次登录被覆盖。
   preferences.copyright = {
-    companyName: 'Aryn Mall',
+    companyName: '悦航购 Aetheryn Mall',
     companySiteLink: 'https://www.iaryn.cn',
-    date: '2025',
+    date: String(new Date().getFullYear()),
     enable: true,
+    settingShow: false,
   };
   return preferences;
 }

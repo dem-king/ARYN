@@ -829,8 +829,6 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
 		// 专区来源/活动前价快照：只认最终胜出的会员价/出清价，供让利报表统计
 		orderPriceComputeService.applyZoneSourceSnapshots(orderItemEntityList, promoCalculation);
-		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单（会员价无限购）
-		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
 		// 促销价（拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
 		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效。
 		// 会员价/新人价已由引擎写成基价，enginePricedSkuIds 保证限时折扣不再覆盖

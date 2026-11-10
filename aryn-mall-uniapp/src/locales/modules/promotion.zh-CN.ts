@@ -24,6 +24,8 @@ export default {
       perksNoRegister: '新人专享价 · 每人每款限{limit}件',
       emptyTitle: '暂无新人专享活动',
       emptyDesc: '活动上新后会在这里展示，先去逛逛吧',
+      ineligibleTitle: '新人专享仅限新用户',
+      ineligibleDesc: '你暂不符合新人资格，去看看其他好物吧',
       footNote: '新人价资格与限购以结算页为准',
     },
     discount: {

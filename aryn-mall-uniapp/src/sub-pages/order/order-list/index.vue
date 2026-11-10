@@ -8,6 +8,7 @@ import OrderOperation from '@/sub-pages/order/components/order-operation/index.v
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { useDict } from '@/sub-pages/utils/dict'
 import { parseLocalDateTimeTimestamp } from '@/utils/datetime'
+import { annotateNewbieSplitRows } from '@/utils/order-item-merge'
 import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
@@ -255,7 +256,8 @@ function formatAmount(value: any) {
   return Number.isFinite(number) ? number.toFixed(2) : (value ?? '')
 }
 function visibleItems(order: any) {
-  const items: any[] = order?.orderItemList || []
+  // 新人价拆行打「首件/超出件」标注（保留逐行售后入口），避免同 SKU 两行被误认为重复加购
+  const items: any[] = annotateNewbieSplitRows(order?.orderItemList || [])
   return expandedOrders[order.id] ? items : items.slice(0, COLLAPSED_ITEM_COUNT)
 }
 function toggleExpand(orderId: string) {
@@ -390,6 +392,9 @@ onUnload(() => {
                 <view class="ol-item__main">
                   <text class="ol-item__name">{{ item.spuName }}</text>
                   <text v-if="item.specsInfo" class="ol-item__specs">{{ item.specsInfo }}</text>
+                  <text v-if="item.newbieSplitHint || item.newbieRemainderHint" class="ol-item__split-hint">
+                    {{ item.newbieSplitHint ? t('checkout.goods.newbieFirstUnitHint') : t('checkout.goods.newbieRemainderHint') }}
+                  </text>
                   <view v-if="order.payStatus === '1' && ['1', '2', '3', '6'].includes(item.status)" class="ol-item__foot">
                     <text
                       v-if="item.status === '1' || item.status === '2'"
@@ -630,6 +635,16 @@ $hairline: var(--app-border);
   display: block;
   overflow: hidden;
   margin-top: 6rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-item__split-hint {
+  display: block;
+  overflow: hidden;
+  margin-top: 4rpx;
   font-size: 22rpx;
   color: $ink-3;
   text-overflow: ellipsis;
