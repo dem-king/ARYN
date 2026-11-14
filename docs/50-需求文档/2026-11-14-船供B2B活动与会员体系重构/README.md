@@ -1,6 +1,14 @@
 # 船供 B2B 活动与会员体系重构方案
 
-> 日期：2026-11-14　状态：方案待评审
+> 日期：2026-11-14　状态：P0 已落地、P1 主体已落地（分支 `codex/b2b-activity-member`）
+>
+> **实施状态（2026-11-14）**：
+> - ✅ P0 停量：boot 234/235 + cloud 249/250/251 增量 SQL（结束存量活动、停秒杀排期模板、隐藏运营菜单、停三个调度 Job），**待在 boot/cloud 库执行**
+> - ✅ P1 数据层：boot 236/237/238 + cloud 252/253/254（协议价/档期/企业等级六张表+绑定表、账期预留、菜单 2180 段、对账 Job 注册）；boot 新表已登记 hx.tenant.tables 与 full SQL（verify 通过）
+> - ✅ P1 后端：营销引擎协议价段（编码 8）/档期过滤/档期特供 type=12（限量熔断 quotaUnits）、订单计价链接入（enginePricedSkuIds/stackPriority/企业权益分轨 orderEnterpriseBenefitHandler/免邮分轨）、企业会员双轨（等级重算+成长值累计+RemoteEnterpriseUserService+月度对账 Job）、管理端价格政策/档期/企业等级/企业权益接口与四页面、C 端协议价/档期 API 层
+> - ⏳ P1.5（后续块）：C 端 zone-price 契约接入 policy 角标（接入点已标注）、档期楼层 diy 组件与装修器注册、企业会员卡（个人中心）、船供活动页 type=12 表单区增强、档期特供 dry-run 冲突检索
+> - ⏳ 待运营：企业等级档位种子、提前购分级、协议价审批流（P2）、执行 P0 SQL
+> - 验证基线：order-biz 699 例 / promotion+user 729 例全绿；管理端 check:type 通过、test:unit 1653/1655（2 例 preview-parity 为本分支未触碰文件的存量失败）；uniapp type-check + 1918 例全绿
 > 需求：停掉全部存量活动，面向「船供采购 / 海员个人 / 工厂餐厅采购」三类 B2B 客群重新设计活动体系与会员权益。不做小象/盒马式零售限时抢购形态。
 >
 > 已确认的四项决策：
