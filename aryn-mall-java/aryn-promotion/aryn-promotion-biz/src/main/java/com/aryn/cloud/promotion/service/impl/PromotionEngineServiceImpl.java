@@ -4,10 +4,16 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
+import com.aryn.cloud.promotion.api.entity.PricePolicy;
+import com.aryn.cloud.promotion.api.entity.PricePolicyItem;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
+import com.aryn.cloud.promotion.api.entity.PromoCalendar;
 import com.aryn.cloud.promotion.api.vo.FirstOrderEligibilityVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
+import com.aryn.cloud.promotion.mapper.PricePolicyItemMapper;
+import com.aryn.cloud.promotion.mapper.PricePolicyMapper;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.promotion.mapper.PromoCalendarMapper;
 import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.aryn.cloud.user.api.vo.MemberLevelSnapshotVO;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -18,11 +24,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,10 +53,24 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	private final PromotionActivityMapper promotionActivityMapper;
 
+	private final PricePolicyMapper pricePolicyMapper;
+
+	private final PricePolicyItemMapper pricePolicyItemMapper;
+
+	private final PromoCalendarMapper promoCalendarMapper;
+
 	private final PromotionLockUsage promotionLockUsage;
 
 	@DubboReference
 	private com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService remoteBuyerProfileService;
+
+	/**
+	 * 企业会员远程服务（user 域）：协议价 apply_type=3 的客群标签圈定需要用户标签集合。
+	 * 必须用<b>非 final 字段</b>+@DubboReference（构造器注入远程接口曾在 boot 启动失败），
+	 * 与 remoteBuyerProfileService 同款写法。查询失败按无标签处理（fail-closed，不误放协议价）。
+	 */
+	@DubboReference
+	private com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
 
 	@DubboReference
 	private com.aryn.cloud.product.api.remote.RemoteGoodsSkuService remoteGoodsSkuService;
@@ -85,7 +107,10 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						.in(PromotionActivity::getActivityType,
 								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT,
 										PromotionActivity.TYPE_GIFT, PromotionActivity.TYPE_NEWBIE_PRICE,
-										PromotionActivity.TYPE_MEMBER_PRICE, PromotionActivity.TYPE_CLEARANCE)));
+										PromotionActivity.TYPE_MEMBER_PRICE, PromotionActivity.TYPE_CLEARANCE,
+										PromotionActivity.TYPE_CALENDAR_SPECIAL)));
+		// 档期过滤：归属采购档期的活动仅在档期生效窗口内参与（草稿/停用/窗口外一律剔除）
+		activities = filterByCalendar(context.getTenantId(), activities, now);
 		Map<String, PromotionActivity> activityById = activities.stream()
 			.collect(Collectors.toMap(PromotionActivity::getId, activity -> activity, (left, right) -> left));
 		Set<String> excluded = new HashSet<>();
@@ -126,11 +151,15 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			Map<String, MemberLevelSnapshotVO> memberLevelCache, Map<String, Boolean> firstOrderCache,
 			Map<String, BigDecimal> monthlyUsageCache) {
 		PromotionCalculationVO result = emptyResult();
+		// 协议价（编码 8，price_policy 承载）：最高优先级，命中 SKU 的成交基价被锁定，
+		// 阶梯价/身份价/档期特供/新人价一律不再覆盖（合同稳定性优先）。
+		Set<String> policyLocked = applyPolicyPrices(context, result);
 		List<PromotionActivity> ladderHits = new ArrayList<>();
 		List<PromotionActivity> wholeHits = new ArrayList<>();
 		List<PromotionActivity> giftHits = new ArrayList<>();
 		List<PromotionActivity> memberHits = new ArrayList<>();
 		List<PromotionActivity> clearanceHits = new ArrayList<>();
+		List<PromotionActivity> specialHits = new ArrayList<>();
 		List<PromotionActivity> newbieHits = new ArrayList<>();
 		for (PromotionActivity activity : activities) {
 			if (!matchesScope(activity, context)) {
@@ -151,20 +180,23 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			else if (PromotionActivity.TYPE_CLEARANCE.equals(activity.getActivityType())) {
 				clearanceHits.add(activity);
 			}
+			else if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(activity.getActivityType())) {
+				specialHits.add(activity);
+			}
 			else if (PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())) {
 				newbieHits.add(activity);
 			}
 		}
 
-		applyBestLadderPrice(context, ladderHits, result);
-		// 会员价/出清价同为 stackPriority=2：在阶梯价之后、新人价之前统一落价，同 SKU 取低。
+		applyBestLadderPrice(context, ladderHits, result, policyLocked);
+		// 会员价/出清价/档期特供：在阶梯价之后、新人价之前统一落价，同 SKU 取低。
 		// 返回「已被身份价锁定的 SKU → 实际生效价」：新人价与其取低（2026-11-08 语义调整，
 		// 原为身份价无条件优先——¥1 新人钩子被全店会员价压制永不生效），同价身份价保留。
 		Map<String, BigDecimal> identityPricedPrices = applyBestIdentityPrice(context, memberHits, clearanceHits,
-				result, memberLevelCache);
+				specialHits, result, memberLevelCache, policyLocked);
 		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价/出清价）的 SKU
 		// （新人价部分覆盖只排除首件让利部分，超出件按原价计入门槛）
-		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedPrices);
+		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedPrices, policyLocked);
 		applyBestWholeDiscount(context, wholeHits, result, firstOrderCache);
 		applyBestGift(context, giftHits, result);
 		return result;
@@ -185,6 +217,9 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				return activity;
 			}
 			if (perUserExhausted(context, activity, userUsage)) {
+				return activity;
+			}
+			if (quotaExhausted(context, activity, result)) {
 				return activity;
 			}
 			if (giftStockExhausted(context, activity, result, giftUsage)) {
@@ -269,11 +304,41 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
+	 * 档期特供限量熔断（件数）：{@code total_quota} 为空/0 视为不限。
+	 *
+	 * <p>已消耗量取 {@code consumed_quota}（reserve 原子累加、release 归还），本单占用
+	 * 按本次命中该活动的 SKU 购买量合计；超出则剔除该活动重算，保证展示价=可成交价。
+	 */
+	private boolean quotaExhausted(PromotionContextDTO context, PromotionActivity activity,
+			PromotionCalculationVO result) {
+		if (!PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(activity.getActivityType())
+				|| activity.getTotalQuota() == null || activity.getTotalQuota() <= 0) {
+			return false;
+		}
+		int current = result.getLadderOverrides().stream()
+			.filter(override -> activity.getId().equals(override.getActivityId()))
+			.mapToInt(override -> quantityOf(context, override.getSkuId()))
+			.sum();
+		int used = activity.getConsumedQuota() == null ? 0 : activity.getConsumedQuota();
+		return used + current > activity.getTotalQuota();
+	}
+
+	private int quantityOf(PromotionContextDTO context, String skuId) {
+		return context.getSkuItems().stream()
+			.filter(item -> item.getSkuId().equals(skuId))
+			.mapToInt(PromotionContextDTO.SkuItem::getQuantity)
+			.findFirst()
+			.orElse(0);
+	}
+
+	/**
 	 * 阶梯价：同类型取“总价优惠最大”的活动；规则按 SKU 配档（rules.skuLadders），
 	 * 逐 SKU 按数量命中最高档位单价，未配档的 SKU 不改价。
+	 *
+	 * @param policyLocked 已被协议价锁定的 SKU（一律跳过，协议价不可被公开活动覆盖）
 	 */
 	private void applyBestLadderPrice(PromotionContextDTO context, List<PromotionActivity> activities,
-			PromotionCalculationVO result) {
+			PromotionCalculationVO result, Set<String> policyLocked) {
 		PromotionActivity best = null;
 		List<PromotionCalculationVO.UnitPriceOverride> bestOverrides = null;
 		BigDecimal bestSaving = BigDecimal.ZERO;
@@ -295,7 +360,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						continue;
 					}
 					for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-						if (!skuId.equals(item.getSkuId())) {
+						if (!skuId.equals(item.getSkuId()) || policyLocked.contains(item.getSkuId())) {
 							continue;
 						}
 						PromotionCalculationVO.UnitPriceOverride override = resolveLadder(ladders, item);
@@ -593,6 +658,199 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		return Arrays.asList(scopeValue.split(",")).contains(value);
 	}
 
+	/**
+	 * 档期过滤：归属采购档期（calendar_id）的活动仅在档期生效窗口内参与试算。
+	 * 未归属档期的活动不受影响；档期一次 preview 只查一次，缺失/停用/窗口外均视为不生效。
+	 */
+	private List<PromotionActivity> filterByCalendar(String tenantId, List<PromotionActivity> activities,
+			LocalDateTime now) {
+		List<String> calendarIds = activities.stream()
+			.map(PromotionActivity::getCalendarId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (calendarIds.isEmpty()) {
+			return activities;
+		}
+		Set<String> effectiveIds = promoCalendarMapper.selectList(Wrappers.lambdaQuery(PromoCalendar.class)
+				.eq(PromoCalendar::getTenantId, tenantId)
+				.eq(PromoCalendar::getStatus, PromoCalendar.STATUS_ACTIVE)
+				.le(PromoCalendar::getStartTime, now)
+				.ge(PromoCalendar::getEndTime, now)
+				.in(PromoCalendar::getId, calendarIds))
+			.stream()
+			.map(PromoCalendar::getId)
+			.collect(Collectors.toSet());
+		return activities.stream()
+			.filter(activity -> !StringUtils.hasText(activity.getCalendarId())
+					|| effectiveIds.contains(activity.getCalendarId()))
+			.toList();
+	}
+
+	/**
+	 * 协议价（price_policy）：最高优先级价格层。
+	 *
+	 * <p>命中逻辑：生效中的政策按 apply_type 匹配上下文（1采购主体 2船舶 3客群标签）；
+	 * 政策明细（price_policy_item）对当前单 SKU 逐条解析价格（固定价/折扣率），
+	 * 按「priority 取大、同级取更低价」选出唯一胜者。倒挂（协议价 ≥ 当前基价）不落价。
+	 *
+	 * <p>命中 SKU 的成交基价被<b>锁定</b>：阶梯价/身份价/档期特供/新人价一律跳过，
+	 * 且协议价 SKU 不参与整船优惠门槛与分摊（经 ladderOverrides 自动排除）。
+	 * 协议价商品不可叠券/积分（合同价独占公开优惠）。
+	 *
+	 * @return 被协议价锁定的 SKU 集合
+	 */
+	private Set<String> applyPolicyPrices(PromotionContextDTO context, PromotionCalculationVO result) {
+		List<PricePolicy> policies = loadEffectivePolicies(context);
+		if (policies.isEmpty()) {
+			return Set.of();
+		}
+		Map<String, PricePolicy> policyById = policies.stream()
+			.collect(Collectors.toMap(PricePolicy::getId, policy -> policy, (left, right) -> left));
+		List<PricePolicyItem> items = pricePolicyItemMapper.selectList(
+				Wrappers.lambdaQuery(PricePolicyItem.class)
+						.eq(PricePolicyItem::getTenantId, context.getTenantId())
+						.in(PricePolicyItem::getPolicyId, policyById.keySet()));
+		if (items.isEmpty()) {
+			return Set.of();
+		}
+		Map<String, List<PricePolicyItem>> itemsBySku = items.stream()
+			.collect(Collectors.groupingBy(PricePolicyItem::getSkuId));
+		Map<String, BigDecimal> savingByPolicy = new LinkedHashMap<>();
+		Map<String, PricePolicy> participating = new LinkedHashMap<>();
+		Set<String> locked = new HashSet<>();
+		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
+			PricePolicyItem bestItem = null;
+			PricePolicy bestPolicy = null;
+			BigDecimal bestPrice = null;
+			for (PricePolicyItem policyItem : itemsBySku.getOrDefault(item.getSkuId(), List.of())) {
+				PricePolicy policy = policyById.get(policyItem.getPolicyId());
+				if (policy == null) {
+					continue;
+				}
+				BigDecimal price = resolvePolicyPrice(policyItem, policy.getPriceMode(), item.getSalesPrice());
+				if (price == null || price.compareTo(item.getSalesPrice()) >= 0) {
+					// 协议价非法或倒挂（≥ 现售价）不落价，公开价格层继续生效
+					continue;
+				}
+				int policyPriority = policy.getPriority() == null ? 0 : policy.getPriority();
+				int bestPriority = bestPolicy == null ? Integer.MIN_VALUE
+						: (bestPolicy.getPriority() == null ? 0 : bestPolicy.getPriority());
+				if (bestItem == null || policyPriority > bestPriority
+						|| (policyPriority == bestPriority && price.compareTo(bestPrice) < 0)) {
+					bestItem = policyItem;
+					bestPolicy = policy;
+					bestPrice = price;
+				}
+			}
+			if (bestItem == null) {
+				continue;
+			}
+			locked.add(item.getSkuId());
+			participating.putIfAbsent(bestPolicy.getId(), bestPolicy);
+			PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+			override.setSkuId(item.getSkuId());
+			override.setUnitPrice(bestPrice);
+			override.setOriginalPrice(item.getSalesPrice());
+			override.setActivityId(bestPolicy.getId());
+			override.setActivityType(PromotionActivity.TYPE_POLICY_PRICE);
+			// 协议价不可叠券/积分：合同价独占公开优惠，防叠加击穿
+			override.setCouponStackable(false);
+			override.setPointsStackable(false);
+			result.getLadderOverrides().add(override);
+			savingByPolicy.merge(bestPolicy.getId(),
+				item.getSalesPrice().subtract(bestPrice).multiply(BigDecimal.valueOf(item.getQuantity())),
+				BigDecimal::add);
+		}
+		if (locked.isEmpty()) {
+			return Set.of();
+		}
+		for (Map.Entry<String, PricePolicy> entry : participating.entrySet()) {
+			JSONObject snapshot = new JSONObject();
+			snapshot.set("policyId", entry.getKey());
+			snapshot.set("priceMode", entry.getValue().getPriceMode());
+			PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
+			detail.setActivityId(entry.getKey());
+			detail.setActivityType(PromotionActivity.TYPE_POLICY_PRICE);
+			detail.setActivityName(entry.getValue().getPolicyName());
+			detail.setDiscountAmount(savingByPolicy.getOrDefault(entry.getKey(), BigDecimal.ZERO));
+			detail.setRuleSnapshot(snapshot.toString());
+			result.getDetails().add(detail);
+			BigDecimal saving = savingByPolicy.getOrDefault(entry.getKey(), BigDecimal.ZERO);
+			if (saving.compareTo(BigDecimal.ZERO) > 0) {
+				result.setTotalDiscount(result.getTotalDiscount().add(saving));
+			}
+		}
+		return locked;
+	}
+
+	/** 生效中的价格政策（status=1 且时间窗覆盖当前），并按上下文过滤适用对象。 */
+	private List<PricePolicy> loadEffectivePolicies(PromotionContextDTO context) {
+		LocalDateTime now = context.getActivityTime() != null ? context.getActivityTime() : LocalDateTime.now();
+		List<PricePolicy> policies = pricePolicyMapper.selectList(Wrappers.lambdaQuery(PricePolicy.class)
+				.eq(PricePolicy::getTenantId, context.getTenantId())
+				.eq(PricePolicy::getStatus, PricePolicy.STATUS_ACTIVE)
+				.le(PricePolicy::getStartTime, now)
+				.ge(PricePolicy::getEndTime, now));
+		if (policies.isEmpty()) {
+			return List.of();
+		}
+		// 客群标签一次 preview 只取一次（首个 apply_type=3 政策触发）；失败按无标签（fail-closed）
+		Set<String> userTagIds = null;
+		List<PricePolicy> matched = new ArrayList<>(policies.size());
+		for (PricePolicy policy : policies) {
+			String applyType = policy.getApplyType();
+			if (PricePolicy.APPLY_BUYER_ORG.equals(applyType)) {
+				if (containsValue(policy.getApplyValue(), context.getBuyerOrgId())) {
+					matched.add(policy);
+				}
+			}
+			else if (PricePolicy.APPLY_VESSEL.equals(applyType)) {
+				if (containsValue(policy.getApplyValue(), context.getVesselId())) {
+					matched.add(policy);
+				}
+			}
+			else if (PricePolicy.APPLY_TAG.equals(applyType)) {
+				if (userTagIds == null) {
+					userTagIds = fetchUserTagIds(context);
+				}
+				if (StringUtils.hasText(policy.getApplyValue()) && !userTagIds.isEmpty()
+						&& Arrays.asList(policy.getApplyValue().split(",")).stream().anyMatch(userTagIds::contains)) {
+					matched.add(policy);
+				}
+			}
+		}
+		return matched;
+	}
+
+	/** 用户会员标签集合（协议价客群圈定）；远程失败返回空集合（fail-closed，不误放协议价）。 */
+	private Set<String> fetchUserTagIds(PromotionContextDTO context) {
+		if (!StringUtils.hasText(context.getUserId())) {
+			return Set.of();
+		}
+		try {
+			List<String> tagIds = remoteEnterpriseUserService.getUserTagIds(context.getTenantId(), context.getUserId());
+			return tagIds == null ? Set.of() : Set.copyOf(tagIds);
+		}
+		catch (Exception ex) {
+			log.warn("协议价客群标签查询失败，按无标签处理 tenant={} user={}: {}",
+					context.getTenantId(), context.getUserId(), ex.getMessage());
+			return Set.of();
+		}
+	}
+
+	/** 协议价单条解析：固定价直取；折扣率按基价计算（两位小数，DOWN，与限时折扣同口径）。 */
+	private BigDecimal resolvePolicyPrice(PricePolicyItem policyItem, String priceMode, BigDecimal salesPrice) {
+		if (PricePolicy.MODE_FIXED_PRICE.equals(priceMode)) {
+			return policyItem.getPolicyPrice();
+		}
+		if (PricePolicy.MODE_RATE.equals(priceMode) && policyItem.getPolicyRate() != null
+				&& policyItem.getPolicyRate().signum() > 0) {
+			return salesPrice.multiply(policyItem.getPolicyRate()).setScale(2, RoundingMode.DOWN);
+		}
+		return null;
+	}
+
 
 	/**
 	 * 买赠：同类型取赠品价值最大者（售价 × 数量；售价查询失败降级为赠品总数量最大），
@@ -691,14 +949,16 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 */
 	private Map<String, BigDecimal> applyBestIdentityPrice(PromotionContextDTO context,
 			List<PromotionActivity> memberActivities,
-			List<PromotionActivity> clearanceActivities, PromotionCalculationVO result,
-			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
+			List<PromotionActivity> clearanceActivities, List<PromotionActivity> specialActivities,
+			PromotionCalculationVO result, Map<String, MemberLevelSnapshotVO> memberLevelCache,
+			Set<String> policyLocked) {
 		List<PriceOffer> memberOffers = memberOffers(context, memberActivities, memberLevelCache);
 		List<PriceOffer> clearanceOffers = clearanceOffers(context, clearanceActivities);
-		if (memberOffers.isEmpty() && clearanceOffers.isEmpty()) {
+		List<PriceOffer> specialOffers = specialOffers(specialActivities);
+		if (memberOffers.isEmpty() && clearanceOffers.isEmpty() && specialOffers.isEmpty()) {
 			return Map.of();
 		}
-		return mergeIdentityOverrides(context, memberOffers, clearanceOffers, result);
+		return mergeIdentityOverrides(context, memberOffers, clearanceOffers, specialOffers, result, policyLocked);
 	}
 
 	/** 所有命中的会员价活动（手工 + 系统），逐 SKU 由合并阶段取优。 */
@@ -806,27 +1066,35 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
-	 * 身份价覆盖合并：逐 SKU 在全部会员活动与出清活动中取最低价，再与阶梯价比较取更低价，
+	 * 身份价覆盖合并：逐 SKU 在档期特供/会员/出清活动中取最低价，再与阶梯价比较取更低价，
 	 * 逐 SKU 生成一条覆盖，避免改价链（applyPromotionLadder 按 skuId findFirst）出现随机覆盖。
 	 *
 	 * <p>价格低于基价即落价并计入总让利；阶梯价更低时保留阶梯价（用户更优），
 	 * 但该 SKU 仍计入锁定集合供新人价取低比较。倒挂（价格 ≥ 基价）的 SKU
 	 * 不锁定，新人价仍可对其生效。每个参与的活动各自产出明细，同 SKU 的让利只归胜出方，
-	 * 不会重复计算。
+	 * 不会重复计算。档期特供的限量件数（quotaUnits）随明细快照下发，reserve 据此原子扣减。
 	 *
 	 * @return 已被身份价锁定的 SKU → 实际生效价（阶梯价保留时为阶梯价），供新人价取低比较
 	 */
 	private Map<String, BigDecimal> mergeIdentityOverrides(PromotionContextDTO context, List<PriceOffer> memberOffers,
-			List<PriceOffer> clearanceOffers, PromotionCalculationVO result) {
-		Map<String, BigDecimal> lockedPrices = new java.util.LinkedHashMap<>();
-		Map<String, BigDecimal> savingByActivity = new java.util.LinkedHashMap<>();
-		Map<String, PromotionActivity> participating = new java.util.LinkedHashMap<>();
+			List<PriceOffer> clearanceOffers, List<PriceOffer> specialOffers, PromotionCalculationVO result,
+			Set<String> policyLocked) {
+		Map<String, BigDecimal> lockedPrices = new LinkedHashMap<>();
+		Map<String, BigDecimal> savingByActivity = new LinkedHashMap<>();
+		Map<String, PromotionActivity> participating = new LinkedHashMap<>();
+		Map<String, Integer> specialUnitsByActivity = new LinkedHashMap<>();
 		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-			IdentityCandidate winner = chooseIdentityPrice(memberOffers, clearanceOffers, item);
+			if (policyLocked.contains(item.getSkuId())) {
+				continue;
+			}
+			IdentityCandidate winner = chooseIdentityPrice(specialOffers, memberOffers, clearanceOffers, item);
 			if (winner == null) {
 				continue;
 			}
 			participating.putIfAbsent(winner.activity().getId(), winner.activity());
+			if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(winner.activity().getActivityType())) {
+				specialUnitsByActivity.merge(winner.activity().getId(), item.getQuantity(), Integer::sum);
+			}
 			PromotionCalculationVO.UnitPriceOverride existing = findOverride(result, item.getSkuId());
 			if (existing != null && existing.getUnitPrice().compareTo(winner.price()) <= 0) {
 				// 阶梯价更低：保留阶梯价（用户更优），锁定价记阶梯价——新人价与实际生效价取低
@@ -853,23 +1121,31 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		if (lockedPrices.isEmpty()) {
 			return Map.of();
 		}
-		appendIdentityDetails(memberOffers, participating, savingByActivity, result);
-		appendIdentityDetails(clearanceOffers, participating, savingByActivity, result);
+		appendIdentityDetails(specialOffers, participating, savingByActivity, result, specialUnitsByActivity);
+		appendIdentityDetails(memberOffers, participating, savingByActivity, result, Map.of());
+		appendIdentityDetails(clearanceOffers, participating, savingByActivity, result, Map.of());
 		return lockedPrices;
 	}
 
-	/** 身份价同 SKU 取低：同价时优先会员价（身份权益稳定归属）。 */
-	private IdentityCandidate chooseIdentityPrice(List<PriceOffer> memberOffers, List<PriceOffer> clearanceOffers,
-			PromotionContextDTO.SkuItem item) {
+	/**
+	 * 身份价同 SKU 取低：档期特供（stackPriority=8）> 会员价 > 出清价，
+	 * 同价按该顺序保留（档期特供限量运营归属优先，会员价身份权益次之）。
+	 */
+	private IdentityCandidate chooseIdentityPrice(List<PriceOffer> specialOffers, List<PriceOffer> memberOffers,
+			List<PriceOffer> clearanceOffers, PromotionContextDTO.SkuItem item) {
+		IdentityCandidate special = bestOfferCandidate(specialOffers, item);
 		IdentityCandidate member = bestMemberCandidate(memberOffers, item);
 		IdentityCandidate clearance = bestOfferCandidate(clearanceOffers, item);
-		if (member == null) {
-			return clearance;
+		IdentityCandidate best = special != null ? special : member != null ? member : clearance;
+		if (best == null) {
+			return null;
 		}
-		if (clearance == null) {
-			return member;
+		for (IdentityCandidate candidate : List.of(special, member, clearance)) {
+			if (candidate != null && candidate.price().compareTo(best.price()) < 0) {
+				best = candidate;
+			}
 		}
-		return clearance.price().compareTo(member.price()) < 0 ? clearance : member;
+		return best;
 	}
 
 	/**
@@ -920,23 +1196,56 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	private void appendIdentityDetails(List<PriceOffer> offers, Map<String, PromotionActivity> participating,
-			Map<String, BigDecimal> savingByActivity, PromotionCalculationVO result) {
+			Map<String, BigDecimal> savingByActivity, PromotionCalculationVO result,
+			Map<String, Integer> specialUnitsByActivity) {
 		for (PriceOffer offer : offers) {
 			if (!participating.containsKey(offer.activity().getId())) {
 				continue;
 			}
 			BigDecimal saving = savingByActivity.getOrDefault(offer.activity().getId(), BigDecimal.ZERO);
+			JSONObject snapshotRules = offer.rules();
+			// 档期特供把本单占用的限量件数写进快照：reserve 原子扣减、release 归还都以此为准
+			Integer quotaUnits = specialUnitsByActivity.get(offer.activity().getId());
+			if (quotaUnits != null) {
+				snapshotRules = JSONUtil.parseObj(JSONUtil.toJsonStr(snapshotRules));
+				snapshotRules.set("quotaUnits", quotaUnits);
+			}
 			PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
 			detail.setActivityId(offer.activity().getId());
 			detail.setActivityType(offer.activity().getActivityType());
 			detail.setActivityName(offer.activity().getActivityName());
 			detail.setDiscountAmount(saving);
-			detail.setRuleSnapshot(JSONUtil.toJsonStr(offer.rules()));
+			detail.setRuleSnapshot(JSONUtil.toJsonStr(snapshotRules));
 			result.getDetails().add(detail);
 			if (saving.compareTo(BigDecimal.ZERO) > 0) {
 				result.setTotalDiscount(result.getTotalDiscount().add(saving));
 			}
 		}
+	}
+
+	/** 档期特供价（type=12）：rules.skus 同出清价形态 [{skuId,price}]，限量/限购由额度剔除与 reserve 兜底。 */
+	private List<PriceOffer> specialOffers(List<PromotionActivity> activities) {
+		if (activities.isEmpty()) {
+			return List.of();
+		}
+		List<PriceOffer> offers = new ArrayList<>();
+		for (PromotionActivity activity : activities) {
+			try {
+				JSONObject rules = JSONUtil.parseObj(activity.getRules());
+				JSONArray skus = rules.getJSONArray("skus");
+				if (skus == null || skus.isEmpty()) {
+					continue;
+				}
+				Map<String, BigDecimal> priceBySku = parsePriceBySku(skus, "price");
+				if (!priceBySku.isEmpty()) {
+					offers.add(new PriceOffer(activity, rules, priceBySku));
+				}
+			}
+			catch (Exception ex) {
+				log.warn("档期特供活动[{}]规则解析失败，跳过: {}", activity.getId(), ex.getMessage());
+			}
+		}
+		return offers;
 	}
 
 	private PromotionCalculationVO.UnitPriceOverride findOverride(PromotionCalculationVO result, String skuId) {
@@ -1024,7 +1333,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 */
 	private void applyBestNewbiePrice(PromotionContextDTO context, List<PromotionActivity> activities,
 			PromotionCalculationVO result, Map<Integer, Boolean> eligibilityCache,
-			Map<String, BigDecimal> identityPricedPrices) {
+			Map<String, BigDecimal> identityPricedPrices, Set<String> policyLocked) {
 		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
 			return;
 		}
@@ -1043,7 +1352,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 					continue;
 				}
 				int limitPerUser = normalizeNewbieLimitPerUser(rules);
-				BigDecimal saving = newbieSaving(context, newbieSkus, identityPricedPrices, limitPerUser);
+				BigDecimal saving = newbieSaving(context, newbieSkus, identityPricedPrices, limitPerUser, policyLocked);
 				// 资格通过即视为命中（saving 为 0 表示本次基价已等于活动价，即重放场景）；
 				// 多活动并存时仍取节省额最大者，节省额相同时取先出现的（稳定）
 				if (best == null || saving.compareTo(bestSaving) > 0) {
@@ -1058,7 +1367,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			}
 		}
 		if (best != null) {
-			mergeNewbieOverrides(context, best, bestRules, result, identityPricedPrices, bestLimitPerUser);
+			mergeNewbieOverrides(context, best, bestRules, result, identityPricedPrices, bestLimitPerUser, policyLocked);
 		}
 	}
 
@@ -1083,7 +1392,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * 不产生让利，与订单侧首件让利口径一致。
 	 */
 	private BigDecimal newbieSaving(PromotionContextDTO context, JSONArray newbieSkus,
-			Map<String, BigDecimal> identityPricedPrices, int limitPerUser) {
+			Map<String, BigDecimal> identityPricedPrices, int limitPerUser, Set<String> policyLocked) {
 		BigDecimal saving = BigDecimal.ZERO;
 		for (Object element : newbieSkus) {
 			JSONObject sku = (JSONObject) element;
@@ -1093,7 +1402,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-				if (!skuId.equals(item.getSkuId())) {
+				if (!skuId.equals(item.getSkuId()) || policyLocked.contains(item.getSkuId())) {
 					continue;
 				}
 				BigDecimal identityPrice = identityPricedPrices.get(skuId);
@@ -1129,7 +1438,8 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * @return 是否命中（命中=活动对本单至少一个 SKU 的实际生效价做出了贡献）
 	 */
 	private boolean mergeNewbieOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
-			PromotionCalculationVO result, Map<String, BigDecimal> identityPricedPrices, int limitPerUser) {
+			PromotionCalculationVO result, Map<String, BigDecimal> identityPricedPrices, int limitPerUser,
+			Set<String> policyLocked) {
 		JSONArray newbieSkus = rules.getJSONArray("skus");
 		BigDecimal saving = BigDecimal.ZERO;
 		boolean matched = false;
@@ -1141,7 +1451,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-				if (!skuId.equals(item.getSkuId())) {
+				if (!skuId.equals(item.getSkuId()) || policyLocked.contains(item.getSkuId())) {
 					continue;
 				}
 				// 已存在同 SKU 覆盖（阶梯价/身份价）时取更低价；不高于新人价则保留原覆盖，
@@ -1199,7 +1509,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	/**
 	 * 按活动实体填充单价的叠加策略：
-	 * 新人专享（type=9）空值回落「不可叠」（防 0 元单），
+	 * 新人专享（type=9）与档期特供（type=12）空值回落「不可叠」（防 0 元单/限量硬促销），
 	 * 会员价（type=10）空值回落「可叠」（身份常态权益），
 	 * 其余类型（阶梯价等）回落「可叠」以维持现网行为。
 	 */
@@ -1213,6 +1523,9 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		}
 		else if (PromotionActivity.TYPE_CLEARANCE.equals(activity.getActivityType())) {
 			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.CLEARANCE;
+		}
+		else if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(activity.getActivityType())) {
+			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.CALENDAR_SPECIAL;
 		}
 		boolean couponDefault = type == null || type.isDefaultCouponStackable();
 		boolean pointsDefault = type == null || type.isDefaultPointsStackable();

@@ -38,7 +38,22 @@ public enum StackActivityTypeEnum {
 	 * <p>与会员价同为 stackPriority=2，同 SKU 由引擎取低；默认可叠券/积分，
 	 * 出清命中时新人价与限时折扣被阻断。
 	 */
-	CLEARANCE("clearance", true, true);
+	CLEARANCE("clearance", true, true),
+
+	/**
+	 * 档期特供价（promotion_activity type=12，2026-11-14 B2B 重构新增）。
+	 *
+	 * <p>档期内限量特惠，活动级限量熔断 + 每人限购；与秒杀同语义（硬促销不叠券/积分），
+	 * 但无整点场次，按采购档期窗组织。
+	 */
+	CALENDAR_SPECIAL("calendarSpecial", false, false),
+
+	/**
+	 * 协议价（price_policy 承载，锁/快照编码 8，2026-11-14 B2B 重构新增）。
+	 *
+	 * <p>合同价独占公开优惠：不叠券/积分；成交基价由引擎锁定，任何公开活动价不可覆盖。
+	 */
+	POLICY("policy", false, false);
 
 	/** 活动类型编码（远程 VO / 结算响应下发用） */
 	private final String code;

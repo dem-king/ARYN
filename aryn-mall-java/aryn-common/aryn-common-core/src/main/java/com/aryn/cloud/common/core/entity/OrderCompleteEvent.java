@@ -46,4 +46,13 @@ public class OrderCompleteEvent {
 	@Schema(description = "下单时会员积分倍率")
 	private BigDecimal pointsMultiplier;
 
+	@Schema(description = "购买场景：1海员个人 2船供采购 3企业采购（企业轨成长值累计使用；空按个人处理）")
+	private String purchaseScene;
+
+	@Schema(description = "配送船舶ID（scene=2 时企业轨成长值累计主体）")
+	private String vesselId;
+
+	@Schema(description = "采购主体ID（scene=3 时企业轨成长值累计主体）")
+	private String buyerOrgId;
+
 }

@@ -328,9 +328,17 @@ public class OrderPriceComputeService {
 		}
 	}
 
-	/** 取价链优先级（拼团 &gt; 秒杀 &gt; 会员价/出清价 &gt; 新人价 &gt; 限时折扣），用于防止低优先级命中覆盖高优先级命中。 */
+	/**
+	 * 取价链优先级（协议价 &gt; 档期特供 &gt; 拼团 &gt; 秒杀 &gt; 会员价/出清价 &gt; 新人价 &gt; 限时折扣），
+	 * 用于防止低优先级命中覆盖高优先级命中。
+	 *
+	 * <p>2026-11-14 B2B 重构：协议价（编码 8，price_policy 承载）与档期特供（type=12）
+	 * 由营销引擎落价并锁定，公开活动价不可覆盖；秒杀/拼团/限时折扣存量停运，编码保留兼容。
+	 */
 	private static int stackPriority(StackActivityTypeEnum activityType) {
 		return switch (activityType) {
+			case POLICY -> 9;
+			case CALENDAR_SPECIAL -> 5;
 			case GROUP_BUY -> 4;
 			case SECKILL -> 3;
 			case MEMBER_PRICE, CLEARANCE -> 2;
@@ -340,10 +348,17 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 引擎落价的订单侧活动类型映射：会员价 type=10、出清价 type=11、新人价 type=9；
+	 * 引擎落价的订单侧活动类型映射：协议价（编码 8）、档期特供 type=12、
+	 * 会员价 type=10、出清价 type=11、新人价 type=9；
 	 * 其他类型（阶梯价等）不参与叠加策略。
 	 */
 	private static StackActivityTypeEnum enginePricedActivityType(String activityType) {
+		if (PromotionActivity.TYPE_POLICY_PRICE.equals(activityType)) {
+			return StackActivityTypeEnum.POLICY;
+		}
+		if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(activityType)) {
+			return StackActivityTypeEnum.CALENDAR_SPECIAL;
+		}
 		if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activityType)) {
 			return StackActivityTypeEnum.MEMBER_PRICE;
 		}
@@ -1307,6 +1322,63 @@ public class OrderPriceComputeService {
 		return item.getCostPrice().multiply(costFloorMultiplier).setScale(2, RoundingMode.HALF_UP);
 	}
 
+	/**
+	 * 企业权益落价（双轨会员企业轨，scene=2/3 专用；与个人会员折扣分轨消费，不交叉取优）。
+	 *
+	 * <p>语义与 {@link #orderMemberBenefitHandler} 同构，差异三点：
+	 * <ol>
+	 *   <li>折扣率来自企业等级权益（{@code enterprise_benefit} type=1，多档取最优），
+	 *       未配置按 1（不打折）；</li>
+	 *   <li>积分倍率恒 1：企业采购不做积分抵现/返积分（与积分抵现仅 scene=1 的口径一致），
+	 *       {@code order_info.points_multiplier} 固定写 1；</li>
+	 *   <li>会员价取优不带成本下限倍率（企业协议价/专区价的成本口径由价格政策与专区治理管，
+	 *       P1 不叠加会员成本兜底倍率）。</li>
+	 * </ol>
+	 *
+	 * <p>互斥/取优口径与个人轨一致：协议价/档期特供/新人价优惠行/秒杀/拼团/限时折扣命中行
+	 * 与企业折扣互斥（只享活动价）；会员价/出清价与企业折扣率取优不叠加；新人价超出行
+	 * 保留身份价时互斥、回落基价时参与企业折扣。
+	 */
+	public void orderEnterpriseBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO benefits, PromotionPricePlan plan) {
+		if (plan == null) {
+			log.warn("企业折扣计算缺少活动价计划（PromotionPricePlan=null），活动价明细将按普通商品参与企业折扣");
+		}
+		BigDecimal discountRate = benefits == null || benefits.getDiscountRate() == null
+				? BigDecimal.ONE : benefits.getDiscountRate();
+		if (discountRate.compareTo(BigDecimal.ZERO) <= 0 || discountRate.compareTo(BigDecimal.ONE) > 0) {
+			throw new ArynBusinessException("企业折扣配置不合法");
+		}
+		// 企业轨不做积分倍率权益：固定 1，避免事件侧把个人倍率带到企业单
+		orderInfo.setPointsMultiplier(BigDecimal.ONE);
+		for (OrderItemEntity item : orderItemEntityList) {
+			PromotionPricePlan.ActivityPriceHit hit = plan == null ? null : plan.hit(item.getSkuId());
+			boolean hitApplies = hit != null && hitAppliesToRow(item, hit);
+			BigDecimal discountPrice;
+			if (hit != null && !hitApplies && hit.originalUnitPrice() != null
+					&& item.getSalesPrice() != null
+					&& item.getSalesPrice().compareTo(hit.originalUnitPrice()) < 0) {
+				// 新人价部分覆盖的超出行保留身份价：身份权益已落在成交价里，不再重复打折
+				discountPrice = BigDecimal.ZERO;
+			}
+			else if (!hitApplies) {
+				discountPrice = item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
+					.setScale(2, RoundingMode.HALF_UP);
+			}
+			else if ((hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
+					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE) && hit.originalUnitPrice() != null) {
+				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate, null);
+			}
+			else {
+				// 协议价/档期特供/新人价优惠行/秒杀/拼团/限时折扣与企业折扣互斥：只享活动价
+				discountPrice = BigDecimal.ZERO;
+			}
+			item.setMemberDiscountPrice(discountPrice);
+			computeItemPayPrice(item);
+		}
+		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
 	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
 		orderCouponHandler(orderInfo, orderItemEntityList, null, false);
 	}
@@ -1535,7 +1607,9 @@ public class OrderPriceComputeService {
 		}
 		return calculation.getLadderOverrides().stream()
 			.filter(override -> override.getActivityType() != null
-					&& (PromotionActivity.TYPE_MEMBER_PRICE.equals(override.getActivityType())
+					&& (PromotionActivity.TYPE_POLICY_PRICE.equals(override.getActivityType())
+							|| PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(override.getActivityType())
+							|| PromotionActivity.TYPE_MEMBER_PRICE.equals(override.getActivityType())
 							|| PromotionActivity.TYPE_CLEARANCE.equals(override.getActivityType())
 							|| PromotionActivity.TYPE_NEWBIE_PRICE.equals(override.getActivityType())))
 			.map(PromotionCalculationVO.UnitPriceOverride::getSkuId)

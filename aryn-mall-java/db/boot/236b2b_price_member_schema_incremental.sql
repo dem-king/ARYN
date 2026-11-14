@@ -7,13 +7,13 @@
 --   替代零售限时玩法。本脚本落新体系的数据基础层：
 --     1. price_policy / price_policy_item：协议价（按采购主体/船舶/客群标签的专属合同价）；
 --     2. promo_calendar：采购档期（周度/靠港/自然月/自定义时间窗），活动可归属档期；
---     3. enterprise_level / enterprise_benefit / rel / record / growth：
---        企业会员双轨（岸上企业 buyer_org + 船舶 vessel 双挂点，按近12月采购额分档）；
+--     3. enterprise_level / enterprise_benefit / rel / record / growth / level_binding：
+--        企业会员双轨（岸上企业 buyer_org + 船舶 vessel 双挂点，按近12月采购额分档；
+--        主体 → 当前等级经 enterprise_level_binding 单写方维护，不在主体表冗余列）；
 --     4. enterprise_credit_account / enterprise_statement：账期授信预留表（本期只建表
 --        不启用，二期做额度校验/月结对账/还款核销）；
---     5. buyer_org.level_id / vessel_info.level_id：企业等级挂点冗余列；
---     6. promotion_activity 增加档期归属与档期特供限量（calendar_id/total_quota/consumed_quota）；
---     7. promotion_snapshot.activity_type 注释扩展：8 协议价。
+--     5. promotion_activity 增加档期归属与档期特供限量（calendar_id/total_quota/consumed_quota）；
+--     6. promotion_snapshot.activity_type 注释扩展：8 协议价。
 --
 -- 口径：
 --   · 新表全部含 tenant_id，登记进 hx.tenant.tables（boot application.yml 与 cloud 各 biz yml）；
@@ -208,21 +208,21 @@ CREATE TABLE IF NOT EXISTS `enterprise_statement` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业月度对账单（预留）';
 
 -- ----------------------------------------------------------------------------
--- 5. 挂点列：buyer_org / vessel_info 企业等级
+-- 5. 企业等级绑定（主体 → 当前等级；user 域单写方）
 -- ----------------------------------------------------------------------------
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buyer_org' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `buyer_org` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）'' AFTER `audit_status`',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_info' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `vessel_info` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）''',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+CREATE TABLE IF NOT EXISTS `enterprise_level_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `level_id` varchar(32) DEFAULT NULL COMMENT '当前企业等级ID（未定级为空）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_level_binding_subject` (`tenant_id`,`subject_type`,`subject_id`),
+  KEY `idx_enterprise_level_binding_level` (`tenant_id`,`level_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业等级绑定（主体→当前等级）';
 
 -- ----------------------------------------------------------------------------
 -- 6. 统一引擎增强：档期归属 + 档期特供限量
@@ -269,10 +269,6 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- SHOW TABLES LIKE 'price_policy%';
 -- SHOW TABLES LIKE 'promo_calendar';
 -- SHOW TABLES LIKE 'enterprise_%';
--- SELECT COLUMN_NAME FROM information_schema.COLUMNS
---  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='buyer_org' AND COLUMN_NAME='level_id';
--- SELECT COLUMN_NAME FROM information_schema.COLUMNS
---  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='vessel_info' AND COLUMN_NAME='level_id';
 -- SELECT COLUMN_NAME FROM information_schema.COLUMNS
 --  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='promotion_activity'
 --    AND COLUMN_NAME IN ('calendar_id','total_quota','consumed_quota');

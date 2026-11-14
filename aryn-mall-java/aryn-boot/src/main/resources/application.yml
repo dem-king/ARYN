@@ -364,6 +364,7 @@ hx:
       - enterprise_benefit_level_rel
       - enterprise_level_record
       - enterprise_growth
+      - enterprise_level_binding
       - enterprise_credit_account
       - enterprise_statement
 

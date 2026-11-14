@@ -182,7 +182,24 @@ CREATE TABLE IF NOT EXISTS `enterprise_growth` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业采购额月度累计（等级成长值）';
 
 -- ----------------------------------------------------------------------------
--- 5. 订单库：挂点列 / 账期预留 / 快照注释（aryn_order 库）
+-- 4.1 企业等级绑定（主体 → 当前等级；aryn_user 库单写方）
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `enterprise_level_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `level_id` varchar(32) DEFAULT NULL COMMENT '当前企业等级ID（未定级为空）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_level_binding_subject` (`tenant_id`,`subject_type`,`subject_id`),
+  KEY `idx_enterprise_level_binding_level` (`tenant_id`,`level_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业等级绑定（主体→当前等级）';
+
+-- ----------------------------------------------------------------------------
+-- 5. 订单库：账期预留 / 快照注释（aryn_order 库）
 -- ----------------------------------------------------------------------------
 USE `aryn_order`;
 
@@ -223,37 +240,18 @@ CREATE TABLE IF NOT EXISTS `enterprise_statement` (
   UNIQUE KEY `uk_enterprise_statement_period` (`tenant_id`,`subject_type`,`subject_id`,`period`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业月度对账单（预留）';
 
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buyer_org' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `buyer_org` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）'' AFTER `audit_status`',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 ALTER TABLE `promotion_snapshot`
   MODIFY COLUMN `activity_type` char(2) NOT NULL COMMENT '活动类型：1优惠券 2满减 3折扣 4阶梯价 5买赠 6首单复购 7船供整船优惠 8协议价';
 
--- ----------------------------------------------------------------------------
--- 6. 船舶库：船舶等级挂点（aryn_vessel 库）
--- ----------------------------------------------------------------------------
-USE `aryn_vessel`;
-
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_info' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `vessel_info` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）''',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
 -- ============================================================================
--- 7. Nacos 租户表白名单（新体系十张表）
+-- 6. Nacos 租户表白名单（新体系十一张表）
 --   未登记时租户拦截器会忽略这些表，查询会跨租户串读，属多租户高危。
 --   锚点：promotion 配置取 promotion_activity、user 配置取 member_level、
 --   order 配置取 shared_cart（均为对应域基线必有的表）；缺失时不改动，由自检暴露。
 -- ============================================================================
 USE `aryn_nacos`;
 
--- 7.1 营销域（price_policy / price_policy_item / promo_calendar）
+-- 6.1 营销域（price_policy / price_policy_item / promo_calendar）
 SET @promotion_content = (
   SELECT `content` FROM `config_info`
   WHERE `data_id` = 'aryn-promotion-biz-dev.yml' AND `group_id` = 'DEFAULT_GROUP' AND `tenant_id` = 'public'
@@ -270,7 +268,7 @@ SET `content` = @promotion_content, `md5` = MD5(@promotion_content), `gmt_modifi
 WHERE `data_id` = 'aryn-promotion-biz-dev.yml' AND `group_id` = 'DEFAULT_GROUP' AND `tenant_id` = 'public'
   AND `content` <> @promotion_content;
 
--- 7.2 用户域（企业等级/权益五张表）
+-- 6.2 用户域（企业等级/权益/绑定六张表）
 SET @user_content = (
   SELECT `content` FROM `config_info`
   WHERE `data_id` = 'aryn-user-biz-dev.yml' AND `group_id` = 'DEFAULT_GROUP' AND `tenant_id` = 'public'
@@ -280,14 +278,14 @@ SET @user_content = IF(
   @user_content IS NULL OR @user_content LIKE '%      - enterprise_growth\n%',
   @user_content,
   REPLACE(@user_content, '      - member_level\n',
-    '      - member_level\n      - enterprise_level\n      - enterprise_benefit\n      - enterprise_benefit_level_rel\n      - enterprise_level_record\n      - enterprise_growth\n')
+    '      - member_level\n      - enterprise_level\n      - enterprise_benefit\n      - enterprise_benefit_level_rel\n      - enterprise_level_record\n      - enterprise_growth\n      - enterprise_level_binding\n')
 );
 UPDATE `config_info`
 SET `content` = @user_content, `md5` = MD5(@user_content), `gmt_modified` = NOW()
 WHERE `data_id` = 'aryn-user-biz-dev.yml' AND `group_id` = 'DEFAULT_GROUP' AND `tenant_id` = 'public'
   AND `content` <> @user_content;
 
--- 7.3 订单域（账期预留两张表）
+-- 6.3 订单域（账期预留两张表）
 SET @order_content = (
   SELECT `content` FROM `config_info`
   WHERE `data_id` = 'aryn-order-biz-dev.yml' AND `group_id` = 'DEFAULT_GROUP' AND `tenant_id` = 'public'

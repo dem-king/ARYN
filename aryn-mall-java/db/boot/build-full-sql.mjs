@@ -201,6 +201,7 @@ const sections = [
   ['P0 存量营销活动收口：调度停用（排期生成/状态流转）', '235p0_marketing_retire_jobs.sql'],
   ['B2B 价格与会员体系基础层（协议价/档期/企业等级/账期预留 + 引擎增强）', '236b2b_price_member_schema_incremental.sql'],
   ['B2B 价格与会员体系菜单与按钮权限', '237b2b_price_member_menu.sql'],
+  ['企业等级月度对账任务注册', '238enterprise_level_recalc_job.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -326,6 +327,7 @@ DROP TABLE IF EXISTS \`enterprise_benefit\`;
 DROP TABLE IF EXISTS \`enterprise_benefit_level_rel\`;
 DROP TABLE IF EXISTS \`enterprise_level_record\`;
 DROP TABLE IF EXISTS \`enterprise_growth\`;
+DROP TABLE IF EXISTS \`enterprise_level_binding\`;
 DROP TABLE IF EXISTS \`enterprise_credit_account\`;
 DROP TABLE IF EXISTS \`enterprise_statement\`;
 `;

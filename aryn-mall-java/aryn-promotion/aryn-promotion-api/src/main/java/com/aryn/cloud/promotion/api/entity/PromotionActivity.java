@@ -55,6 +55,25 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	 */
 	public static final String TYPE_CLEARANCE = "11";
 
+	/**
+	 * 档期特供价（2026-11-14 B2B 重构新增）。
+	 *
+	 * <p>归属采购档期（calendar_id），rules.skus:[{skuId,price}] 固定特供价；
+	 * 活动级限量 {@code total_quota}（件数）原子熔断，perUserLimit 沿用现有口径。
+	 * 替代零售秒杀：无整点场次，按档期窗组织限量特惠。
+	 */
+	public static final String TYPE_CALENDAR_SPECIAL = "12";
+
+	/**
+	 * 协议价（2026-11-14 B2B 重构新增）。
+	 *
+	 * <p><b>不是 promotion_activity 行</b>：协议价由 price_policy/price_policy_item 承载
+	 * （合同价长期有效，不走活动发布）。该编码仅用于 promotion_lock.activity_type 与
+	 * promotion_snapshot.activity_type（char(2)），activity_id 存 price_policy.id。
+	 * 优先级最高：命中 SKU 的成交基价被锁定，阶梯价/身份价/档期特供一律不覆盖。
+	 */
+	public static final String TYPE_POLICY_PRICE = "8";
+
 	/** 人工操作态（落库）：草稿 */
 	public static final String STATUS_DRAFT = "1";
 
@@ -94,6 +113,16 @@ public class PromotionActivity extends Model<PromotionActivity> {
 
 	/** 限定购买场景：1个人 2船供（空不限） */
 	private String purchaseScene;
+
+	/** 归属采购档期（promo_calendar.id，空不限；档期未生效时活动不参与试算） */
+	private String calendarId;
+
+	/** 活动级限量（件数，档期特供 type=12 用；NULL 不限）：preview 熔断 + reserve 原子扣减 */
+	private Integer totalQuota;
+
+	/** 已消耗限量（件数）：LOCKED+CONFIRMED 锁定汇总，reserve 原子累加、release 归还 */
+	@TableField(updateStrategy = FieldStrategy.NEVER)
+	private Integer consumedQuota;
 
 	/** 规则快照（受控JSON） */
 	private String rules;

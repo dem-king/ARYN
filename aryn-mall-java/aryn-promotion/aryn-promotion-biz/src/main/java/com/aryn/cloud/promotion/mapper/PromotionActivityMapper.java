@@ -40,4 +40,32 @@ public interface PromotionActivityMapper extends BaseMapper<PromotionActivity> {
 	int releaseBudget(@Param("tenantId") String tenantId, @Param("activityId") String activityId,
 			@Param("amount") BigDecimal amount);
 
+	/**
+	 * 原子占用限量（件数，档期特供 type=12）：额度内才累加，返回 0 表示限量已被并发订单占完。
+	 * total_quota 为 NULL/0 视为不限，仍累计消耗值供运营查看。
+	 */
+	@Update("""
+			UPDATE `promotion_activity`
+			   SET `consumed_quota` = `consumed_quota` + #{units},
+			       `update_time` = NOW()
+			 WHERE `id` = #{activityId}
+			   AND `tenant_id` = #{tenantId}
+			   AND `del_flag` = '0'
+			   AND (`total_quota` IS NULL OR `total_quota` <= 0 OR `consumed_quota` + #{units} <= `total_quota`)
+			""")
+	int consumeQuota(@Param("tenantId") String tenantId, @Param("activityId") String activityId,
+			@Param("units") int units);
+
+	/** 原子归还限量（取消/超时/退款），下限为 0。 */
+	@Update("""
+			UPDATE `promotion_activity`
+			   SET `consumed_quota` = GREATEST(`consumed_quota` - #{units}, 0),
+			       `update_time` = NOW()
+			 WHERE `id` = #{activityId}
+			   AND `tenant_id` = #{tenantId}
+			   AND `del_flag` = '0'
+			""")
+	int releaseQuota(@Param("tenantId") String tenantId, @Param("activityId") String activityId,
+			@Param("units") int units);
+
 }

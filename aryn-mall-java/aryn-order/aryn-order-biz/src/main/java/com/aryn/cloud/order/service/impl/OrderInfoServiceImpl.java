@@ -121,6 +121,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@DubboReference
 	private final RemoteMallUserService remoteMallUserService;
 
+	/**
+	 * 双轨会员企业轨权益（scene=2 船舶 / scene=3 岸上企业；user 域经绑定表解析等级）。
+	 * 查询失败按无权益处理（fail-closed，企业折扣=1 不让利），不阻断下单。
+	 */
+	@DubboReference
+	private final com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
+
 	@DubboReference
 	private final RemotePointsService remotePointsService;
 
@@ -844,8 +851,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
-		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
-				promotionPricePlan, memberCostFloorMultiplier());
+		// 双轨会员分轨消费：scene=2/3 走企业权益（fail-closed 无权益不打折），scene=1 走个人会员权益
+		com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO enterpriseBenefits = resolveEnterpriseBenefits(orderInfo);
+		if (enterpriseBenefits != null) {
+			orderPriceComputeService.orderEnterpriseBenefitHandler(orderInfo, orderItemEntityList,
+					enterpriseBenefits, promotionPricePlan);
+		}
+		else {
+			orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
+					promotionPricePlan, memberCostFloorMultiplier());
+		}
 		// 严格模式：不可叠活动商品仍带券下单直接拒绝（防绕过确认页）
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, true);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）
@@ -876,7 +891,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
 			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping(),
+					freeShippingFor(memberBenefits, enterpriseBenefits),
 					freightRuleService.match(orderInfo.getPurchaseScene(), orderInfo.getDeliveryWay(),
 							orderInfo.getRecipientProvinceCode()));
 			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
@@ -888,7 +903,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		else {
 			// 自提 / 到船恒定免运费：仍走同一入口，只为回填免邮原因（确认页文案与下单同口径）
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping(), null);
+					freeShippingFor(memberBenefits, enterpriseBenefits), null);
 		}
 		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成；
 		// 叠加策略下积分基数只统计允许积分的明细，不可叠仍请求积分则拒绝
@@ -1030,6 +1045,46 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 	}
 
+	/**
+	 * 企业轨权益解析（双轨会员分轨消费）：scene=2 按船舶、scene=3 按采购主体聚合企业权益；
+	 * 个人单（scene=1/空）返回 null 走个人会员轨。查询失败按无权益处理（fail-closed）。
+	 */
+	private com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO resolveEnterpriseBenefits(OrderInfo orderInfo) {
+		String scene = orderInfo.getPurchaseScene();
+		String subjectType;
+		if ("2".equals(scene)) {
+			subjectType = com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_VESSEL;
+		}
+		else if ("3".equals(scene)) {
+			subjectType = com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_BUYER_ORG;
+		}
+		else {
+			return null;
+		}
+		String subjectId = com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_VESSEL
+				.equals(subjectType) ? orderInfo.getVesselId() : orderInfo.getBuyerOrgId();
+		if (!StringUtils.hasText(subjectId)) {
+			return null;
+		}
+		try {
+			return remoteEnterpriseUserService.getSubjectBenefits(
+					ArynTenantContextHolder.getTenantId(), subjectType, subjectId);
+		}
+		catch (Exception ex) {
+			log.warn("企业权益查询失败，按无权益处理 scene=" + scene + " subject=" + subjectId + ": " + ex.getMessage());
+			return null;
+		}
+	}
+
+	/** 免邮权益分轨：企业权益命中走企业免邮（scene=3 岸上公司配送生效；到船恒免邮与此无关），否则个人会员免邮。 */
+	private boolean freeShippingFor(MemberBenefitsVO memberBenefits,
+			com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO enterpriseBenefits) {
+		if (enterpriseBenefits != null) {
+			return Boolean.TRUE.equals(enterpriseBenefits.getFreeShipping());
+		}
+		return memberBenefits != null && memberBenefits.isFreeShipping();
+	}
+
 	private GroupBuyOrderContextVO resolveGroupBuyContext(String groupBuyRecordId, String userId,
 			List<OrderItemEntity> orderItemEntityList) {
 		if (!StringUtils.hasText(groupBuyRecordId)) {
@@ -1145,6 +1200,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPaySuccessEvent.setGrantBaseAmount(resolveGrantBaseAmount(orderItemEntityList));
 		orderPaySuccessEvent.setPointsMultiplier(orderInfo.getPointsMultiplier() == null
 				? BigDecimal.ONE : orderInfo.getPointsMultiplier());
+		// 企业轨成长值累计主体（scene=2 按船、scene=3 按采购主体；个人单不累计）
+		orderPaySuccessEvent.setPurchaseScene(orderInfo.getPurchaseScene());
+		orderPaySuccessEvent.setVesselId(orderInfo.getVesselId());
+		orderPaySuccessEvent.setBuyerOrgId(orderInfo.getBuyerOrgId());
 
 		TransactionalMqUtils.sendAfterCommit(() -> {
 			orderWxDeliveryService.uploadDeliveryInfoOnReceive(orderInfo, orderItemEntityList);
@@ -1370,8 +1429,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
-		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
-				promotionPricePlan, memberCostFloorMultiplier());
+		// 双轨会员分轨消费：与企业下单口径一致，确认页与提交金额同源
+		com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO enterpriseBenefits = resolveEnterpriseBenefits(orderInfo);
+		if (enterpriseBenefits != null) {
+			orderPriceComputeService.orderEnterpriseBenefitHandler(orderInfo, orderItemEntityList,
+					enterpriseBenefits, promotionPricePlan);
+		}
+		else {
+			orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
+					promotionPricePlan, memberCostFloorMultiplier());
+		}
 		// 非严格模式：不可叠活动商品的券不生效，返回原因供确认页置灰提示（提交时才硬拒绝）
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, false);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）
@@ -1403,7 +1470,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 
 				orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-						memberBenefits != null && memberBenefits.isFreeShipping(),
+						freeShippingFor(memberBenefits, enterpriseBenefits),
 						freightRuleService.match(orderInfo.getPurchaseScene(), orderInfo.getDeliveryWay(),
 								orderInfo.getRecipientProvinceCode()));
 				if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
@@ -1416,7 +1483,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		else {
 			// 自提 / 到船恒定免运费：与下单同口径回填免邮原因，确认页据此展示「自提免运费」
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping(), null);
+					freeShippingFor(memberBenefits, enterpriseBenefits), null);
 		}
 		// 积分抵现：与下单同口径，保证确认页金额与提交后一致；叠加策略下积分只作用于允许积分的明细
 		PointsDeductContextVO pointsContext = remotePointsService

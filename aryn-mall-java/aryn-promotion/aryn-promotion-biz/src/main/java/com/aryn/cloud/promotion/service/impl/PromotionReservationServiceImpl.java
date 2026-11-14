@@ -79,8 +79,40 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 				// 试算后额度被并发订单抢完：整单回滚，让用户看到最新价格后再提交，避免静默涨价
 				throw new ArynBusinessException("活动[" + detail.getActivityName() + "]优惠名额已用完，请刷新价格后重新提交");
 			}
+			if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(detail.getActivityType())) {
+				consumeSpecialQuota(context, detail);
+			}
 		}
 		return calculation;
+	}
+
+	/**
+	 * 档期特供限量原子扣减（件数）：件数从明细快照 quotaUnits 读取（引擎按命中 SKU 购买量合计写入）。
+	 * 试算后限量被并发订单抢完时整单回滚，与预算口径一致——让用户看到最新价格后再提交。
+	 */
+	private void consumeSpecialQuota(PromotionContextDTO context, PromotionCalculationVO.ActivityDetail detail) {
+		int units = parseQuotaUnits(detail.getRuleSnapshot());
+		if (units <= 0) {
+			return;
+		}
+		if (promotionActivityMapper.consumeQuota(context.getTenantId(), detail.getActivityId(), units) == 0) {
+			throw new ArynBusinessException("活动[" + detail.getActivityName() + "]特供名额已用完，请刷新价格后重新提交");
+		}
+	}
+
+	/** 快照中的限量件数（quotaUnits）；缺失/非法按 0 处理（不限量或老快照）。 */
+	private int parseQuotaUnits(String ruleSnapshot) {
+		if (!StringUtils.hasText(ruleSnapshot)) {
+			return 0;
+		}
+		try {
+			Integer units = JSONUtil.parseObj(ruleSnapshot).getInt("quotaUnits");
+			return units == null || units <= 0 ? 0 : units;
+		}
+		catch (Exception ex) {
+			log.warn("限量件数解析失败，按 0 处理 snapshot={}", ruleSnapshot);
+			return 0;
+		}
 	}
 
 	/** 落锁；并发命中唯一约束说明同单已被处理，跳过且不再重复占预算。 */
@@ -278,6 +310,12 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 				if (discount.compareTo(BigDecimal.ZERO) > 0) {
 					// 仅本次真正从 LOCKED/CONFIRMED 转 RELEASED 时归还一次，避免重复释放重复归还额度
 					promotionActivityMapper.releaseBudget(tenantId, lock.getActivityId(), discount);
+				}
+				if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(lock.getActivityType())) {
+					int units = parseQuotaUnits(lock.getRuleSnapshot());
+					if (units > 0) {
+						promotionActivityMapper.releaseQuota(tenantId, lock.getActivityId(), units);
+					}
 				}
 				lock.setStatus(PromotionLock.STATUS_RELEASED);
 				lock.setReleaseReason(reason);
