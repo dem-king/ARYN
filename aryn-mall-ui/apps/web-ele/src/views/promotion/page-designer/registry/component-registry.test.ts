@@ -18,13 +18,14 @@ const expectedRetailComponentTypes = [
   'replenish-card',
   'newbie-floor',
   'activity-strip',
+  'trade-calendar',
 ] as const;
 
 /** legacy 组件数：P1 起 custom-html 纳入基础组件 */
 const LEGACY_COMPONENT_COUNT = 12;
 
-/** retail 组件数：旧版秒杀/拼团/折扣楼层已下线（由会场页承接），当前 10 个 */
-const RETAIL_COMPONENT_COUNT = 10;
+/** retail 组件数：旧版秒杀/拼团/折扣楼层已下线（由会场页承接），2026-11-14 增档期特供，当前 11 个 */
+const RETAIL_COMPONENT_COUNT = 11;
 
 /** 活动入口条按实际卡数自动排布，不设「展示数量」，不参与 count 契约 */
 const countConfiguredRetailTypes = expectedRetailComponentTypes.filter(

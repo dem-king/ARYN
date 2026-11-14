@@ -64,6 +64,10 @@ import {
   createShopInfoDefaults,
   validateShopInfo,
 } from '../../page-design/components/shop-info/types';
+import {
+  createTradeCalendarDefaults,
+  validateTradeCalendar,
+} from '../../page-design/components/trade-calendar/types';
 import { cloneDesignerValue } from '../schema/clone';
 
 export const legacyComponentTypes = [
@@ -94,6 +98,7 @@ export const retailComponentTypes = [
   'replenish-card',
   'newbie-floor',
   'activity-strip',
+  'trade-calendar',
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
@@ -553,6 +558,15 @@ export const componentRegistry: Record<
     validateActivityStrip,
     () => import('../../page-design/components/activity-strip/index.vue'),
     () => import('../../page-design/components/activity-strip/setting.vue'),
+  ),
+  'trade-calendar': defineRetailComponent(
+    'trade-calendar',
+    '档期特供',
+    '营销活动',
+    createTradeCalendarDefaults(),
+    validateTradeCalendar,
+    () => import('../../page-design/components/trade-calendar/index.vue'),
+    () => import('../../page-design/components/trade-calendar/setting.vue'),
   ),
   countdown: defineRetailComponent(
     'countdown',

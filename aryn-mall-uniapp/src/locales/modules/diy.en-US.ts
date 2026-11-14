@@ -15,6 +15,14 @@ export default {
       saveAmount: 'Save ¥{amount}',
     },
 
+    // Trade calendar special floor (diy-trade-calendar)
+    tradeCalendar: {
+      badge: 'Special',
+      quotaUnlimited: 'Unlimited',
+      quotaLeft: '{count} left',
+      fallbackTitle: 'Specials',
+    },
+
     // Home activity entry strip (diy-activity-strip)
     activityStrip: {
       seckillBadge: 'GO',

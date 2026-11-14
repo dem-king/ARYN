@@ -28,6 +28,7 @@ import DiyShipWorkbench from './diy-ship-workbench/index.vue'
 import DiyShopInfo from './diy-shop-info/index.vue'
 import DiySwiperBanner from './diy-swiper-banner/index.vue'
 import DiyTabnav from './diy-tabnav/index.vue'
+import DiyTradeCalendar from './diy-trade-calendar/index.vue'
 import DiyTitleText from './diy-titletext/index.vue'
 import DiyVideoLive from './diy-video-live/index.vue'
 
@@ -62,6 +63,7 @@ export const mobileComponentTypes = [
   'replenish-card',
   'newbie-floor',
   'activity-strip',
+  'trade-calendar',
 ] as const
 
 export type MobileComponentType = typeof mobileComponentTypes[number]
@@ -97,6 +99,7 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'replenish-card': DiyReplenishCard,
   'newbie-floor': DiyNewbieFloor,
   'activity-strip': DiyActivityStrip,
+  'trade-calendar': DiyTradeCalendar,
 }
 
 export function getDiyComponent(type: string): Component | undefined {

@@ -17,6 +17,14 @@ export default {
       saveAmount: '省¥{amount}',
     },
 
+    // 采购档期特供楼层（diy-trade-calendar）
+    tradeCalendar: {
+      badge: '档期特供',
+      quotaUnlimited: '不限量',
+      quotaLeft: '余 {count} 件',
+      fallbackTitle: '档期特供',
+    },
+
     // 首页活动入口条（diy-activity-strip）
     activityStrip: {
       seckillBadge: '抢',

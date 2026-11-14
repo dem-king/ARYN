@@ -77,6 +77,15 @@ public final class PageDesignComponentTypes {
 	 */
 	public static final String ACTIVITY_STRIP = "activity-strip";
 
+	/**
+	 * 采购档期特供楼层（2026-11-14 B2B）：当前生效采购档期的限量特供商品横滑。
+	 * <p>
+	 * automatic 模式实时取数（/promotion/app/calendar/*，需登录），无档期/无特供整楼隐藏，
+	 * 与活动入口条同策略：进 {@link #KNOWN_TYPES}，不进 {@link #DATA_DRIVEN_TYPES} /
+	 * {@link #SINGLETON_TYPES}（可多处出现）。对应 C 端装修组件 {@code diy-trade-calendar}。
+	 */
+	public static final String TRADE_CALENDAR = "trade-calendar";
+
 	public static final String COUNTDOWN = "countdown";
 
 	public static final String MARKETING_ENTRY = "marketing-entry";
@@ -169,7 +178,8 @@ public final class PageDesignComponentTypes {
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
 			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO,
 			MEMBER_BENEFITS, SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML,
-			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR, ACTIVITY_STRIP, COUPON_LADDER);
+			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR, ACTIVITY_STRIP, COUPON_LADDER,
+			TRADE_CALENDAR);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。

@@ -165,7 +165,8 @@ public class PromoCalendarService {
 			.map(AppCalendarSpecialVO.SpecialItem::getSkuId)
 			.distinct()
 			.toList();
-		Map<String, java.math.BigDecimal> salesPriceBySku = salesPrices(skuIds);
+		// 一次批量取 SKU 展示信息：划线基准 + 商品名/图（楼层卡片渲染），失败降级仅本地价
+		Map<String, com.aryn.cloud.product.api.entity.GoodsSku> skuById = fetchSkus(skuIds);
 		List<AppCalendarSpecialVO> result = new ArrayList<>(activities.size());
 		for (PromotionActivity activity : activities) {
 			AppCalendarSpecialVO vo = new AppCalendarSpecialVO();
@@ -180,7 +181,17 @@ public class PromoCalendarService {
 				vo.setRemainingQuota(Math.max(activity.getTotalQuota() - used, 0));
 			}
 			List<AppCalendarSpecialVO.SpecialItem> items = parseSpecialSkus(activity);
-			items.forEach(item -> item.setOriginalPrice(salesPriceBySku.get(item.getSkuId())));
+			for (AppCalendarSpecialVO.SpecialItem item : items) {
+				com.aryn.cloud.product.api.entity.GoodsSku sku = skuById.get(item.getSkuId());
+				if (sku == null) {
+					continue;
+				}
+				item.setOriginalPrice(sku.getSalesPrice());
+				item.setPicUrl(sku.getPicUrl());
+				if (sku.getGoodsSpu() != null) {
+					item.setSpuName(sku.getGoodsSpu().getName());
+				}
+			}
 			vo.setItems(items);
 			result.add(vo);
 		}
@@ -239,18 +250,17 @@ public class PromoCalendarService {
 			.toList();
 	}
 
-	private Map<String, java.math.BigDecimal> salesPrices(List<String> skuIds) {
+	private Map<String, com.aryn.cloud.product.api.entity.GoodsSku> fetchSkus(List<String> skuIds) {
 		if (CollectionUtils.isEmpty(skuIds)) {
 			return Map.of();
 		}
 		try {
 			return remoteGoodsSkuService.getBySkuIds(skuIds).stream()
-				.filter(sku -> sku.getSalesPrice() != null)
 				.collect(Collectors.toMap(com.aryn.cloud.product.api.entity.GoodsSku::getId,
-						com.aryn.cloud.product.api.entity.GoodsSku::getSalesPrice, (l, r) -> l));
+						sku -> sku, (l, r) -> l));
 		}
 		catch (Exception ex) {
-			log.warn("档期特供划线价查询失败，按无划线价降级: {}", ex.getMessage());
+			log.warn("档期特供商品信息查询失败，按无划线价/无图降级: {}", ex.getMessage());
 			return Map.of();
 		}
 	}

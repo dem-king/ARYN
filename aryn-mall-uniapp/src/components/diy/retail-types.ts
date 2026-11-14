@@ -63,6 +63,16 @@ export interface CountdownProps extends RetailBaseProps {
   title: string;
 }
 
+/**
+ * 采购档期特供楼层（diy-trade-calendar，2026-11-14 B2B）。
+ *
+ * 数据源固定 automatic：取当前生效的采购档期及其限量特供商品（服务端过滤窗口），
+ * 无档期/无特供默认整楼隐藏。count = 特供商品展示上限。
+ */
+export interface TradeCalendarProps extends RetailBaseProps {
+  title: string;
+}
+
 export interface MarketingEntry {
   iconUrl: string;
   id: string;

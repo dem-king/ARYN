@@ -9,6 +9,7 @@ import { useUserStore } from '@/store/userStore'
 import DiyActivityStrip from './diy-activity-strip/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
+import DiyTradeCalendar from './diy-trade-calendar/index.vue'
 import DiyCouponLadder from './diy-coupon-ladder/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
@@ -562,6 +563,10 @@ function sectionStyle(section: DecorationSection) {
           />
           <DiyActivityStrip
             v-else-if="item.type === 'activity-strip'"
+            :show-data="item.props"
+          />
+          <DiyTradeCalendar
+            v-else-if="item.type === 'trade-calendar'"
             :show-data="item.props"
           />
           <DiyShipWorkbench

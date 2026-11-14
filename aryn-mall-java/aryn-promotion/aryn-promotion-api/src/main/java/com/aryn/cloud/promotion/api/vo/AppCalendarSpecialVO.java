@@ -59,6 +59,12 @@ public class AppCalendarSpecialVO implements Serializable {
 		@Schema(description = "SPU ID")
 		private String spuId;
 
+		@Schema(description = "商品名（楼层卡片展示，远程回填；失败为 null 前端兜底 skuId）")
+		private String spuName;
+
+		@Schema(description = "商品图（SKU 级图，楼层卡片展示）")
+		private String picUrl;
+
 		@Schema(description = "特供价")
 		private BigDecimal price;
 

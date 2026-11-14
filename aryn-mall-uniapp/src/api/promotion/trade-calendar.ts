@@ -33,6 +33,12 @@ export interface CalendarSpecialItem {
   price: number
   /** SKU ID */
   skuId: string
+  /** 商品名（楼层卡片展示，远程回填；失败为 null 前端兜底 skuId） */
+  spuName?: null | string
+  /** SPU ID */
+  spuId?: null | string
+  /** 商品图（SKU 级图，楼层卡片展示） */
+  picUrl?: null | string
 }
 
 /** 档期特供活动 VO */
