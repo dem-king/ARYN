@@ -124,9 +124,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	/**
 	 * 双轨会员企业轨权益（scene=2 船舶 / scene=3 岸上企业；user 域经绑定表解析等级）。
 	 * 查询失败按无权益处理（fail-closed，企业折扣=1 不让利），不阻断下单。
+	 *
+	 * <p>字段注入而非构造器注入：本类 45 个单测直接按构造参数 new 实例，
+	 * 加构造参数会整体破坏测试桩；与 {@code remoteMallZoneSettingService} 同款先例。
 	 */
 	@DubboReference
-	private final com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
+	private com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
 
 	@DubboReference
 	private final RemotePointsService remotePointsService;

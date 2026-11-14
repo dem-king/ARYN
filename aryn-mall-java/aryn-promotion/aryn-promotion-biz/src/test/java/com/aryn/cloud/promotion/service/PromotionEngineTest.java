@@ -64,7 +64,11 @@ class PromotionEngineTest {
 		buyerProfileService = mock(com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService.class);
 		memberLevelService = mock(RemoteMemberLevelService.class);
 		lockUsage = new PromotionLockUsage(lockMapper);
-		engine = new PromotionEngineServiceImpl(activityMapper, lockUsage);
+		engine = new PromotionEngineServiceImpl(activityMapper,
+				mock(com.aryn.cloud.promotion.mapper.PricePolicyMapper.class),
+				mock(com.aryn.cloud.promotion.mapper.PricePolicyItemMapper.class),
+				mock(com.aryn.cloud.promotion.mapper.PromoCalendarMapper.class),
+				lockUsage);
 		ReflectionTestUtils.setField(engine, "remoteBuyerProfileService", buyerProfileService);
 		ReflectionTestUtils.setField(engine, "remoteMemberLevelService", memberLevelService);
 		goodsSkuService = mock(com.aryn.cloud.product.api.remote.RemoteGoodsSkuService.class);

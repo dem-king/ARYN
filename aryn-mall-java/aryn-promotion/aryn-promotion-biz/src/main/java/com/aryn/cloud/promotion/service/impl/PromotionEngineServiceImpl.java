@@ -1136,12 +1136,13 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		IdentityCandidate special = bestOfferCandidate(specialOffers, item);
 		IdentityCandidate member = bestMemberCandidate(memberOffers, item);
 		IdentityCandidate clearance = bestOfferCandidate(clearanceOffers, item);
-		IdentityCandidate best = special != null ? special : member != null ? member : clearance;
-		if (best == null) {
-			return null;
-		}
-		for (IdentityCandidate candidate : List.of(special, member, clearance)) {
-			if (candidate != null && candidate.price().compareTo(best.price()) < 0) {
+		// 三候选可空，逐个取低（特供 > 会员 > 出清 的同价优先级由首个非空者保序）
+		IdentityCandidate best = null;
+		for (IdentityCandidate candidate : new IdentityCandidate[] {special, member, clearance}) {
+			if (candidate == null) {
+				continue;
+			}
+			if (best == null || candidate.price().compareTo(best.price()) < 0) {
 				best = candidate;
 			}
 		}
