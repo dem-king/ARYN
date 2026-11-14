@@ -120,8 +120,10 @@ DROP TABLE IF EXISTS `enterprise_benefit`;
 DROP TABLE IF EXISTS `enterprise_benefit_level_rel`;
 DROP TABLE IF EXISTS `enterprise_level_record`;
 DROP TABLE IF EXISTS `enterprise_growth`;
+DROP TABLE IF EXISTS `enterprise_level_binding`;
 DROP TABLE IF EXISTS `enterprise_credit_account`;
 DROP TABLE IF EXISTS `enterprise_statement`;
+-- 企业等级/权益种子幂等守卫（239enterprise_level_seed.sql 新建数据；全量重建时随表清理）
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -33499,13 +33501,13 @@ SET FOREIGN_KEY_CHECKS = 1;
 --   替代零售限时玩法。本脚本落新体系的数据基础层：
 --     1. price_policy / price_policy_item：协议价（按采购主体/船舶/客群标签的专属合同价）；
 --     2. promo_calendar：采购档期（周度/靠港/自然月/自定义时间窗），活动可归属档期；
---     3. enterprise_level / enterprise_benefit / rel / record / growth：
---        企业会员双轨（岸上企业 buyer_org + 船舶 vessel 双挂点，按近12月采购额分档）；
+--     3. enterprise_level / enterprise_benefit / rel / record / growth / level_binding：
+--        企业会员双轨（岸上企业 buyer_org + 船舶 vessel 双挂点，按近12月采购额分档；
+--        主体 → 当前等级经 enterprise_level_binding 单写方维护，不在主体表冗余列）；
 --     4. enterprise_credit_account / enterprise_statement：账期授信预留表（本期只建表
 --        不启用，二期做额度校验/月结对账/还款核销）；
---     5. buyer_org.level_id / vessel_info.level_id：企业等级挂点冗余列；
---     6. promotion_activity 增加档期归属与档期特供限量（calendar_id/total_quota/consumed_quota）；
---     7. promotion_snapshot.activity_type 注释扩展：8 协议价。
+--     5. promotion_activity 增加档期归属与档期特供限量（calendar_id/total_quota/consumed_quota）；
+--     6. promotion_snapshot.activity_type 注释扩展：8 协议价。
 --
 -- 口径：
 --   · 新表全部含 tenant_id，登记进 hx.tenant.tables（boot application.yml 与 cloud 各 biz yml）；
@@ -33700,21 +33702,21 @@ CREATE TABLE IF NOT EXISTS `enterprise_statement` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业月度对账单（预留）';
 
 -- ----------------------------------------------------------------------------
--- 5. 挂点列：buyer_org / vessel_info 企业等级
+-- 5. 企业等级绑定（主体 → 当前等级；user 域单写方）
 -- ----------------------------------------------------------------------------
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buyer_org' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `buyer_org` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）'' AFTER `audit_status`',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_info' AND COLUMN_NAME = 'level_id');
-SET @ddl = IF(@col_exists = 0,
-  'ALTER TABLE `vessel_info` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）''',
-  'SELECT 1');
-PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+CREATE TABLE IF NOT EXISTS `enterprise_level_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `level_id` varchar(32) DEFAULT NULL COMMENT '当前企业等级ID（未定级为空）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_level_binding_subject` (`tenant_id`,`subject_type`,`subject_id`),
+  KEY `idx_enterprise_level_binding_level` (`tenant_id`,`level_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业等级绑定（主体→当前等级）';
 
 -- ----------------------------------------------------------------------------
 -- 6. 统一引擎增强：档期归属 + 档期特供限量
@@ -33761,10 +33763,6 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- SHOW TABLES LIKE 'price_policy%';
 -- SHOW TABLES LIKE 'promo_calendar';
 -- SHOW TABLES LIKE 'enterprise_%';
--- SELECT COLUMN_NAME FROM information_schema.COLUMNS
---  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='buyer_org' AND COLUMN_NAME='level_id';
--- SELECT COLUMN_NAME FROM information_schema.COLUMNS
---  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='vessel_info' AND COLUMN_NAME='level_id';
 -- SELECT COLUMN_NAME FROM information_schema.COLUMNS
 --  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='promotion_activity'
 --    AND COLUMN_NAME IN ('calendar_id','total_quota','consumed_quota');
@@ -33878,5 +33876,113 @@ WHERE r.`menu_id` = '1779386898750439425';
 
 -- 自检（执行后人工核对）：新菜单 del_flag 应全为 0，授权行应随父菜单持有者生成
 -- SELECT id, name, permission, del_flag FROM sys_menu WHERE id LIKE '218000000000000%' ORDER BY id;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 企业等级月度对账任务注册
+-- Source: db/boot/238enterprise_level_recalc_job.sql
+-- ============================================================================
+-- 企业等级月度对账任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-14 船供 B2B 活动与会员体系重构 · P1）：
+--   企业轨等级日常变化由订单完成事件驱动（MemberOrderCompleteListener →
+--   EnterpriseMemberServiceImpl.accumulateOrderGrowth → recalculateSubjectLevel），
+--   本任务兜底两类漂移：等级配置（门槛/档位）调整后的存量主体收敛、异常场景漏算
+--   的历史主体。建议每月 1 日凌晨执行（CRON 0 30 2 1 * ?），幂等可重跑。
+--
+-- 幂等：只 INSERT 缺失的调度记录，不触碰既有任务。可重复执行。
+-- 关联：cloud 模式对应 254enterprise_level_recalc_job.sql（aryn_job 库，同配置）。
+
+USE aryn_boot_job;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '企业等级月度对账（全部绑定主体重算）', NOW(), NOW(), 'admin', '',
+       'CRON', '0 30 2 1 * ?', 'DO_NOTHING', 'FIRST',
+       'enterpriseLevelRecalcJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'enterpriseLevelRecalcJobHandler'
+);
+
+-- 自检（执行后人工核对）：任务应存在且 trigger_status=1
+-- SELECT executor_handler, schedule_conf, trigger_status FROM xxl_job_info
+--  WHERE executor_handler = 'enterpriseLevelRecalcJobHandler';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 企业会员等级档位与示例权益种子
+-- Source: db/boot/239enterprise_level_seed.sql
+-- ============================================================================
+-- 企业会员等级档位种子（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-14 船供 B2B 活动与会员体系重构 · P1）：
+--   企业轨等级按「近 12 个月主体已支付采购额」分档（enterprise_level.condition_value），
+--   主体维度为岸上企业（buyer_org）/ 船舶（vessel）。本脚本提供四档种子，
+--   运营可按实际客单价调整门槛或增删档位（门槛须随 sort_order 递增，等级重算取最高匹配档）。
+--
+-- 档位（建议值，运营可调）：
+--   基础客户 0（注册即得，承载通用权益锚点）
+--   合作客户 30,000（月均 2-3 千的稳定采购主体）
+--   核心客户 100,000（月均近万的工厂/餐厅主力）
+--   战略客户 300,000（船公司/连锁工厂级年度大户）
+--
+-- 幂等：按 ID INSERT IGNORE；已手工调整过的租户不会被覆盖。
+-- 关联：cloud 模式对应 255enterprise_level_seed.sql（同 ID 同数据）。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `enterprise_level`
+  (`id`, `level_name`, `sort_order`, `condition_value`, `status`, `tenant_id`,
+   `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('2180000000000001000', '基础客户', 1, 0, '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001001', '合作客户', 2, 30000, '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001002', '核心客户', 3, 100000, '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001003', '战略客户', 4, 300000, '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0');
+
+-- 示例权益（可选启用）：合作/核心/战略客户折扣率递进；免邮挂核心档起。
+-- 说明：协议价政策池/返利率/账期为预留权益位，本期不生效，运营按需在「企业权益」页配置。
+INSERT IGNORE INTO `enterprise_benefit`
+  (`id`, `benefit_name`, `benefit_type`, `benefit_value`, `description`, `status`, `tenant_id`,
+   `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('2180000000000001100', '合作客户 98 折', '1', '0.9800', '企业折扣率权益（与活动价取优不叠加）', '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001101', '核心客户 96 折', '1', '0.9600', '企业折扣率权益（与活动价取优不叠加）', '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001102', '战略客户 95 折', '1', '0.9500', '企业折扣率权益（与活动价取优不叠加）', '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001110', '核心客户免邮', '2', '1', '岸上公司配送（scene=3）整单免邮；到船配送恒免邮与此无关', '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001120', '开票资质', '4', '1', '可申请企业发票（证件资料按需补收）', '0', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0');
+
+-- 权益挂载等级（多对多）
+INSERT IGNORE INTO `enterprise_benefit_level_rel`
+  (`id`, `benefit_id`, `level_id`, `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('2180000000000001200', '2180000000000001100', '2180000000000001001', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001201', '2180000000000001101', '2180000000000001002', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001202', '2180000000000001102', '2180000000000001003', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001210', '2180000000000001110', '2180000000000001002', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001211', '2180000000000001110', '2180000000000001003', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001220', '2180000000000001120', '2180000000000001001', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001221', '2180000000000001120', '2180000000000001002', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0'),
+  ('2180000000000001222', '2180000000000001120', '2180000000000001003', '1590229800633634816', 'system', NOW(), 'system', NOW(), '0');
+
+-- 自检（执行后人工核对）：四档等级与示例权益应存在
+-- SELECT id, level_name, sort_order, condition_value FROM enterprise_level ORDER BY sort_order;
+-- SELECT id, benefit_name, benefit_type, benefit_value FROM enterprise_benefit;
 
 SET FOREIGN_KEY_CHECKS = 1;

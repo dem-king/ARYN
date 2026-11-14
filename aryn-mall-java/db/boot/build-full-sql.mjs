@@ -202,6 +202,7 @@ const sections = [
   ['B2B 价格与会员体系基础层（协议价/档期/企业等级/账期预留 + 引擎增强）', '236b2b_price_member_schema_incremental.sql'],
   ['B2B 价格与会员体系菜单与按钮权限', '237b2b_price_member_menu.sql'],
   ['企业等级月度对账任务注册', '238enterprise_level_recalc_job.sql'],
+  ['企业会员等级档位与示例权益种子', '239enterprise_level_seed.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -330,6 +331,7 @@ DROP TABLE IF EXISTS \`enterprise_growth\`;
 DROP TABLE IF EXISTS \`enterprise_level_binding\`;
 DROP TABLE IF EXISTS \`enterprise_credit_account\`;
 DROP TABLE IF EXISTS \`enterprise_statement\`;
+-- 企业等级/权益种子幂等守卫（239enterprise_level_seed.sql 新建数据；全量重建时随表清理）
 `;
 
 const output = sections.reduce((sql, [title, file]) => {
