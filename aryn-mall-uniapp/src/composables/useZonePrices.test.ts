@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   getCardTags: vi.fn(),
   getClearanceSpuPrices: vi.fn(),
   getMemberSpuPrices: vi.fn(),
+  getPolicyPrices: vi.fn(),
 }))
 
 vi.mock('@/api/promotion', () => ({
@@ -27,8 +28,11 @@ vi.mock('@/api/product/spu', () => ({
   getCardTags: mocks.getCardTags,
   getClearanceSpuPrices: mocks.getClearanceSpuPrices,
 }))
+vi.mock('@/api/promotion/policy-price', () => ({
+  getPolicyPrices: mocks.getPolicyPrices,
+}))
 
-const { resetZonePriceCache, useZonePrices } = await import('./useZonePrices')
+const { resetPolicyPriceContextResolver, resetZonePriceCache, setPolicyPriceContextResolver, useZonePrices } = await import('./useZonePrices')
 
 /** 会员价响应：山竹 39.90 → 会员价 35.91（未登录时 eligible=null，只出引导） */
 function memberVO(overrides: Partial<AppMemberPriceVO> = {}): AppMemberPriceVO {
@@ -77,9 +81,11 @@ beforeEach(() => {
     getStorageSync: (key: string) => storage[key],
   })
   resetZonePriceCache()
+  resetPolicyPriceContextResolver()
   mocks.getMemberSpuPrices.mockReset()
   mocks.getClearanceSpuPrices.mockReset()
   mocks.getCardTags.mockReset()
+  mocks.getPolicyPrices.mockReset()
   mocks.getMemberSpuPrices.mockResolvedValue(memberVO())
   mocks.getClearanceSpuPrices.mockResolvedValue({ items: [] })
   mocks.getClearanceSpuPrices.mockResolvedValue(clearanceVO([]))
@@ -313,5 +319,58 @@ describe('useZonePrices 列表专区价', () => {
     const display = zone.cardPriceOf({ id: 'spu-303', price: 39.9 })
     expect(display.badgeKind).toBe('')
     expect(display.mainPrice).toBe(39.9)
+  })
+})
+
+describe('useZonePrices 协议价（2026-11-14 B2B）', () => {
+  it('船上下文 + 登录态：协议价上卡（角标 policy 压过会员价），SKU map 覆盖会员成交价', async () => {
+    storage.auth = { token: 'token-1' }
+    setPolicyPriceContextResolver(() => ({ vesselId: 'vessel-1' }))
+    mocks.getPolicyPrices.mockResolvedValue([
+      { skuId: 'sku-303', spuId: 'spu-303', policyPrice: 30, policyName: 'XX船年度协议价', originalPrice: 39.9 },
+    ])
+    const { loadForSpuIds, cardPriceOf, skuZonePriceOf } = useZonePrices()
+    await loadForSpuIds(['spu-303'])
+
+    expect(mocks.getPolicyPrices).toHaveBeenCalledTimes(1)
+    const body = mocks.getPolicyPrices.mock.calls[0][0]
+    expect(body.vesselId).toBe('vessel-1')
+    expect(body.spuIds).toEqual(['spu-303'])
+
+    const card = cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(card.badgeKind).toBe('policy')
+    expect(card.mainPrice).toBe(30)
+    expect(card.strikePrice).toBe(39.9)
+    expect(skuZonePriceOf('spu-303', 'sku-303')).toBe(30)
+  })
+
+  it('无上下文（个人无船）：不打协议价接口，卡片保持会员价口径', async () => {
+    storage.auth = { token: 'token-1' }
+    const { loadForSpuIds, cardPriceOf } = useZonePrices()
+    await loadForSpuIds(['spu-303'])
+
+    expect(mocks.getPolicyPrices).not.toHaveBeenCalled()
+    const card = cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(card.badgeKind).toBe('member')
+  })
+
+  it('未登录：不打协议价接口（网关层即拦截，前端零请求）', async () => {
+    setPolicyPriceContextResolver(() => ({ vesselId: 'vessel-1' }))
+    const { loadForSpuIds } = useZonePrices()
+    await loadForSpuIds(['spu-303'])
+
+    expect(mocks.getPolicyPrices).not.toHaveBeenCalled()
+  })
+
+  it('协议价接口失败静默：回落会员价口径不抛错', async () => {
+    storage.auth = { token: 'token-1' }
+    setPolicyPriceContextResolver(() => ({ vesselId: 'vessel-1' }))
+    mocks.getPolicyPrices.mockRejectedValue(new Error('boom'))
+    const { loadForSpuIds, cardPriceOf } = useZonePrices()
+    await loadForSpuIds(['spu-303'])
+
+    const card = cardPriceOf({ id: 'spu-303', price: 39.9 })
+    expect(card.badgeKind).toBe('member')
+    expect(card.mainPrice).toBe(35.91)
   })
 })

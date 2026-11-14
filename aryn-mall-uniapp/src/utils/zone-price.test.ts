@@ -340,3 +340,32 @@ describe('splitSocialProofText 社证数字强调拆分', () => {
     }
   })
 })
+
+describe('resolveListZonePrice 协议价（2026-11-14 B2B）', () => {
+  it('协议价命中：主价协议价、划线当前售价、角标 policy，压过秒杀/会员/出清（合同价锁定）', () => {
+    const result = resolveListZonePrice({
+      salesPrice: 39.9,
+      policyPrice: 33,
+      seckillPrice: 30,
+      memberDisplay: memberDisplay(),
+      clearanceDisplay: clearanceDisplay(),
+    })
+    expect(result.badgeKind).toBe('policy')
+    expect(result.mainPrice).toBe(33)
+    expect(result.strikePrice).toBe(39.9)
+    expect(result.guideText).toBeNull()
+  })
+
+  it('协议价倒挂（≥售价）/非法值视为未命中：回退秒杀价', () => {
+    const inverted = resolveListZonePrice({ salesPrice: 39.9, policyPrice: 39.9 })
+    expect(inverted.badgeKind).toBe('')
+    const invalid = resolveListZonePrice({ salesPrice: 39.9, policyPrice: 0 })
+    expect(invalid.badgeKind).toBe('')
+    const withSeckill = resolveListZonePrice({ salesPrice: 39.9, policyPrice: -1, seckillPrice: 30 })
+    expect(withSeckill.badgeKind).toBe('seckill')
+  })
+
+  it('角标文案：协议价', () => {
+    expect(zonePriceBadgeText('policy')).toBe('协议价')
+  })
+})

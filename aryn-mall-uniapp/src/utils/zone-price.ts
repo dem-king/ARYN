@@ -6,15 +6,18 @@
  * 用户会看到同一个商品两种价格。各页面各写一遍判定必然漂移，因此把
  * 「会员价 vs 出清价 vs 原价」的卡片展示口径收敛到这里。
  *
- * **价格优先级（与后端 `OrderPriceComputeService` / 促销引擎一致，2026-11-08 起身份价取低）**：
- * 拼团 > 秒杀 > {会员价 / 出清价 / 新人价 三者取低（同价归属先到者，新人须严格更低才覆盖）} > 限时折扣 > 原价。
+ * **价格优先级（与后端 `OrderPriceComputeService` / 促销引擎一致，2026-11-14 B2B 重构）**：
+ * 协议价 > 档期特供 > 拼团 > 秒杀 > {会员价 / 出清价 / 新人价 三者取低（同价归属先到者，新人须严格更低才覆盖）} > 限时折扣 > 原价。
+ * 协议价（price_policy，按主体/船舶/客群圈定的合同价）由营销引擎锁定成交基价，
+ * 公开活动价不可覆盖，命中即终态；档期特供（type=12）与身份价同族取低，卡面随补价层后续接入。
  * 秒杀是平台级硬互斥活动（结算不可叠任何活动价），命中即终态。拼团不承载在列表卡（有独立会场）：
  *
- * 1. 秒杀价命中：主价=秒杀价，划线=当前售价，角标「秒杀价」；
- * 2. 新人价严格低于会员/出清成交价：主价=新人价，划线=当前售价，角标「新人价」（进价格行 badge，与会员/秒杀/捡漏同位）；
- * 3. 出清价胜出：主价=出清价，划线=当前售价，角标「捡漏价」；
- * 4. 会员价胜出：主价=会员价，划线=会员价展示的划线基准（缺省为当前售价），角标「会员价」；
- * 5. 都未命中：主价=当前售价；未达标/未登录时保留「会员专享 ¥x」引导文案，
+ * 1. 协议价命中：主价=协议价，划线=当前售价，角标「协议价」（合同价独占公开优惠）；
+ * 2. 秒杀价命中：主价=秒杀价，划线=当前售价，角标「秒杀价」；
+ * 3. 新人价严格低于会员/出清成交价：主价=新人价，划线=当前售价，角标「新人价」（进价格行 badge，与会员/秒杀/捡漏同位）；
+ * 4. 出清价胜出：主价=出清价，划线=当前售价，角标「捡漏价」；
+ * 5. 会员价胜出：主价=会员价，划线=会员价展示的划线基准（缺省为当前售价），角标「会员价」；
+ * 6. 都未命中：主价=当前售价；未达标/未登录时保留「会员专享 ¥x」引导文案，
  *    普通划线仍按「原价 > 售价」口径（与既有楼层一致）。
  *
  * 出清价与会员价取低而不是叠加，且同价时会员优先——与后端
@@ -27,7 +30,7 @@ import type { ClearancePriceDisplay } from './clearance-price'
 import { translate } from '@/locales'
 
 /** 角标类型：空串=无角标，由调用方映射成 i18n 文案 */
-export type ZonePriceBadgeKind = '' | 'clearance' | 'member' | 'seckill' | 'newbie'
+export type ZonePriceBadgeKind = '' | 'clearance' | 'member' | 'policy' | 'seckill' | 'newbie'
 
 /** 社证类型白名单（与后端 SocialProofFormatter.KIND_* 一一对应）；未知值一律视为未知 */
 export type SocialProofKind = 'repurchase' | 'repeat' | 'buyer'
@@ -85,6 +88,11 @@ export interface ListZonePrice {
 export interface ListZonePriceInput {
   /** 卡片当前展示价（SPU salesPrice / 已归一化列表项的 price） */
   salesPrice: unknown
+  /**
+   * 协议价（合同价，主体/船舶/客群 scoped；补价层按登录态+上下文批量拉取）。
+   * 后端引擎锁定成交基价，展示优先级最高（倒挂/非正数视为未命中）。
+   */
+  policyPrice?: unknown
   /** 商品原价（普通划线用；仅在原价 > 售价时渲染） */
   originalPrice?: unknown
   /**
@@ -153,8 +161,10 @@ export function emptyListZonePrice(sales: unknown = 0): ListZonePrice {
   }
 }
 
-/** 角标文案（会员价/捡漏价/秒杀价/新人价）；无角标返回空串 */
+/** 角标文案（协议价/会员价/捡漏价/秒杀价/新人价）；无角标返回空串 */
 export function zonePriceBadgeText(kind: ZonePriceBadgeKind): string {
+  if (kind === 'policy')
+    return translate('labels.policyPriceBadge') || '协议价'
   if (kind === 'member')
     return translate('labels.memberPriceBadge') || '会员价'
   if (kind === 'clearance')
@@ -192,6 +202,20 @@ export function resolveListZonePrice(input: ListZonePriceInput): ListZonePrice {
   const clearancePrice = clearance?.showClearancePrice
     ? validLowerPrice(clearance.clearancePrice, sales)
     : null
+
+  // 协议价（合同价）：引擎锁定成交基价，公开活动价不可覆盖——最高优先级，命中即终态
+  const policyPrice = validLowerPrice(input.policyPrice, sales)
+  if (policyPrice !== null) {
+    return {
+      badgeKind: 'policy',
+      guideText: null,
+      mainPrice: policyPrice,
+      priceTagText,
+      socialProofKind,
+      socialProofText,
+      strikePrice: showStrike ? roundToCent(sales) : null,
+    }
+  }
 
   // 秒杀是平台级硬互斥活动：结算价即秒杀价，命中即终态，不再比会员/出清/新人价
   const seckillPrice = validLowerPrice(input.seckillPrice, sales)

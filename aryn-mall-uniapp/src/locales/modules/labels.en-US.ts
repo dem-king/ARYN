@@ -14,6 +14,7 @@ export default {
     memberPriceBadge: 'Member Price',
     memberGuidePrefix: 'Member Exclusive',
     newbiePriceBadge: 'First-order price',
+    policyPriceBadge: 'Contract Price',
     seckillPriceBadge: 'Flash Sale',
     newbieAlreadyPaid: 'New User Price is for first orders only. You have already placed an order.',
     newbieRegisterWithin: 'New User Price is only for users registered within {days} days',

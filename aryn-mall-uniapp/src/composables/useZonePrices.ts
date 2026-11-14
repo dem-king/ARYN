@@ -19,6 +19,7 @@
 
 import type { GoodsCardTagItem } from '@/api/product/spu'
 import type { AppMemberSkuPriceVO } from '@/api/promotion'
+import type { PolicyPriceItem } from '@/api/promotion/policy-price'
 import type { ListMemberPriceDisplay } from '@/components/diy/retail-types'
 import type { AppClearancePriceItem, ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { ListZonePrice } from '@/utils/zone-price'
@@ -26,6 +27,8 @@ import type { ListZonePrice } from '@/utils/zone-price'
 import { ref } from 'vue'
 import { getCardTags, getClearanceSpuPrices } from '@/api/product/spu'
 import { getMemberSpuPrices } from '@/api/promotion'
+import { getPolicyPrices } from '@/api/promotion/policy-price'
+import { useShipContextStore } from '@/store/shipContextStore'
 import {
   clearanceItemsBySpuId,
   emptyClearancePriceDisplay,
@@ -47,6 +50,9 @@ const MEMBER_SPU_CHUNK = 50
 /** `/app/goodsspu/card-tags?spuIds=` 单次上限 200（服务端再截断），前端留余量分片 */
 const CARD_TAG_CHUNK = 100
 
+/** 协议价批量查询单次分片：与会员价同量级（POST body，防超大 payload） */
+const POLICY_SPU_CHUNK = 50
+
 interface CacheEntry {
   items: AppMemberSkuPriceVO[]
   fetchedAt: number
@@ -54,6 +60,11 @@ interface CacheEntry {
 
 interface ClearanceCacheEntry {
   items: AppClearancePriceItem[]
+  fetchedAt: number
+}
+
+interface PolicyCacheEntry {
+  items: PolicyPriceItem[]
   fetchedAt: number
 }
 
@@ -70,9 +81,41 @@ interface CardTagCacheEntry {
 const memberCache = new Map<string, CacheEntry>()
 const clearanceCache = new Map<string, ClearanceCacheEntry>()
 const cardTagCache = new Map<string, CardTagCacheEntry>()
+const policyCache = new Map<string, PolicyCacheEntry>()
 /** 最近一次会员价响应里的资格与折扣率（同一用户全局一致） */
 let memberEligible: boolean | null = null
 let memberDiscountRate: number | null = null
+
+/**
+ * 协议价上下文解析器：返回当前会话的采购主体/船舶上下文（无则 null，不打协议价接口）。
+ *
+ * 默认读船上下文（协议价按 vessel 圈定的合同价自动生效；pinia 未激活/无船回落 null，
+ * 测试环境无需建 pinia）；岸上企业上下文页面可 setPolicyPriceContextResolver 临时覆盖
+ * （C 端无持久企业上下文 store）。
+ */
+type PolicyContextResolver = () => { buyerOrgId?: string, vesselId?: string } | null
+let policyContextResolver: PolicyContextResolver = defaultPolicyContext
+
+function defaultPolicyContext(): { buyerOrgId?: string, vesselId?: string } | null {
+  try {
+    // 函数内 use store：模块加载期 pinia 可能未安装（测试/首帧），异常回落无上下文
+    const store = useShipContextStore()
+    return store.vesselId ? { vesselId: store.vesselId } : null
+  }
+  catch {
+    return null
+  }
+}
+
+/** 注册协议价上下文解析器（岸上企业上下文页面可覆盖默认船上下文；测试可注入受控上下文） */
+export function setPolicyPriceContextResolver(resolver: PolicyContextResolver): void {
+  policyContextResolver = resolver
+}
+
+/** 恢复默认解析器（测试隔离用） */
+export function resetPolicyPriceContextResolver(): void {
+  policyContextResolver = defaultPolicyContext
+}
 
 /** 价格缓存版本号：价格到达/失效时自增，驱动页面 computed 重算 */
 const revision = ref(0)
@@ -81,10 +124,12 @@ const revision = ref(0)
 const pendingMember = new Set<string>()
 const pendingClearance = new Set<string>()
 const pendingCardTag = new Set<string>()
+const pendingPolicy = new Set<string>()
 /** 进行中的请求 Promise：同一批 SPU 的并发调用共享结果 */
 let memberInflight: Promise<void> | null = null
 let clearanceInflight: Promise<void> | null = null
 let cardTagInflight: Promise<void> | null = null
+let policyInflight: Promise<void> | null = null
 
 /**
  * 缓存所属的登录态指纹（当前 token 串）。
@@ -237,8 +282,7 @@ function cardTagEntryFrom(items: GoodsCardTagItem[], now: number): CardTagCacheE
   return { fetchedAt: now, newbiePrice, seckillPrice, socialProofKind, socialProofText, priceTagText }
 }
 
-async function fetchCardTags(ids: string[]): Promise<void> {
-  if (!ids.length)
+async function fetchCardTags(ids: string[]): Promise<void> {  if (!ids.length)
     return
   for (const part of chunk(ids, CARD_TAG_CHUNK)) {
     try {
@@ -266,6 +310,66 @@ async function fetchCardTags(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * 协议价批量拉取（需登录 + 有上下文）。
+ *
+ * 协议价是主体/船舶/客群 scoped 的合同价：未登录（网关层即拒绝）或无上下文时
+ * 写空缓存占位（避免同页反复尝试）；接口失败静默回落原价，不影响商品流。
+ * 缓存同样吃登录态指纹失效（syncAuthScope）与 60s TTL。
+ */
+async function fetchPolicyPrices(ids: string[], context: { buyerOrgId?: string, vesselId?: string }): Promise<void> {
+  const now = Date.now()
+  if (!currentAuthKey()) {
+    for (const spuId of ids)
+      policyCache.set(spuId, { fetchedAt: now, items: [] })
+    ids.forEach(id => pendingPolicy.delete(id))
+    return
+  }
+  for (const part of chunk(ids, POLICY_SPU_CHUNK)) {
+    try {
+      const items = await getPolicyPrices({
+        buyerOrgId: context.buyerOrgId,
+        spuIds: part,
+        vesselId: context.vesselId,
+      })
+      const itemsBySpu = new Map<string, PolicyPriceItem[]>()
+      for (const item of items || []) {
+        const spuId = String(item?.spuId || '').trim()
+        if (!spuId)
+          continue
+        const list = itemsBySpu.get(spuId) || []
+        list.push(item)
+        itemsBySpu.set(spuId, list)
+      }
+      const stamped = Date.now()
+      for (const spuId of part)
+        policyCache.set(spuId, { fetchedAt: stamped, items: itemsBySpu.get(spuId) || [] })
+    }
+    catch {
+      const stamped = Date.now()
+      for (const spuId of part)
+        policyCache.set(spuId, { fetchedAt: stamped, items: [] })
+    }
+    part.forEach(id => pendingPolicy.delete(id))
+  }
+}
+
+/** 某 SPU 的卡面协议价（同 SPU 多 SKU 取最低；倒挂/非正数由 resolveListZonePrice 再防御） */
+function policyCardPriceOf(spuId: string): number | null {
+  const entry = policyCache.get(spuId)
+  if (!entry)
+    return null
+  let best: number | null = null
+  for (const item of entry.items) {
+    const price = Number(item?.policyPrice)
+    if (!Number.isFinite(price) || price <= 0)
+      continue
+    if (best === null || price < best)
+      best = price
+  }
+  return best
+}
+
 function pickMissing(
   ids: string[],
   cache: Map<string, { fetchedAt: number }>,
@@ -285,14 +389,17 @@ function clearCaches(): void {
   memberCache.clear()
   clearanceCache.clear()
   cardTagCache.clear()
+  policyCache.clear()
   pendingMember.clear()
   pendingClearance.clear()
   pendingCardTag.clear()
+  pendingPolicy.clear()
   memberEligible = null
   memberDiscountRate = null
   memberInflight = null
   clearanceInflight = null
   cardTagInflight = null
+  policyInflight = null
 }
 
 /** 清理模块级缓存（登录态切换后资格/价格可能整体变化；测试也用它隔离） */
@@ -309,6 +416,8 @@ export interface ZonePriceLoadOptions {
   clearance?: boolean
   /** 是否补卡面营销标签（默认 true）：新人价/秒杀价（card-tags 端点） */
   cardTag?: boolean
+  /** 是否补协议价（默认 true；需登录且有主体/船舶上下文，否则跳过） */
+  policy?: boolean
 }
 
 export interface ZonePriceLookup {
@@ -409,6 +518,7 @@ export function useZonePrices(): ZonePriceLookup {
       salesPrice: sales,
       originalPrice: item?.originalPrice,
       showOriginal,
+      policyPrice: policyCardPriceOf(id),
       memberDisplay: memberDisplayOf(id, sales),
       clearanceDisplay: clearanceDisplayOf(id, sales),
       seckillPrice: tags?.seckillPrice,
@@ -435,6 +545,19 @@ export function useZonePrices(): ZonePriceLookup {
     const result: Record<string, number> = {}
     if (!id)
       return result
+    // 协议价（合同价）锁定成交基价：按 SKU 覆盖，会员/出清一律让位（与引擎锁定语义一致）
+    const policyLockedSkus = new Set<string>()
+    const policy = policyCache.get(id)
+    if (policy) {
+      for (const item of policy.items) {
+        const skuId = String(item?.skuId || '').trim()
+        const price = Number(item?.policyPrice)
+        if (!skuId || !Number.isFinite(price) || price <= 0)
+          continue
+        result[skuId] = Math.round(price * 100) / 100
+        policyLockedSkus.add(skuId)
+      }
+    }
     const member = memberCache.get(id)
     const eligible = memberEligible === true
     if (member && eligible) {
@@ -445,6 +568,8 @@ export function useZonePrices(): ZonePriceLookup {
         const memberPrice = Number(item?.memberPrice)
         const original = Number(item?.originalPrice)
         if (!skuId || !Number.isFinite(memberPrice) || memberPrice <= 0)
+          continue
+        if (policyLockedSkus.has(skuId))
           continue
         let price = memberPrice
         if (hasRate && Number.isFinite(original) && original > 0)
@@ -465,6 +590,8 @@ export function useZonePrices(): ZonePriceLookup {
         if (!skuId || !Number.isFinite(price) || price <= 0)
           continue
         if (!Number.isFinite(sales) || price >= sales)
+          continue
+        if (policyLockedSkus.has(skuId))
           continue
         const expire = String(item?.clearanceExpireTime || '').trim()
         if (expire) {
@@ -498,6 +625,7 @@ export function useZonePrices(): ZonePriceLookup {
     const wantMember = options.member !== false
     const wantClearance = options.clearance !== false
     const wantCardTag = options.cardTag !== false
+    const wantPolicy = options.policy !== false
     const tasks: Promise<void>[] = []
 
     if (wantMember) {
@@ -541,6 +669,25 @@ export function useZonePrices(): ZonePriceLookup {
           cardTagInflight = null
         }
         tasks.push(run())
+      }
+    }
+    if (wantPolicy) {
+      // 协议价是主体/船舶 scoped 合同价：无上下文（游客/个人无船）直接跳过，不打接口
+      const context = policyContextResolver()
+      const hasContext = !!(context && (context.buyerOrgId || context.vesselId))
+      if (hasContext && context) {
+        const missing = pickMissing(ids, policyCache, pendingPolicy)
+        if (missing.length) {
+          missing.forEach(id => pendingPolicy.add(id))
+          const run = async () => {
+            if (policyInflight)
+              await policyInflight.catch(() => {})
+            policyInflight = fetchPolicyPrices(missing, context)
+            await policyInflight
+            policyInflight = null
+          }
+          tasks.push(run())
+        }
       }
     }
     if (!tasks.length)
