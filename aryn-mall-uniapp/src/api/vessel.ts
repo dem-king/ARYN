@@ -216,3 +216,37 @@ export function getPortVehicles(portName: string) {
 export function getPortVehiclePorts() {
   return alovaInstance.Get<string[]>('/vessel/app/port-vehicles/ports')
 }
+
+/** 企业会员权益聚合 VO（双轨会员企业轨，与后端 EnterpriseBenefitsVO 同构） */
+export interface EnterpriseBenefitsVO {
+  creditDays?: null | number
+  dedicatedService?: null | boolean
+  discountRate?: null | number
+  freeShipping?: null | boolean
+  invoicingEnabled?: null | boolean
+  /** 企业等级 ID（未定级为 null） */
+  levelId?: null | string
+  /** 企业等级名称 */
+  levelName?: null | string
+  /** 企业等级 sortOrder（越大越高；未定级为 null） */
+  levelSortOrder?: null | number
+  /** 协议价政策池（等级可用的价格政策 ID，空=无） */
+  policyPoolIds?: string[]
+  /** 主体类型：1岸上企业 2船舶 */
+  subjectType?: string
+  /** 主体 ID（buyer_org_id / vessel_id） */
+  subjectId?: string
+}
+
+/**
+ * 船舶的企业会员权益（双轨会员企业轨，需登录）。
+ *
+ * 后端：GET /vessel/app/vessels/{id}/enterprise-benefits（VesselAppController）。
+ * 成员资格在服务端校验：非船成员返回 null（不泄露他船权益）；未定级/查询失败
+ * 也返回 null（fail-closed）。C 端个人中心企业徽章/会员卡数据源。
+ */
+export function getVesselEnterpriseBenefits(vesselId: string) {
+  return alovaInstance.Get<EnterpriseBenefitsVO | null>(
+    `/vessel/app/vessels/${vesselId}/enterprise-benefits`,
+  )
+}

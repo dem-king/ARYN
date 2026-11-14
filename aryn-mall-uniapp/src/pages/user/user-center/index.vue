@@ -11,16 +11,18 @@ import {
 } from '@/api/delivery'
 import { getCount as getOrderCount } from '@/api/order/orderInfo'
 import { getSalesWorkbench } from '@/api/sales/entity'
+import { getVesselEnterpriseBenefits } from '@/api/vessel'
 // 引入组件
 import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 // 页面滚动广播：装修商品楼层与底部「猜你喜欢」都靠它自动续页
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useTabBarLocale } from '@/composables/useTabBarLocale'
-import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { useMessageStore } from '@/store/messageStore'
+import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
 
@@ -165,8 +167,22 @@ const assetBalance = computed(() => userStore.getBalance ?? 0)
  * 因此绑定入口必须在这里给出，否则新用户会再次陷入「知道缺什么却无处可去」。
  */
 const tenantCapabilityStore = useTenantCapabilityStore()
+const shipContextStore = useShipContextStore()
 const vesselBound = ref(false)
 const vesselName = ref('')
+/**
+ * 双轨会员企业轨徽章（2026-11-14 B2B）：船上下文存在时拉船舶主体的企业等级，
+ * 未定级/查询失败一律空串不渲染（fail-closed，不与个人等级徽章冲突）。
+ */
+const enterpriseLevelName = ref('')
+/**
+ * 是否已登记为在职销售（销售工作台入口的可见性依据）。
+ *
+ * 入口只在 `isSales=true` 时渲染，避免非销售用户点进去看到一个「非销售账号」页；
+ * 请求失败与「非销售」同样按隐藏处理（不阻塞个人中心其余内容）。
+ * 声明前置：onShow 的 else 分支要清它（ts/no-use-before-define）。
+ */
+const isSales = ref(false)
 
 const vesselEntranceVisible = computed(() => {
   // resolved 之前不渲染：否则纯零售租户会先闪出一个船供入口再收起
@@ -197,6 +213,22 @@ function loadVesselState() {
     .catch(() => {
       vesselBound.value = false
       vesselName.value = ''
+    })
+}
+
+/** 企业等级徽章：随船上下文拉取（切船/登出由 onShow 重算），失败静默不渲染 */
+function loadEnterpriseLevel() {
+  const vesselId = shipContextStore.vesselId
+  if (!authStore.isLoggedIn || !vesselId) {
+    enterpriseLevelName.value = ''
+    return
+  }
+  getVesselEnterpriseBenefits(vesselId)
+    .then((benefits) => {
+      enterpriseLevelName.value = benefits?.levelName || ''
+    })
+    .catch(() => {
+      enterpriseLevelName.value = ''
     })
 }
 
@@ -236,6 +268,7 @@ onShow(() => {
         loadVesselState()
       }
     })
+    loadEnterpriseLevel()
   }
   else {
     deliveryEligibility.value = null
@@ -243,6 +276,7 @@ onShow(() => {
     vesselBound.value = false
     vesselName.value = ''
     isSales.value = false
+    enterpriseLevelName.value = ''
   }
 })
 
@@ -291,14 +325,6 @@ const deliveryEntranceSubtitle = computed(() => {
 })
 
 // ===================== 销售工作台入口 =====================
-
-/**
- * 是否已登记为在职销售（销售工作台入口的可见性依据）。
- *
- * 入口只在 `isSales=true` 时渲染，避免非销售用户点进去看到一个「非销售账号」页；
- * 请求失败与「非销售」同样按隐藏处理（不阻塞个人中心其余内容）。
- */
-const isSales = ref(false)
 
 async function loadSalesEligibility() {
   try {
@@ -502,9 +528,15 @@ onPageScroll(handlePageScroll)
           >
             {{ userStore.getLevelName }}
           </text>
+          <text
+            v-if="enterpriseLevelName"
+            class="uc-hero__level uc-hero__level--enterprise"
+          >
+            {{ enterpriseLevelName }}
+          </text>
         </view>
         <text v-if="!authStore.isLoggedIn" class="uc-hero__hint">
-           {{ t('userCenter.loginHint') }}
+          {{ t('userCenter.loginHint') }}
         </text>
       </view>
     </view>
@@ -819,6 +851,12 @@ $uc-gutter: 20rpx;
     color: #fff;
     font-size: 20rpx;
     line-height: 1.6;
+  }
+
+  /* 企业等级徽章：同材质描边变体，与个人等级徽章并排可区分 */
+  &__level--enterprise {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1rpx solid rgba(255, 255, 255, 0.55);
   }
 
   &__hint {
