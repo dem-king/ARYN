@@ -82,6 +82,7 @@ public class ActivityPublishGovernanceService {
 				case PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT -> validateTiers(rules);
 				case PromotionActivity.TYPE_GIFT -> validateGifts(rules);
 				case PromotionActivity.TYPE_NEWBIE_PRICE -> validateNewbiePrice(activity, rules);
+				case PromotionActivity.TYPE_CALENDAR_SPECIAL -> validateCalendarSpecial(activity, rules);
 				default -> throw new ArynBusinessException("暂不支持的活动类型：" + activity.getActivityType());
 			}
 		}
@@ -211,6 +212,43 @@ public class ActivityPublishGovernanceService {
 	 * rules.skus 与 scopeValue（指定 SKU 范围）必须一一对应且不重复、每个 price 为正数。
 	 * 价格与 SKU 售价的相对关系在引擎侧跳过（命中价不低于基价不产生覆盖），发布时不查商品库。
 	 */
+	/**
+	 * 档期特供（type=12，2026-11-14 B2B）：必须「指定商品」范围 + 归属采购档期
+	 * （promo_calendar，未生效档期引擎自动剔除）；rules.skus 单价列表 skuId 不重复、
+	 * price 正数。每人限购 perUserLimit 为 0/空=不限，活动级限量 total_quota 可空。
+	 */
+	private void validateCalendarSpecial(PromotionActivity activity, JSONObject rules) {
+		if (!"2".equals(activity.getScopeType())) {
+			throw new ArynBusinessException("档期特供必须使用「指定商品」范围");
+		}
+		if (!StringUtils.hasText(activity.getCalendarId())) {
+			throw new ArynBusinessException("档期特供必须归属采购档期");
+		}
+		JSONArray skus = rules.getJSONArray("skus");
+		if (skus == null || skus.isEmpty()) {
+			throw new ArynBusinessException("档期特供必须配置 skus 单价列表");
+		}
+		Set<String> ruleSkuIds = new HashSet<>();
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal price = sku.getBigDecimal("price");
+			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
+				throw new ArynBusinessException("档期特供 skus 必须包含 skuId 与正数 price");
+			}
+			if (!ruleSkuIds.add(skuId)) {
+				throw new ArynBusinessException("档期特供 SKU 重复：" + skuId);
+			}
+		}
+		if (!StringUtils.hasText(activity.getScopeValue())) {
+			throw new ArynBusinessException("档期特供必须配置指定商品范围");
+		}
+		Set<String> scopeSkuIds = new HashSet<>(List.of(activity.getScopeValue().split(",")));
+		if (!scopeSkuIds.equals(ruleSkuIds)) {
+			throw new ArynBusinessException("档期特供 skus 与指定商品范围必须一一对应");
+		}
+	}
+
 	private void validateNewbiePrice(PromotionActivity activity, JSONObject rules) {
 		if (!"2".equals(activity.getScopeType())) {
 			throw new ArynBusinessException("新人专享价必须使用「指定商品」范围");

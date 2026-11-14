@@ -42,6 +42,7 @@ import {
   publishActivity,
   updateActivity,
 } from '#/api/promotion/ship-activity';
+import { getTradeCalendars } from '#/api/promotion/trade-calendar';
 import { getDeclaredVesselCalls, getVesselPage } from '#/api/vessel/vessel';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
@@ -113,6 +114,23 @@ const newbieSkus = ref<
     spuName: string;
   }>
 >([]);
+/**
+ * 档期特供（type=12，2026-11-14 B2B）：归属采购档期的限量特惠。
+ * 规则 skus 与新人价同形态（[{skuId,price}]）；限量 total_quota 落活动级列，
+ * 每人限购沿用 form.perUserLimit（0=不限）。
+ */
+const specialSkus = ref<
+  Array<{
+    price: number;
+    salesPrice: number | string;
+    skuId: string;
+    skuName: string;
+    spuName: string;
+  }>
+>([]);
+const calendarId = ref('');
+const calendarOptions = ref<Array<{ calendarName: string; id: string }>>([]);
+const specialTotalQuota = ref(0);
 const registerWithinDays = ref<null | number>(null);
 /**
  * 新人专享「长期有效」。
@@ -129,9 +147,9 @@ const vesselOptions = ref<Array<{ id: string; vesselName: string }>>([]);
 const callOptions = ref<any[]>([]);
 const portOptions = ref<Array<{ code: string; name: string }>>([]);
 const isPublished = ref(false);
-const selectMode = ref<'dry' | 'gift' | 'ladder' | 'newbie' | 'scope'>(
-  'ladder',
-);
+const selectMode = ref<
+  'dry' | 'gift' | 'ladder' | 'newbie' | 'scope' | 'special'
+>('ladder');
 const dryVisible = ref(false);
 const dryLoading = ref(false);
 const dryResult = ref<any>(null);
@@ -155,6 +173,7 @@ const typeLabel: Record<string, string> = {
   '7': '整船优惠',
   '9': '新人价',
   '11': '出清价',
+  '12': '档期特供',
 };
 const statusLabel: Record<string, string> = {
   '1': '草稿',
@@ -260,10 +279,14 @@ const openDialog = (row?: any) => {
   form.startTime = row?.startTime ?? '';
   form.endTime = row?.endTime ?? '';
   form.remark = row?.remark ?? '';
-  // 叠加策略回显：存量数据可能未带字段，缺省按类型默认补齐（新人=关，其余=开）
-  const newbieType = form.activityType === '9';
-  form.couponStackable = row?.couponStackable ?? (newbieType ? '0' : '1');
-  form.pointsStackable = row?.pointsStackable ?? (newbieType ? '0' : '1');
+  // 叠加策略回显：存量数据可能未带字段，缺省按类型默认补齐（新人/档期特供=关，其余=开）
+  const lockStackableType = ['9', '12'].includes(form.activityType);
+  form.couponStackable =
+    row?.couponStackable ?? (lockStackableType ? '0' : '1');
+  form.pointsStackable =
+    row?.pointsStackable ?? (lockStackableType ? '0' : '1');
+  calendarId.value = row?.calendarId ?? '';
+  specialTotalQuota.value = row?.totalQuota ?? 0;
   try {
     const rules = row ? JSON.parse(row.rules) : {};
     skuLadders.value = rules.skuLadders ?? [];
@@ -276,6 +299,7 @@ const openDialog = (row?: any) => {
     giftThreshold.value = rules.minAmount ?? 0;
     gifts.value = rules.gifts ?? [];
     newbieSkus.value = rules.skus ?? [];
+    specialSkus.value = form.activityType === '12' ? (rules.skus ?? []) : [];
     registerWithinDays.value = rules.registerWithinDays ?? null;
     newbieLongTerm.value = rules.longTerm === true;
     // 长期有效不展示 2099 哨兵时间；关闭开关后必须重新选择结束时间
@@ -305,18 +329,35 @@ const openDialog = (row?: any) => {
 
       break;
     }
+    case '12': {
+      enrichSkuDisplay(specialSkus.value);
+      loadCalendarOptions();
+
+      break;
+    }
     // No default
   }
   loadVesselData();
   dialogVisible.value = true;
 };
 
-/** 活动类型切换时按类型默认值重置叠加策略（新人=关，其余=开） */
+/** 档期特供：加载可选采购档期（生效/草稿都可选，发布时引擎按档期窗口过滤） */
+const loadCalendarOptions = async () => {
+  if (calendarOptions.value.length > 0) return;
+  try {
+    calendarOptions.value = (await getTradeCalendars()) ?? [];
+  } catch {
+    calendarOptions.value = [];
+  }
+};
+
+/** 活动类型切换时按类型默认值重置叠加策略（新人/档期特供=关，其余=开） */
 const onActivityTypeChange = (value: boolean | number | string | undefined) => {
-  const newbieType = value === '9';
-  form.couponStackable = newbieType ? '0' : '1';
-  form.pointsStackable = newbieType ? '0' : '1';
-  if (!newbieType) newbieLongTerm.value = false;
+  const lockStackable = value === '9' || value === '12';
+  form.couponStackable = lockStackable ? '0' : '1';
+  form.pointsStackable = lockStackable ? '0' : '1';
+  if (value !== '9') newbieLongTerm.value = false;
+  if (value === '12') loadCalendarOptions();
 };
 
 /** 列表展示：长期有效活动不显示 2099 哨兵时间 */
@@ -377,6 +418,18 @@ const buildPayload = () => {
 
       break;
     }
+    case '12': {
+      rules = {
+        skus: specialSkus.value.map((row) => ({
+          price: row.price,
+          skuId: row.skuId,
+          skuName: row.skuName,
+          spuName: row.spuName,
+        })),
+      };
+
+      break;
+    }
     // No default
   }
   const longTerm = form.activityType === '9' && newbieLongTerm.value;
@@ -385,13 +438,22 @@ const buildPayload = () => {
     endTime: longTerm ? NEWBIE_LONG_TERM_END : form.endTime,
     rules: JSON.stringify(rules),
   };
-  if (['4', '9'].includes(form.activityType)) {
+  if (['4', '9', '12'].includes(form.activityType)) {
     payload.scopeType = '2';
-    const skuIds =
-      form.activityType === '4'
-        ? skuLadders.value.map((row) => row.skuId)
-        : newbieSkus.value.map((row) => row.skuId);
-    payload.scopeValue = skuIds.join(',');
+    const skuRowsByType: Record<string, Array<{ skuId: string }>> = {
+      '12': specialSkus.value,
+      '4': skuLadders.value,
+      '9': newbieSkus.value,
+    };
+    payload.scopeValue = (skuRowsByType[form.activityType] || [])
+      .map((row) => row.skuId)
+      .join(',');
+  }
+  if (form.activityType === '12') {
+    payload.calendarId = calendarId.value;
+    // 0=不限：后端 total_quota NULL 视为不限，落库前归一
+    payload.totalQuota =
+      specialTotalQuota.value > 0 ? specialTotalQuota.value : null;
   }
   return payload;
 };
@@ -431,6 +493,27 @@ const handleSave = () => {
     const bad = newbieSkus.value.find((row) => !row.price || row.price <= 0);
     if (bad) {
       ElMessage.warning(`商品【${bad.spuName}】的新人价需大于 0`);
+      return;
+    }
+  }
+  if (form.activityType === '12') {
+    if (!calendarId.value) {
+      ElMessage.warning('请选择归属采购档期');
+      return;
+    }
+    if (specialSkus.value.length === 0) {
+      ElMessage.warning('请添加档期特供商品');
+      return;
+    }
+    const badSpecial = specialSkus.value.find(
+      (row) => !row.price || row.price <= 0,
+    );
+    if (badSpecial) {
+      ElMessage.warning(`商品【${badSpecial.spuName}】的特供价需大于 0`);
+      return;
+    }
+    if (specialTotalQuota.value < 0) {
+      ElMessage.warning('活动限量不能为负数');
       return;
     }
   }
@@ -497,7 +580,9 @@ const handleDelete = (row: any) => {
 };
 
 const selectGoodsRef = ref();
-const openSelect = (mode: 'dry' | 'gift' | 'ladder' | 'newbie' | 'scope') => {
+const openSelect = (
+  mode: 'dry' | 'gift' | 'ladder' | 'newbie' | 'scope' | 'special',
+) => {
   selectMode.value = mode;
   selectGoodsRef.value?.initPage();
 };
@@ -575,6 +660,14 @@ const onGoodsSelected = async (spuList: any[]) => {
       );
       rows.forEach((row) => existing.add(row.skuId));
       form.scopeValue = [...existing].join(',');
+
+      break;
+    }
+    case 'special': {
+      for (const row of rows) {
+        if (specialSkus.value.some((sku) => sku.skuId === row.skuId)) continue;
+        specialSkus.value.push({ ...row, price: 0 });
+      }
 
       break;
     }
@@ -963,9 +1056,13 @@ useKeepAliveRefresh(initPage);
               <ElRadioButton value="7">船供整船优惠</ElRadioButton>
               <ElRadioButton value="5">买赠</ElRadioButton>
               <ElRadioButton value="9">新人专享价</ElRadioButton>
+              <ElRadioButton value="12">档期特供</ElRadioButton>
             </ElRadioGroup>
           </ElFormItem>
-          <ElFormItem v-if="form.activityType === '9'" label="优惠叠加">
+          <ElFormItem
+            v-if="['9', '12'].includes(form.activityType)"
+            label="优惠叠加"
+          >
             <div style="display: flex; gap: 8px; align-items: center">
               <ElSwitch
                 :model-value="form.couponStackable !== '0'"
@@ -978,7 +1075,11 @@ useKeepAliveRefresh(initPage);
               />
               <span>可用积分抵现</span>
               <span style="color: var(--el-text-color-secondary)">
-                （新人价已是最低价，默认关闭防叠加击穿；可按需放开）
+                {{
+                  form.activityType === '9'
+                    ? '（新人价已是最低价，默认关闭防叠加击穿；可按需放开）'
+                    : '（档期特供为限量硬促销，默认关闭防叠加击穿；可按需放开）'
+                }}
               </span>
             </div>
           </ElFormItem>
@@ -1298,6 +1399,84 @@ useKeepAliveRefresh(initPage);
                 type="danger"
                 :disabled="isPublished"
                 @click="newbieSkus.splice(rowIndex, 1)"
+              >
+                移除
+              </ElButton>
+            </ElFormItem>
+          </template>
+          <template v-else-if="form.activityType === '12'">
+            <ElFormItem label="归属档期">
+              <ElSelect
+                v-model="calendarId"
+                :disabled="isPublished"
+                filterable
+                placeholder="选择采购档期"
+                style="width: 320px"
+              >
+                <ElOption
+                  v-for="calendar in calendarOptions"
+                  :key="calendar.id"
+                  :label="calendar.calendarName"
+                  :value="calendar.id"
+                />
+              </ElSelect>
+              <span
+                class="ml-8px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                档期停用或窗口外时特供自动退出试算
+              </span>
+            </ElFormItem>
+            <ElFormItem label="活动限量">
+              <ElInputNumber
+                v-model="specialTotalQuota"
+                :min="0"
+                :disabled="isPublished"
+                controls-position="right"
+              />
+              <span
+                class="ml-8px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                全活动累计限购件数（按下单件数原子扣减，0=不限）；每人限购在下方通用设置
+              </span>
+            </ElFormItem>
+            <ElFormItem label="特供商品">
+              <ElButton
+                type="primary"
+                :disabled="isPublished"
+                @click="openSelect('special')"
+              >
+                添加商品
+              </ElButton>
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                特供价需低于当前售价；档期特供为硬促销，默认不可叠券/积分
+              </span>
+            </ElFormItem>
+            <ElFormItem
+              v-for="(row, rowIndex) in specialSkus"
+              :key="row.skuId"
+              :label="row.spuName"
+            >
+              <span class="hx-money" style="min-width: 220px">
+                {{ row.skuName }} 售价 ¥{{ formatMoney(row.salesPrice) }}
+              </span>
+              <ElInputNumber
+                v-model="row.price"
+                :min="0"
+                :precision="2"
+                :disabled="isPublished"
+                controls-position="right"
+                style="width: 120px; margin: 0 8px"
+              />
+              <ElButton
+                link
+                type="danger"
+                :disabled="isPublished"
+                @click="specialSkus.splice(rowIndex, 1)"
               >
                 移除
               </ElButton>
