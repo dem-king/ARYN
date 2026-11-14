@@ -15,6 +15,8 @@ import {
   computed,
   getCurrentInstance,
   nextTick,
+  onMounted,
+  onUnmounted,
   reactive,
   ref,
   watch,
@@ -33,6 +35,7 @@ import { retailCommonStyle } from '@/components/diy/retail-types'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import MemberIntroSheet from '@/components/member-intro-sheet/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { DIY_REACH_BOTTOM_CHECK_EVENT } from '@/composables/useDecorationInfiniteScroll'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useZonePrices } from '@/composables/useZonePrices'
@@ -52,12 +55,50 @@ const props = withDefaults(
      * 页面为 false，Tab 栏保持原来的纯白底，行为不变。
      */
     immersiveNav?: boolean
+    /**
+     * 吸顶基准线（px，= DiyPage 的 stickyOffsetTop）：Tab 栏 sticky 的 top 值。
+     * 用于「已吸顶」判定——吸顶后 Tab 栏撤掉自身磨砂、透明骑在延伸到本条带的
+     * 统一头部玻璃上（两块玻璃各自 backdrop-filter 时拼接处必有接缝）。
+     * 0 / 未下发时不做吸顶判定，保持原行为。
+     */
+    stickyLine?: number
+    /**
+     * 宿主头部玻璃是否**真的**覆盖了本条带（DiyPage 按「已吸顶 + 栏高已上报」
+     * 综合判断后下传）。
+     *
+     * 撤自身磨砂的前提是背后确实垫着一块玻璃：栏高上报失败（页面级查询在微信
+     * 小程序里查不到组件内部节点、栏高恒 0）时若照样撤，Tab 栏就变成纯透明，
+     * 文字直接压在商品卡上——这正是真机出现过的现象。缺省 false = 不撤，
+     * 保持自绘磨砂，宁可两块玻璃有接缝也不能露出没有背景的文字。
+     */
+    glassCoversBar?: boolean
+    /**
+     * 楼层标识（= DiyPage 的 item.id）：随吸顶态一起回传，供宿主按楼层累计。
+     *
+     * 不在模板里写内联箭头闭包（小程序会把闭包塞进渲染数据），父组件用方法
+     * 引用监听，靠这个 key 区分同页的多个 Tab 楼层。
+     */
+    tabKey?: string
   }>(),
   {
     showData: () => ({}),
     immersiveNav: false,
+    stickyLine: 0,
+    glassCoversBar: false,
+    tabKey: '',
   },
 )
+
+const emit = defineEmits<{
+  /**
+   * 吸顶态变化：DiyPage 据此决定是否把栏高算进头部玻璃延伸。
+   *
+   * 栏高由本组件实测上报（页面级 selector query 在小程序里查不到自定义组件
+   * 内部节点），`height` 为 0 时上游按 0 处理；`tabKey` 回传楼层 id，供同页
+   * 多个 Tab 楼层各自统计（父组件用方法引用监听，避免模板内联闭包）。
+   */
+  'stuck-change': [tabKey: string, stuck: boolean, height: number]
+}>()
 
 const { t } = useI18n()
 
@@ -403,13 +444,23 @@ interface FeedState {
   items: any[]
   loaded: boolean
   nextPage: number
+  /**
+   * 该 Tab 离开时商品流内容区（`.goods-tabs__inner`）相对视口顶部的偏移（px，向上为负）。
+   *
+   * 三个 Tab 共用同一个页面滚动条，只换列表数据不换页面：不按 Tab 各记一份，
+   * 切到别的 Tab 会继承上一个 Tab 的滚动高度，切回来也回不到原来的浏览位置。
+   * 锚点选内容区而不是组件根节点：Tab 级会员权益条会随 Tab 显隐，商品流内容
+   * 相对根节点会上下移动，按内容区对齐才能回到同一张卡片。
+   * undefined = 还没在这个 Tab 上浏览过（首次进入仍停在商品流起点）。
+   */
+  viewportTop?: number
 }
 
 /**
  * 每个 Tab 一份 feed 状态。
  *
  * 只换当前 Tab 的数据，不重建组件：切回已加载过的 Tab 时直接复用缓存，
- * 翻页游标 nextPage 也按 Tab 独立推进。
+ * 翻页游标 nextPage 与浏览位置 viewportTop 也按 Tab 独立记录。
  */
 const feedStates = reactive<Record<string, FeedState>>({})
 /**
@@ -421,6 +472,16 @@ const feedStates = reactive<Record<string, FeedState>>({})
  */
 const feedMinHeight = ref(0)
 let switchingTab = false
+/**
+ * 待恢复的浏览位置：切回浏览过的 Tab 时设置，该 Tab 的首次查询渲染完成后消费。
+ * null = 本次切换无需恢复（首次浏览，仍停在商品流起点）。
+ */
+interface PendingScrollRestore {
+  /** 离开时商品流内容区相对视口顶部的偏移（px，向上为负） */
+  viewportTop: number
+  tabId: string
+}
+let pendingScrollRestore: PendingScrollRestore | null = null
 const anchorId = `goods-tabs-anchor-${Math.random().toString(36).slice(2, 8)}`
 const stickyOffsetPx = ref(0)
 
@@ -443,6 +504,8 @@ watch(
     Object.keys(feedStates).forEach((key) => {
       delete feedStates[key]
     })
+    // 装修配置换了，各 Tab 的浏览位置也一并作废（新配置下同一偏移不再有意义）
+    pendingScrollRestore = null
     if (activeIndex.value >= tabs.value.length)
       activeIndex.value = 0
     pagingRef.value?.reload?.()?.catch?.(() => {})
@@ -510,13 +573,67 @@ async function queryList(pageNo: number, pageSize: number) {
     }, isCurrent)
   }
   finally {
-    if (switchingTab && sequence === querySequence) {
+    // 只处理「本次切 Tab 触发的首查」：翻页/自愈查询不参与位置恢复，
+    // 避免上一轮切 Tab 遗留的待恢复值被后续任意一次查询消费
+    if (switchingTab && sequence === querySequence && pageNo === 1) {
       switchingTab = false
       // 等新列表完成一次渲染再释放占位，避免同一帧内高度先塌后涨
       await nextTick()
       feedMinHeight.value = 0
+      // 占位释放后页面高度才稳定，此时再恢复位置，避免恢复值被高度收缩夹回。
+      // 查询失败时不恢复（列表是空/错误态，按错误视图展示即可）
+      await nextTick()
+      if (state.loaded)
+        restoreScrollPosition(tab.id)
+      else
+        pendingScrollRestore = null
     }
   }
+}
+
+/**
+ * 切回浏览过的 Tab 后恢复该 Tab 离开时的浏览位置。
+ *
+ * 记录的是「商品流内容区相对视口顶部的偏移」而不是绝对 scrollTop：切 Tab 期间
+ * 页面上方楼层高度可能变化（Tab 级会员权益条显隐等），用绝对滚动值恢复会错位，
+ * 而内容区是页面内固定锚点，按它对齐才能回到同一张卡片。
+ *
+ * 必须在目标 Tab 的列表渲染完成、临时占位高度释放之后调用：占位高度会让
+ * 页面比真实内容更高，提前恢复会被随后收缩的页面高度夹回。
+ * 只消费一次，且只认发起恢复的那个 Tab（切 Tab 期间再次切换时旧任务作废）。
+ */
+function restoreScrollPosition(tabId: string) {
+  const restore = pendingScrollRestore
+  pendingScrollRestore = null
+  if (!restore || restore.tabId !== tabId)
+    return
+  uni
+    .createSelectorQuery()
+    .in(instance?.proxy ?? instance)
+    .select('.goods-tabs__inner')
+    .boundingClientRect((raw) => {
+      const rect = (Array.isArray(raw) ? raw[0] : raw) as {
+        top?: number
+      } | null
+      const feedTop = rect?.top
+      if (typeof feedTop !== 'number')
+        return
+      uni.createSelectorQuery()
+        .selectViewport()
+        .scrollOffset((info) => {
+          const viewport = Array.isArray(info) ? info[0] : info
+          const current = Number(
+            (viewport as { scrollTop?: number } | null)?.scrollTop || 0,
+          )
+          // 目标滚动值 = 当前滚动 + (当前 feedTop - 离开时 feedTop)
+          uni.pageScrollTo({
+            scrollTop: Math.max(0, current + feedTop - restore.viewportTop),
+            duration: 0,
+          })
+        })
+        .exec()
+    })
+    .exec()
 }
 
 function measureFeedHeight(): Promise<number> {
@@ -535,41 +652,171 @@ function measureFeedHeight(): Promise<number> {
   })
 }
 
-function measureTabPosition(): Promise<{ barTop: number, rootTop: number }> {
+function measureTabPosition(): Promise<{ barTop: number, feedTop: number, rootTop: number }> {
   return new Promise((resolve) => {
     const query = uni.createSelectorQuery().in(instance?.proxy ?? instance)
     query.select('.goods-tabs').boundingClientRect()
     query.select('.goods-tabs__bar').boundingClientRect()
+    query.select('.goods-tabs__inner').boundingClientRect()
     query.exec((raw) => {
       const result = Array.isArray(raw) ? raw : []
       const root = result[0] as { top?: number } | null
       const bar = result[1] as { top?: number } | null
+      const feed = result[2] as { top?: number } | null
       resolve({
         barTop: Number(bar?.top ?? 0),
+        feedTop: Number(feed?.top ?? root?.top ?? 0),
         rootTop: Number(root?.top ?? 0),
       })
     })
   })
 }
 
+/** 商品流顶部内边距（px）：Tab 栏自然位置与商品流内容起点之间的间距 */
+function feedTopPadding(): number {
+  return Number(
+    (showData.value.commonStyle as Record<string, unknown> | undefined)
+      ?.styleTopPadding || 0,
+  )
+}
+
+/**
+ * 「Tab 栏已吸顶」状态：吸顶后撤掉自身磨砂底/blur，透明骑在 DiyPage 延伸到
+ * 本条带的统一头部玻璃上（z-index 抬到玻璃之上），并由 DiyPage 把栏高计入
+ * 玻璃延伸高度。
+ *
+ * 判定 = 页面滚动广播里实测栏顶位置：sticky 只会把栏顶钳在 `top` 处，栏顶
+ * 落到吸顶线附近即已吸顶。不用交集观察器：H5 端 uni 的交集观察器 API
+ * 在本项目的滚动容器（uni-page-body）下实测**完全不回调**（页面滚动但 observer
+ * 静默），拿它判定会永远停在「未吸顶」。也不用 header 的 provide 滚动状态：
+ * 那只翻转「顶部/已滚动」两态，到这里时栏离吸顶线往往还差一整屏，按它算会把
+ * 栏高提前铺出去（本次修的正是这个）。
+ *
+ * 滚动广播 200ms 一次 + 停手 150ms 兜底，回调里只读一次 rect 并做布尔比较，
+ * 值不变不触发渲染，滚动过程中本组件不重渲染。
+ *
+ * **栏高必须在本组件内一起量**：微信小程序的页面级 `uni.createSelectorQuery()`
+ * 选择不到自定义组件内部的节点，DiyPage 自己查 `.goods-tabs__bar` 会恒返回
+ * null（真机表现 = Tab 栏吸顶变透明了，但背后的头部玻璃没延伸，文字直接压在
+ * 商品卡上）。这里用 `.in(instance)` 量完吸附在同一个事件里上报。
+ */
+const barStuck = ref(false)
+/** Tab 栏实测高度（px）：玻璃要垫到栏底沿 */
+const barHeight = ref(0)
+
+function pulseStuck(stuck: boolean, height: number) {
+  const nextHeight = Math.round(Math.max(0, height) * 100) / 100
+  if (barStuck.value === stuck && barHeight.value === nextHeight)
+    return
+  barStuck.value = stuck
+  barHeight.value = nextHeight
+  emit('stuck-change', props.tabKey, stuck, nextHeight)
+}
+
+/** 是否参与吸顶判定：沉浸式导航 + 吸顶 Tab + 有吸顶线，三者缺一不可 */
+function stuckEligible() {
+  return props.immersiveNav && showData.value.stickyTabs && props.stickyLine > 0
+}
+
+/** 实测栏顶与栏高：栏顶已到吸顶线附近（±1px 容差）即算吸顶 */
+function syncStuckFromLayout() {
+  if (!stuckEligible() || !instance) {
+    pulseStuck(false, 0)
+    return
+  }
+  uni
+    .createSelectorQuery()
+    .in(instance.proxy as any)
+    .select('.goods-tabs__bar')
+    .boundingClientRect((raw) => {
+      const rect = (Array.isArray(raw) ? raw[0] : raw) as {
+        height?: number
+        top?: number
+      } | null
+      const top = rect?.top
+      const height = rect?.height
+      // 量不到（组件已收起/列表未渲染）按未吸顶处理，避免玻璃停在栏高上
+      if (typeof top !== 'number') {
+        pulseStuck(false, 0)
+        return
+      }
+      pulseStuck(
+        top <= props.stickyLine + 1,
+        typeof height === 'number' && height > 0 ? height : 0,
+      )
+    })
+    .exec()
+}
+
+/** 是否监听滚动广播：数据未到 / 未开沉浸式导航时不必参与 */
+const stuckWatching = computed(
+  () => stuckEligible() && showData.value.stickyTabs && tabs.value.length > 1,
+)
+
+// 装修数据异步到达：监听态、栏位置都在数据到齐后才成立，变化时补一次实测
+watch(
+  () => [props.immersiveNav, props.stickyLine, showData.value.stickyTabs, tabs.value.length],
+  () => nextTick(syncStuckFromLayout),
+  { immediate: true },
+)
+
+onMounted(() => {
+  if (stuckWatching.value)
+    uni.$on(DIY_REACH_BOTTOM_CHECK_EVENT, syncStuckFromLayout)
+})
+// 监听条件可能晚于挂载才成立（装修数据异步），用 watch 补挂/摘除
+watch(stuckWatching, (on) => {
+  uni.$off(DIY_REACH_BOTTOM_CHECK_EVENT, syncStuckFromLayout)
+  if (on)
+    uni.$on(DIY_REACH_BOTTOM_CHECK_EVENT, syncStuckFromLayout)
+})
+// 视口尺寸变化（旋转/分屏）后吸顶线或栏宽变了，补测一次
+uni.onWindowResize?.(syncStuckFromLayout)
+onUnmounted(() => {
+  uni.$off(DIY_REACH_BOTTOM_CHECK_EVENT, syncStuckFromLayout)
+  // 组件卸载时把吸顶态收回：DiyPage 的玻璃延伸不能停在「已吸顶」的高度上
+  emit('stuck-change', props.tabKey, false, 0)
+})
+
 async function switchTab(index: number) {
   if (index === activeIndex.value || !tabs.value[index])
     return
 
-  const { barTop, rootTop } = await measureTabPosition()
-  const paddingTop = Number(
-    (showData.value.commonStyle as Record<string, unknown> | undefined)
-      ?.styleTopPadding || 0,
-  )
-  // 栏顶高于「根节点 + 顶部内边距」说明已离开自然位置、处于吸顶状态
+  const paddingTop = feedTopPadding()
+  const { barTop, rootTop, feedTop } = await measureTabPosition()
+  // 先记下正在离开的 Tab 的浏览位置：三个 Tab 共用一个页面滚动条，
+  // 不各记一份就会互相继承对方的滚动高度。
+  // 只记已加载完成的 Tab：首查还在途就切走时用户并没看过内容，记下来的是
+  // 高度占位期的瞬时位置，回来反而会落到一个奇怪的偏移上。
+  const leavingTab = activeTab.value
+  if (leavingTab) {
+    const leavingState = stateOf(leavingTab.id)
+    if (leavingState.loaded)
+      leavingState.viewportTop = feedTop
+  }
+
+  const targetTab = tabs.value[index]
+  const targetViewportTop = stateOf(targetTab.id).viewportTop
+
+  // 吸顶判定：sticky 只会在滚过自然位置后把栏顶钳制在 `top` 处，所以
+  // 「栏顶明显低于（数值上大于）根节点自然位置」才说明已吸顶。写成小于永远
+  // 不成立——首次切 Tab 就不会回到列表起点，而是继承上一个 Tab 的滚动深度。
   const barStuck
-    = showData.value.stickyTabs && barTop < rootTop + paddingTop - 0.5
+    = showData.value.stickyTabs && barTop > rootTop + paddingTop + 0.5
   if (barStuck) {
     stickyOffsetPx.value = Math.max(0, barTop - paddingTop)
     await nextTick()
-    // 锚点悬在根节点上方，滚到锚点即让 Tab 栏停在吸顶位置
-    uni.pageScrollTo({ selector: `#${anchorId}`, duration: 200 })
+    // 首次浏览该 Tab 才滚到商品流起点；切回浏览过的 Tab 交给位置恢复，
+    // 否则会先跳到这里、再跳回记忆位置，出现两次跳动
+    if (targetViewportTop === undefined)
+      uni.pageScrollTo({ selector: `#${anchorId}`, duration: 200 })
   }
+
+  // 切回浏览过的 Tab：等新列表渲染完再恢复到离开时的位置（见 queryList 的 finally）
+  pendingScrollRestore
+    = targetViewportTop === undefined
+      ? null
+      : { tabId: targetTab.id, viewportTop: targetViewportTop }
 
   const height = await measureFeedHeight()
   if (height > 0)
@@ -577,7 +824,7 @@ async function switchTab(index: number) {
   switchingTab = true
   activeIndex.value = index
   await nextTick()
-  // 只重置当前 Tab 的数据；未吸顶时不主动滚动，保持用户当前页面位置
+  // 只重置当前 Tab 的数据；位置恢复与首次浏览的滚动都在上面按 Tab 分别处理
   pagingRef.value?.reload?.()?.catch?.(() => {})
 }
 
@@ -679,6 +926,8 @@ function imageBoxStyle(item: any) {
       :class="{
         'goods-tabs__bar--sticky': showData.stickyTabs,
         'goods-tabs__bar--immersive': immersiveNav && showData.stickyTabs,
+        'goods-tabs__bar--stuck':
+          barStuck && glassCoversBar && immersiveNav && showData.stickyTabs,
       }"
     >
       <view
@@ -1027,14 +1276,29 @@ function imageBoxStyle(item: any) {
  * 变量由 DiyPage 挂在 .diy-page 根节点（与 --diy-sticky-top 同一继承链路）：
  *   --diy-nav-surface-bg   目标底色（磨砂白 rgba .86 / 主题色 / 自定义色）
  *   --diy-nav-surface-blur backdrop-filter 值（毛玻璃关闭时为 none）
- *   --diy-nav-hairline     底部细线色（与 hr-navbar 的 hairline 同色）
- * 未下发变量（内嵌页 / 未开沉浸式导航）时回落原来的白底 + #f2f3f5 细线。
+ * 未下发变量（内嵌页 / 未开沉浸式导航）时回落原来的白底。
+ *
+ * 底边细线保留：它分的是「Tab 栏 ↔ 下方商品流」，属于内容层结构，
+ * 与顶栏下沿那条（已整体移除）不是同一回事。
  */
 .goods-tabs__bar--immersive {
   background: var(--diy-nav-surface-bg, #fff);
-  border-bottom-color: var(--diy-nav-hairline, #f2f3f5);
   -WEBKIT-backdrop-filter: var(--diy-nav-surface-blur, none);
   backdrop-filter: var(--diy-nav-surface-blur, none);
+}
+
+/*
+ * 已吸顶：撤掉自身磨砂，整条 Tab 带由 DiyPage 延伸下来的统一头部玻璃负责
+ * （玻璃底沿 = 吸顶线 + 栏高，正好垫在本栏背后）。两块玻璃各自
+ * backdrop-filter 时拼接处必有接缝与裸带，商品滑过会分层。
+ * z-index 抬到延伸玻璃（499）之上，文字/指示条清晰骑在玻璃上；
+ * 底边细线保留：它分的是「Tab 栏 ↔ 下方商品流」，属于内容层结构。
+ */
+.goods-tabs__bar--stuck {
+  background: transparent;
+  -WEBKIT-backdrop-filter: none;
+  backdrop-filter: none;
+  z-index: 501;
 }
 
 /*

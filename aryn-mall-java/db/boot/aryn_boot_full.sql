@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-10
+-- 生成日期: 2026-11-13
 
 -- ============================================================================
 -- 创建数据库
@@ -102,6 +102,15 @@ DROP TABLE IF EXISTS `stat_daily_spu_sales`;
 DROP TABLE IF EXISTS `goods_sku_price_daily`;
 -- 版权配置（219copyright_config_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS `sys_copyright_config`;
+-- 订单级运费规则（224freight_rule_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `freight_rule`;
+-- 采购主体基础层（225buyer_org_schema_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `buyer_org`;
+DROP TABLE IF EXISTS `buyer_org_member`;
+DROP TABLE IF EXISTS `buyer_org_apply`;
+DROP TABLE IF EXISTS `buyer_org_invite_code`;
+-- 空态插画配置（230status_tip_config_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `sys_status_tip_config`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -32118,5 +32127,1174 @@ SELECT
       AND NOT EXISTS (SELECT 1 FROM `sys_material_group` AS g
                        WHERE g.`tenant_id` = t.`id` AND g.`is_default` = '1' AND g.`del_flag` = '0')
   ) AS tenant_without_default_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 分销管理与销售管理独立为一级菜单
+-- Source: db/boot/222relocate_sales_distribution_menus.sql
+-- ============================================================================
+-- 分销管理与销售管理从「营销管理」独立为一级菜单（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-11）：「营销管理」下已堆积 10 个二级目录（优惠券 / 船供活动 / 分销管理 /
+--   拼团管理 / 秒杀管理 / 折扣管理 / 专区设置 / 出清折扣规则 / 专区商品管理 / 销售管理），
+--   其中分销与销售是「渠道与人 + 资金台账」（佣金、提成、发放），与营销活动/优惠/货盘
+--   不属于同一类事务；且两者含财务敏感数据，挂在营销管理下意味着授予任一页面都必须
+--   连带授予「营销管理」祖先目录，权限边界被放大。
+-- 语义：
+--   1) 分销管理 1991000000000000001、销售管理 2130000000000000100 的 parent_id 改为 '0'，
+--      各自成为一级菜单（sort 52 / 54，排在「配送管理」之后、「营销管理」之前）；
+--   2) 清空「分销管理」的 redirect——原值指向 /promotion/distribution/config，基础版套餐
+--      （app_base，不含 app_market）拿不到该页，目录点击会落 404；置空后由前端按第一个
+--      可见子页面自动生成 redirect（packages/effects/access/src/accessible.ts）；
+--   3) 权限补偿：持有被搬目录下页面但缺目录授权的角色/租户补授目录本身，否则菜单树构建
+--      会丢弃父节点缺失的孤儿节点（195 号脚本的教训）；
+--   4) path / component / permission / application_key / 页面代码一律不动——纯信息架构调整，
+--      零页面、零接口、零路由改动；
+--   5) 幂等：UPDATE 带旧值条件、INSERT IGNORE + NOT EXISTS；不删除、不覆盖业务数据。
+-- 注意：菜单与权限在登录时快照进会话，MENU_CACHE 为进程内缓存；执行后需清 menu_cache
+--       并重新登录管理端才生效。
+-- 关联：cloud 模式对应 db/cloud/233relocate_sales_distribution_menus.sql，内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单归属调整：升为一级菜单
+-- ============================================================================
+UPDATE `sys_menu`
+SET `parent_id` = '0', `sort` = 52, `redirect` = NULL, `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '1991000000000000001'
+  AND `parent_id` = '1779386604402573314'
+  AND `del_flag` = '0';
+
+UPDATE `sys_menu`
+SET `parent_id` = '0', `sort` = 54, `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '2130000000000000100'
+  AND `parent_id` = '1779386604402573314'
+  AND `del_flag` = '0';
+
+-- ============================================================================
+-- 二、角色权限补偿：持有目录下页面但缺目录授权的角色，补授目录本身
+--     目录已授权的角色由 NOT EXISTS 跳过，可重复执行。
+-- ============================================================================
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', d.`id`)), gr.`role_id`, d.`id`, NOW(), gr.`tenant_id`
+FROM `sys_role_menu` gr
+JOIN `sys_menu` page ON page.`id` = gr.`menu_id` AND page.`del_flag` = '0'
+JOIN `sys_menu` d ON d.`id` IN ('1991000000000000001', '2130000000000000100')
+WHERE page.`parent_id` = d.`id`
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` existed
+    WHERE existed.`role_id` = gr.`role_id` AND existed.`menu_id` = d.`id`
+  );
+
+-- ============================================================================
+-- 三、租户菜单补偿：持有页面但缺目录授权的租户，补授目录本身
+-- ============================================================================
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', d.`id`)), gt.`tenant_id`, d.`id`, NOW(), 'system'
+FROM `sys_tenant_menu` gt
+JOIN `sys_menu` page ON page.`id` = gt.`menu_id` AND page.`del_flag` = '0'
+JOIN `sys_menu` d ON d.`id` IN ('1991000000000000001', '2130000000000000100')
+WHERE page.`parent_id` = d.`id`
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` existed
+    WHERE existed.`tenant_id` = gt.`tenant_id` AND existed.`menu_id` = d.`id`
+  );
+
+-- ============================================================================
+-- 四、自检：两个目录应为一级（parent_id='0'）、各自 6 个页面、授权数 > 0
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu`
+     WHERE `id` IN ('1991000000000000001', '2130000000000000100')
+       AND `parent_id` = '0' AND `del_flag` = '0') AS top_level_dirs,
+  (SELECT COUNT(*) FROM `sys_menu`
+     WHERE `parent_id` = '1991000000000000001' AND `del_flag` = '0') AS distribution_children,
+  (SELECT COUNT(*) FROM `sys_menu`
+     WHERE `parent_id` = '2130000000000000100' AND `del_flag` = '0') AS sales_children,
+  (SELECT COUNT(*) FROM `sys_role_menu` WHERE `menu_id` = '1991000000000000001') AS dist_role_grants,
+  (SELECT COUNT(*) FROM `sys_role_menu` WHERE `menu_id` = '2130000000000000100') AS sales_role_grants,
+  (SELECT COUNT(*) FROM `sys_tenant_menu` WHERE `menu_id` = '1991000000000000001') AS dist_tenant_grants,
+  (SELECT COUNT(*) FROM `sys_tenant_menu` WHERE `menu_id` = '2130000000000000100') AS sales_tenant_grants;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 新人专享首单加品（蛋奶肉果菜 8 款）
+-- Source: db/boot/223newbie_staples_backfill_incremental.sql
+-- ============================================================================
+-- 新人专享首单加品：蛋奶肉果菜 8 款（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：原活动只有 8 个 1 元级零食 SKU，撑不起「新客首单」；本次回填 8 个高频刚需 SKU 并排到列表最前，
+--       价格均低于当前售价（也低于会员价），并保持 rules.skus 与 scope_value 一一对应。
+-- 特性：可重复执行；以「鸡蛋 SKU 是否已在规则里」为幂等条件，不覆盖运营后续新增的其它 SKU。
+-- 关联：cloud 模式同名增量 234newbie_staples_backfill_incremental.sql 内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+UPDATE `promotion_activity`
+SET `rules` = '{"limitPerUser":1,"longTerm":true,"registerWithinDays":30,"skus":[{"skuId":"9750000000000000021","spuId":"9740000000000000021","price":5.9,"skuName":"单规格","spuName":"鲜鸡蛋 10枚/盒"},{"skuId":"9750000000000000042","spuId":"9740000000000000042","price":6.9,"skuName":"单规格","spuName":"巴氏鲜牛奶 1L/瓶"},{"skuId":"9750000000000000017","spuId":"9740000000000000017","price":9.9,"skuName":"单规格","spuName":"猪五花肉片 300g/盒"},{"skuId":"9750000000000000001","spuId":"9740000000000000001","price":4.9,"skuName":"单规格","spuName":"烟台红富士苹果 4个装 约1.2kg"},{"skuId":"9750000000000000005","spuId":"9740000000000000005","price":2.9,"skuName":"单规格","spuName":"国产香蕉 约1kg/把"},{"skuId":"10740000000000000206","spuId":"9740000000000000206","price":1.9,"skuName":"单规格","spuName":"上海青小青菜 约300g/份"},{"skuId":"9750000000000000010","spuId":"9740000000000000010","price":1.9,"skuName":"单规格","spuName":"黄心土豆 约500g/份"},{"skuId":"9750000000000000145","spuId":"9740000000000000145","price":6.9,"skuName":"单规格","spuName":"全麦面包 400g/袋"},{"price":1,"skuId":"10740000000000000346","skuName":"单规格","spuName":"优乐美袋装奶茶22g"},{"price":1,"skuId":"10740000000000000308","skuName":"单规格","spuName":"黄豆芽500g"},{"price":1.9,"skuId":"10740000000000000309","skuName":"单规格","spuName":"内酯豆腐400g"},{"price":3.9,"skuId":"10740000000000000373","skuName":"单规格","spuName":"冰糖银耳羹杯装15g"},{"price":2.9,"skuId":"10740000000000000315","skuName":"单规格","spuName":"达利园八宝粥360g"},{"price":9.9,"skuId":"10740000000000000369","skuName":"单规格","spuName":"五芳斋绿豆糕100g"},{"price":9.9,"skuId":"10740000000000000322","skuName":"单规格","spuName":"奶黄包12只装"},{"price":3.9,"skuId":"10740000000000000366","skuName":"单规格","spuName":"农心鲜虾条80g"}]}',
+    `scope_value` = '9750000000000000021,9750000000000000042,9750000000000000017,9750000000000000001,9750000000000000005,10740000000000000206,9750000000000000010,9750000000000000145,10740000000000000346,10740000000000000308,10740000000000000309,10740000000000000373,10740000000000000315,10740000000000000369,10740000000000000322,10740000000000000366',
+    `remark` = '航海双11新人礼包：16 款高感知 SKU 一口价（蛋奶肉果菜在前），每人每款限 1 件',
+    `end_time` = '2099-12-31 23:59:59',
+    `update_time` = NOW()
+WHERE `id` = '3170000000000000501'
+  AND `activity_type` = '9'
+  AND `del_flag` = '0'
+  AND `rules` NOT LIKE '%9750000000000000021%';
+
+SELECT `id`, JSON_LENGTH(`rules`, '$.skus') AS `sku_count`
+FROM `promotion_activity`
+WHERE `id` = '3170000000000000501';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 订单级运费规则（满额包邮）
+-- Source: db/boot/224freight_rule_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 订单级运费规则（满额包邮 / 基础运费）— Boot 单体模式
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「满额包邮」）：
+--   现状运费只有商品级两态（goods_spu.freight_type 0 包邮 / 1 固定运费，且按件线性叠加），
+--   订单级只有会员权益「免运费」一个开关，无法表达「满 X 元免运费、不满收基础运费」。
+--   本脚本新增订单级运费规则表，并给订单补运费口径快照列。
+--
+-- 内容：
+--   1. freight_rule：按「购买场景 + 配送方式 + 省份」匹配的运费规则，priority 大者优先；
+--   2. goods_spu.freight_type 扩展第 3 个取值 '2'（随订单规则），存量 0/1 行为不变；
+--   3. order_info 运费快照列：原价 / 减免 / 命中规则 / 免邮原因；
+--   4. sys_menu 运费规则配置页与按钮权限（配送管理下，sort=60）；
+--   5. 默认规则种子（海员个人快递 59 免 6、企业岸上配送 300 免 15），只绑默认租户。
+--
+-- 口径（与后端 FreightComputeService 一致）：
+--   门槛基数 = 仅 freight_type='2' 明细的成交金额合计（活动价后、券与积分前，不含运费）；
+--   freight_type='0' 商品永远包邮，'1' 商品独立计费且不参与门槛，均不改变存量行为。
+--   配送方式 2 上门自提、4 公司配送（到船）不进入运费计算。
+--
+-- 幂等：CREATE TABLE IF NOT EXISTS + 列存在性判断 + INSERT IGNORE，可重复执行；
+--       不删除、不修改存量业务数据（仅补列、补字典值、补菜单）。
+-- 注意：菜单权限在登录时快照，执行后需重新登录管理端才可见。
+--
+-- 执行：mysql -u root -p aryn_boot < 224freight_rule_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+SET @tenant_id = _utf8mb4'1590229800633634816' COLLATE utf8mb4_general_ci;
+SET @rule_prefix = '2240000000000000';
+
+-- ============================================================================
+-- 一、运费规则表
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `freight_rule` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `rule_name` varchar(64) NOT NULL COMMENT '规则名称',
+  `biz_scene` char(2) NOT NULL DEFAULT '0' COMMENT '购买场景：0-全部；1-海员个人；2-船供采购；3-企业采购',
+  `delivery_way` char(2) NOT NULL DEFAULT '1' COMMENT '配送方式：1-普通快递；3-公司配送（岸上）',
+  `province_codes` varchar(255) NULL COMMENT '适用省份编码，英文逗号分隔；空=全国（偏远地区加价用）',
+  `threshold_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '包邮门槛（元）；0=不设门槛',
+  `base_freight` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '未达门槛时收取的基础运费（元）',
+  `max_freight` decimal(10,2) NULL COMMENT '本单运费封顶（元）；NULL=不封顶',
+  `priority` int NOT NULL DEFAULT 0 COMMENT '优先级，数值大者优先（指定省份的规则应高于全国规则）',
+  `enabled` char(2) NOT NULL DEFAULT '1' COMMENT '启用状态：1启用 0禁用',
+  `remark` varchar(255) NULL COMMENT '运营备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_freight_rule_name` (`tenant_id`, `rule_name`, `del_flag`),
+  KEY `idx_freight_rule_match` (`tenant_id`, `enabled`, `delivery_way`, `biz_scene`, `priority`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='订单级运费规则（满额包邮）';
+
+-- ============================================================================
+-- 二、goods_spu.freight_type 扩展 '2'（随订单运费规则）
+-- ============================================================================
+ALTER TABLE `goods_spu`
+  MODIFY COLUMN `freight_type` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL
+  COMMENT '运费类型：0.包邮；1.固定运费；2.随订单规则（参与满额包邮门槛）';
+
+-- 字典值补 '2'：字典类型 freight_type（1905998662952812546）
+INSERT INTO `sys_dict_value`
+(`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`,
+ `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+SELECT '2240000000000000010', d.`id`, '随订单规则', '2', 'freight_type', '0',
+       '参与订单级满额包邮门槛，未达门槛按规则收基础运费', 2, '0', NOW(), NULL, 'system', NULL, 'warning'
+FROM `sys_dict` d
+WHERE d.`type` = 'freight_type' AND d.`del_flag` = '0'
+  AND NOT EXISTS (SELECT 1 FROM `sys_dict_value` v
+	WHERE v.`dict_type` = 'freight_type' AND v.`dict_value` = '2' AND v.`del_flag` = '0');
+
+UPDATE `sys_dict`
+SET `remarks` = '运费类型：0.包邮；1.固定运费；2.随订单规则（参与满额包邮门槛）'
+WHERE `type` = 'freight_type' AND `del_flag` = '0';
+
+-- ============================================================================
+-- 三、order_info 运费快照列（幂等：逐列判断存在性）
+-- ============================================================================
+SET @add_freight_base = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `freight_base_price` decimal(10,2) NULL COMMENT ''运费原价（减免前，元）'' AFTER `freight_price`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'freight_base_price'
+);
+PREPARE stmt FROM @add_freight_base; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_freight_discount = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `freight_discount_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT ''运费减免金额（元，免邮成本口径）'' AFTER `freight_base_price`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'freight_discount_price'
+);
+PREPARE stmt FROM @add_freight_discount; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_freight_rule_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `freight_rule_id` varchar(32) NULL COMMENT ''命中的运费规则ID'' AFTER `freight_discount_price`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'freight_rule_id'
+);
+PREPARE stmt FROM @add_freight_rule_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_freight_free_reason = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `freight_free_reason` varchar(32) NULL COMMENT ''免邮原因：THRESHOLD-满额包邮；MEMBER-会员免邮；PICKUP-自提；INTERNAL-到船配送；NONE-未减免'' AFTER `freight_rule_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'freight_free_reason'
+);
+PREPARE stmt FROM @add_freight_free_reason; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- 四、默认规则种子（只绑默认租户；阈值按运营口径可后台改）
+-- ============================================================================
+INSERT IGNORE INTO `freight_rule`
+(`id`, `rule_name`, `biz_scene`, `delivery_way`, `province_codes`,
+ `threshold_amount`, `base_freight`, `max_freight`, `priority`, `enabled`, `remark`,
+ `tenant_id`, `create_by`, `create_time`, `update_time`, `del_flag`)
+VALUES
+('2240000000000000001', '海员个人-普通快递', '1', '1', NULL, 59.00, 6.00, 20.00, 10, '1',
+ '满 59 元免运费，不满收 6 元；封顶 20 元（对标同城零售门槛型免邮）',
+ @tenant_id, 'seed', NOW(), NULL, '0'),
+('2240000000000000002', '企业采购-公司配送（岸上）', '3', '3', NULL, 300.00, 15.00, 60.00, 10, '1',
+ '满 300 元免运费，不满收 15 元；封顶 60 元（批量采购兜底门槛）',
+ @tenant_id, 'seed', NOW(), NULL, '0');
+
+-- 船供采购（到船配送 way=4）默认免运费，因此不建规则；
+-- 若后续启用「靠港配送服务费」，另建 delivery_way='4' 的规则并放开后端计费分支。
+
+-- ============================================================================
+-- 五、菜单与按钮权限（配送管理 2100000000000000001 下）
+-- ============================================================================
+INSERT IGNORE INTO `sys_menu`
+(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+ `create_time`, `outer_status`, `del_flag`, `application_key`, `create_by`)
+VALUES
+('2240000000000000100', '运费规则', 'delivery:freight:page', '/delivery/freight-rule', NULL,
+ '2100000000000000001', 'carbon:delivery-truck', 'delivery/freight-rule/index', 60, '0',
+ NOW(), '0', '0', 'app_base', 'system'),
+('2240000000000000101', '运费规则分页', 'delivery:freight:page', NULL, NULL,
+ '2240000000000000100', '', NULL, 1, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2240000000000000102', '运费规则新增', 'delivery:freight:add', NULL, NULL,
+ '2240000000000000100', '', NULL, 2, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2240000000000000103', '运费规则修改', 'delivery:freight:edit', NULL, NULL,
+ '2240000000000000100', '', NULL, 3, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2240000000000000104', '运费规则删除', 'delivery:freight:del', NULL, NULL,
+ '2240000000000000100', '', NULL, 4, '1', NOW(), '0', '0', 'app_base', 'system');
+
+-- 租户菜单：给所有存活租户（菜单可见性 = 角色菜单 ∩ 租户菜单）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(t.`id`, ':menu:', m.`id`)), t.`id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant` t
+JOIN `sys_menu` m ON m.`id` IN ('2240000000000000100', '2240000000000000101',
+                               '2240000000000000102', '2240000000000000103',
+                               '2240000000000000104')
+  AND m.`del_flag` = '0'
+WHERE t.`tenant_type` = '0' AND t.`del_flag` = '0';
+
+-- 角色授权：向已拥有配送管理父菜单的角色推导补授（新角色走菜单树勾选）
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`role_id`, ':menu:', m.`id`)), r.`role_id`, m.`id`, NOW(), r.`tenant_id`
+FROM `sys_role_menu` r
+JOIN `sys_menu` m ON m.`id` IN ('2240000000000000100', '2240000000000000101',
+                               '2240000000000000102', '2240000000000000103',
+                               '2240000000000000104')
+  AND m.`del_flag` = '0'
+WHERE r.`menu_id` = '2100000000000000001';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 采购主体基础层（四张表 + 岸上车/订单/营销锁字段）
+-- Source: db/boot/225buyer_org_schema_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 采购主体基础层（四张表 + 岸上车/订单/营销锁字段与索引）— Boot 单体模式
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「新人首单双轨与采购主体改造」P0）：
+--   岸上企业车当前只有 owner_user_id + 收货地址，没有「这家工厂是谁」；
+--   船供/企业首单也无法按主体判定。P0 先落采购主体基础层：
+--     1. buyer_org / buyer_org_member / buyer_org_apply / buyer_org_invite_code 四张表；
+--     2. shared_cart 增加主体快照，并把岸上收集中车唯一键从「发起人」改为「发起人 + 主体」；
+--     3. order_info 增加主体快照列与查询索引；
+--     4. promotion_lock 增加首单主体列与索引（P1 首单锁预留，P0 不写入）。
+--
+-- 口径：
+--   · 主体只能在同租户内可见/可绑；credit_code 为空存 NULL（唯一索引允许多个 NULL）；
+--   · 岸上车历史数据 buyer_org_id 为 NULL：生成键为「owner_user_id:」，仍是一人一张，不阻塞历史；
+--   · 新建岸上车必须带 buyer_org_id，同一发起人可在不同工厂各开一张收集中车。
+--
+-- 幂等：CREATE TABLE IF NOT EXISTS + information_schema 判断 + PREPARE 动态执行，
+--       可重复执行；不删除存量业务数据，仅重建 shared_cart 的岸上唯一约束。
+-- 注意：shared_cart 需要 DROP/ADD 生成列与索引，生产请低峰执行并先备份（回滚见 05 文档）。
+--
+-- 执行：mysql -u root -p aryn_boot < 225buyer_org_schema_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、采购主体四张表
+--   @DDL-BEGIN / @DDL-END 区块与 cloud/237 逐段比对，避免双模式结构漂移。
+-- ============================================================================
+-- @DDL-BEGIN
+CREATE TABLE IF NOT EXISTS `buyer_org` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `org_code` varchar(64) NOT NULL COMMENT '主体编码，租户内唯一',
+  `org_name` varchar(200) NOT NULL COMMENT '工厂/企业/餐厅名称',
+  `org_type` char(2) NOT NULL DEFAULT '2' COMMENT '主体类型：1企业 2工厂 3园区餐厅',
+  `credit_code` varchar(32) NULL COMMENT '统一社会信用代码；空值存 NULL，避免唯一索引冲突',
+  `license_url` varchar(500) NULL COMMENT '营业执照/门头照',
+  `province` varchar(64) NULL COMMENT '省',
+  `city` varchar(64) NULL COMMENT '市',
+  `district` varchar(64) NULL COMMENT '区/县',
+  `address` varchar(500) NULL COMMENT '详细地址',
+  `contact_name` varchar(64) NULL COMMENT '联系人',
+  `contact_phone` varchar(32) NULL COMMENT '联系电话',
+  `audit_status` char(2) NOT NULL DEFAULT '0' COMMENT '审核状态：0待审核 1已通过 2已驳回 3已停用',
+  `audit_remark` varchar(500) NULL COMMENT '审核意见',
+  `audit_by` varchar(64) NULL COMMENT '审核人',
+  `audit_time` datetime NULL COMMENT '审核时间',
+  `owner_user_id` varchar(32) NULL COMMENT '厂长/管理员商城用户ID',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1正常 0停用',
+  `bind_source` varchar(32) NOT NULL DEFAULT 'APPLY_AUDIT' COMMENT '绑定来源：APPLY_AUDIT/INVITE_CODE/MEMBER_ADD/ADMIN_ADD/SHARE_CART/MANUAL',
+  `remark` varchar(500) NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_buyer_org_code` (`tenant_id`, `org_code`),
+  UNIQUE KEY `uk_buyer_org_credit` (`tenant_id`, `credit_code`),
+  KEY `idx_buyer_org_status` (`tenant_id`, `audit_status`, `status`),
+  KEY `idx_buyer_org_owner` (`tenant_id`, `owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采购主体（工厂/企业/园区餐厅）';
+
+CREATE TABLE IF NOT EXISTS `buyer_org_member` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `buyer_org_id` varchar(32) NOT NULL COMMENT '采购主体ID',
+  `user_id` varchar(32) NOT NULL COMMENT '商城用户ID',
+  `member_role` char(2) NOT NULL DEFAULT '2' COMMENT '角色：1厂长/管理员 2采购员 3业务员 4查看者',
+  `can_edit` char(2) NOT NULL DEFAULT '1' COMMENT '1可加购/改数/建车',
+  `can_confirm` char(2) NOT NULL DEFAULT '0' COMMENT '1可确认提交',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1正常 0已移除',
+  `bind_source` varchar(32) NOT NULL DEFAULT 'APPLY_AUDIT' COMMENT '绑定来源，口径同 buyer_org.bind_source',
+  `apply_id` varchar(32) NULL COMMENT '关联申请单ID',
+  `join_time` datetime NULL COMMENT '加入时间',
+  `leave_time` datetime NULL COMMENT '退出/移除时间',
+  `remark` varchar(500) NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_buyer_org_member` (`tenant_id`, `buyer_org_id`, `user_id`),
+  KEY `idx_buyer_org_member_user` (`tenant_id`, `user_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采购主体成员';
+
+CREATE TABLE IF NOT EXISTS `buyer_org_apply` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `apply_no` varchar(64) NOT NULL COMMENT '申请单号',
+  `user_id` varchar(32) NOT NULL COMMENT '申请人商城用户ID',
+  `apply_type` char(2) NOT NULL COMMENT '申请类型：1创建主体 2加入已有主体',
+  `buyer_org_id` varchar(32) NULL COMMENT '加入时填已有主体ID',
+  `org_name` varchar(200) NOT NULL COMMENT '申请主体名称',
+  `org_type` char(2) NOT NULL DEFAULT '2' COMMENT '主体类型：1企业 2工厂 3园区餐厅',
+  `credit_code` varchar(32) NULL COMMENT '统一社会信用代码',
+  `license_url` varchar(500) NULL COMMENT '营业执照/门头照',
+  `province` varchar(64) NULL COMMENT '省',
+  `city` varchar(64) NULL COMMENT '市',
+  `district` varchar(64) NULL COMMENT '区/县',
+  `address` varchar(500) NULL COMMENT '详细地址',
+  `contact_name` varchar(64) NULL COMMENT '联系人',
+  `contact_phone` varchar(32) NULL COMMENT '联系电话',
+  `apply_role` char(2) NOT NULL DEFAULT '2' COMMENT '申请角色：1厂长/管理员 2采购员 3业务员 4查看者',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待审核 2通过 3驳回 4取消',
+  `audit_by` varchar(64) NULL COMMENT '审核人',
+  `audit_time` datetime NULL COMMENT '审核时间',
+  `audit_remark` varchar(500) NULL COMMENT '审核意见',
+  `matched_org_id` varchar(32) NULL COMMENT '审核通过后落的主体ID',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_buyer_org_apply_user` (`tenant_id`, `user_id`, `status`),
+  KEY `idx_buyer_org_apply_audit` (`tenant_id`, `status`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采购主体创建/加入申请';
+
+CREATE TABLE IF NOT EXISTS `buyer_org_invite_code` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `buyer_org_id` varchar(32) NOT NULL COMMENT '采购主体ID',
+  `code` varchar(32) NOT NULL COMMENT '邀请码，租户内唯一',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
+  `max_uses` int NOT NULL DEFAULT 0 COMMENT '最大使用次数，0 表示不限',
+  `used_count` int NOT NULL DEFAULT 0 COMMENT '已使用次数',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1有效 0已失效',
+  `remark` varchar(255) NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_buyer_org_invite_code` (`tenant_id`, `code`),
+  KEY `idx_buyer_org_invite_org` (`tenant_id`, `buyer_org_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采购主体邀请码';
+-- @DDL-END
+
+-- ============================================================================
+-- 二、shared_cart：主体快照 + 岸上唯一键改为「发起人 + 主体」
+--   顺序不可颠倒：先删旧索引 → 删旧生成列 → 加新生成列 → 加新唯一索引。
+-- ============================================================================
+SET @add_shared_buyer_org_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `buyer_org_id` varchar(32) NULL COMMENT ''采购主体ID（岸上企业车必填；船供车为空）'' AFTER `user_address_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'buyer_org_id'
+);
+PREPARE stmt FROM @add_shared_buyer_org_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shared_buyer_org_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `buyer_org_name` varchar(200) NULL COMMENT ''采购主体名称快照'' AFTER `buyer_org_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'buyer_org_name'
+);
+PREPARE stmt FROM @add_shared_buyer_org_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @drop_shore_active_index = (
+  SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE `shared_cart` DROP INDEX `uk_shared_cart_shore_active`',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+    AND INDEX_NAME = 'uk_shared_cart_shore_active'
+  LIMIT 1
+);
+PREPARE stmt FROM @drop_shore_active_index; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @drop_shore_active_owner = (
+  SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE `shared_cart` DROP COLUMN `shore_active_owner`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'shore_active_owner'
+);
+PREPARE stmt FROM @drop_shore_active_owner; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shore_active_scope = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `shore_active_scope` varchar(80) GENERATED ALWAYS AS (CASE WHEN `cart_type` = ''2'' AND `status` = ''2'' AND `del_flag` = ''0'' THEN CONCAT(`owner_user_id`, '':'', COALESCE(`buyer_org_id`, '''')) ELSE NULL END) STORED COMMENT ''岸上车进行中标记：岸上+收集中+未删除时为「发起人:主体」，其余NULL以允许多行''',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'shore_active_scope'
+);
+PREPARE stmt FROM @add_shore_active_scope; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shore_scope_index = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD UNIQUE KEY `uk_shared_cart_shore_scope` (`tenant_id`, `shore_active_scope`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+    AND INDEX_NAME = 'uk_shared_cart_shore_scope'
+  LIMIT 1
+);
+PREPARE stmt FROM @add_shore_scope_index; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- 三、order_info：主体快照列与按主体统计索引（P1 首单资格直接复用）
+-- ============================================================================
+SET @add_order_buyer_org_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `buyer_org_id` varchar(32) NULL COMMENT ''采购主体ID（企业采购快照，历史单为空）'' AFTER `purchase_scene`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_id'
+);
+PREPARE stmt FROM @add_order_buyer_org_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_order_buyer_org_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `buyer_org_name` varchar(200) NULL COMMENT ''采购主体名称快照'' AFTER `buyer_org_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_name'
+);
+PREPARE stmt FROM @add_order_buyer_org_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_order_buyer_org_credit = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `buyer_org_credit_code` varchar(32) NULL COMMENT ''统一社会信用代码快照'' AFTER `buyer_org_name`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_credit_code'
+);
+PREPARE stmt FROM @add_order_buyer_org_credit; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_order_buyer_org_index = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD KEY `idx_order_buyer_org` (`tenant_id`, `buyer_org_id`, `purchase_scene`, `pay_status`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info'
+    AND INDEX_NAME = 'idx_order_buyer_org'
+  LIMIT 1
+);
+PREPARE stmt FROM @add_order_buyer_org_index; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- 四、promotion_lock：首单主体列与索引（P1 首单锁预留，P0 不写入）
+-- ============================================================================
+SET @add_lock_subject_type = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_lock` ADD COLUMN `subject_type` varchar(16) NULL COMMENT ''首单主体类型：1船 / 2采购主体；普通锁为空'' AFTER `user_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock' AND COLUMN_NAME = 'subject_type'
+);
+PREPARE stmt FROM @add_lock_subject_type; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_lock_subject_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_lock` ADD COLUMN `subject_id` varchar(32) NULL COMMENT ''船舶ID或采购主体ID'' AFTER `subject_type`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock' AND COLUMN_NAME = 'subject_id'
+);
+PREPARE stmt FROM @add_lock_subject_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_lock_subject_index = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_lock` ADD KEY `idx_promotion_lock_subject` (`tenant_id`, `activity_id`, `subject_type`, `subject_id`, `status`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock'
+    AND INDEX_NAME = 'idx_promotion_lock_subject'
+  LIMIT 1
+);
+PREPARE stmt FROM @add_lock_subject_index; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 采购主体管理菜单与按钮权限
+-- Source: db/boot/226buyer_org_menu_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 采购主体管理 — 菜单与按钮权限种子（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「新人首单双轨与采购主体改造」P0）：
+--   表结构见 225buyer_org_schema_incremental.sql。P0 先用管理端 API 验证审核流，
+--   正式审核页在 P1-FE-05 / P2-FE-01，本脚本先把菜单与按钮权限入库，
+--   避免上线时菜单漏配导致页面不可见。
+--
+-- 菜单（固定 ID，已确认全量脚本无 226 前缀冲突）：
+--   2260000000000000100 采购主体（父=订单管理 1521496866882236418）
+--   2260000000000000101 采购主体分页  order:buyerorg:page
+--   2260000000000000102 采购主体创建  order:buyerorg:create
+--   2260000000000000103 采购主体修改  order:buyerorg:edit
+--   2260000000000000104 采购主体审核  order:buyerorg:audit
+--   2260000000000000105 采购主体成员  order:buyerorg:member
+--   2260000000000000106 采购主体邀请码 order:buyerorg:invite
+--
+-- 幂等：INSERT IGNORE；租户菜单/角色授权只补缺失，不覆盖既有授权。
+-- 注意：菜单权限在登录时快照，执行后需重新登录管理端才可见。
+--
+-- 执行：mysql -u root -p aryn_boot < 226buyer_org_menu_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu`
+(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+ `create_time`, `outer_status`, `del_flag`, `application_key`, `create_by`)
+VALUES
+('2260000000000000100', '采购主体', 'order:buyerorg:page', '/order/buyer-org', NULL,
+ '1521496866882236418', 'carbon:industry', 'order/buyer-org/index', 40, '0',
+ NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000101', '采购主体分页', 'order:buyerorg:page', NULL, NULL,
+ '2260000000000000100', '', NULL, 1, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000102', '采购主体创建', 'order:buyerorg:create', NULL, NULL,
+ '2260000000000000100', '', NULL, 2, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000103', '采购主体修改', 'order:buyerorg:edit', NULL, NULL,
+ '2260000000000000100', '', NULL, 3, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000104', '采购主体审核', 'order:buyerorg:audit', NULL, NULL,
+ '2260000000000000100', '', NULL, 4, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000105', '采购主体成员', 'order:buyerorg:member', NULL, NULL,
+ '2260000000000000100', '', NULL, 5, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2260000000000000106', '采购主体邀请码', 'order:buyerorg:invite', NULL, NULL,
+ '2260000000000000100', '', NULL, 6, '1', NOW(), '0', '0', 'app_base', 'system');
+
+-- 旧版本种子曾使用不存在的 carbon:factory（小程序构建会丢图标），已入库环境同步纠正
+UPDATE `sys_menu` SET `icon` = 'carbon:industry'
+WHERE `id` = '2260000000000000100' AND `icon` = 'carbon:factory';
+
+-- 租户菜单：给所有存活租户（菜单可见性 = 角色菜单 ∩ 租户菜单）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(t.`id`, ':menu:', m.`id`)), t.`id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant` t
+JOIN `sys_menu` m ON m.`id` IN ('2260000000000000100', '2260000000000000101',
+                               '2260000000000000102', '2260000000000000103',
+                               '2260000000000000104', '2260000000000000105',
+                               '2260000000000000106')
+  AND m.`del_flag` = '0'
+WHERE t.`del_flag` = '0';
+
+-- 角色授权：向已拥有「订单管理」父菜单的角色推导补授（新角色走菜单树勾选）
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`role_id`, ':menu:', m.`id`)), r.`role_id`, m.`id`, NOW(), r.`tenant_id`
+FROM `sys_role_menu` r
+JOIN `sys_menu` m ON m.`id` IN ('2260000000000000100', '2260000000000000101',
+                               '2260000000000000102', '2260000000000000103',
+                               '2260000000000000104', '2260000000000000105',
+                               '2260000000000000106')
+  AND m.`del_flag` = '0'
+WHERE r.`menu_id` = '1521496866882236418';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 个人新人活动购买场景修复
+-- Source: db/boot/227buyer_org_personal_scene_fix_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 个人新人活动购买场景修复 — Boot 单体模式
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「新人首单双轨与采购主体改造」P0）：
+--   个人新人专享活动 3170000000000000501 的 purchase_scene 为空，
+--   促销引擎不会按场景过滤，个人新人价会漏到船供/企业订单。
+--   P0 只把该活动收敛到个人场景（1），不新建船供/企业首单活动；
+--   首单活动 228/240 必须等 P1 引擎 firstOrderOnly 上线后再执行。
+--
+-- 幂等：只在值不为 '1' 时更新；不触碰其它活动、不碰 SKU/价格/库存。
+-- 执行：mysql -u root -p aryn_boot < 227buyer_org_personal_scene_fix_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+UPDATE `promotion_activity`
+SET `purchase_scene` = '1', `update_time` = NOW()
+WHERE `id` = '3170000000000000501'
+  AND (`purchase_scene` IS NULL OR `purchase_scene` <> '1');
+
+-- 自检：期望 purchase_scene = 1
+SELECT `id`, `activity_name`, `purchase_scene`, `status`
+FROM `promotion_activity`
+WHERE `id` = '3170000000000000501';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 首单活动种子与主体唯一约束
+-- Source: db/boot/228first_order_activity_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 船供/企业首单活动种子 + 首单主体唯一约束（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「新人首单双轨与采购主体改造」P1）：
+--   type=7 整船优惠活动通过 rules.firstOrderOnly + subjectType 参与首单引擎。
+--   P1 引擎已实现按船/按采购主体判定资格；本脚本只负责：
+--     1) promotion_lock 增加主体活跃作用域生成列 + 唯一索引，防并发双单重复享首单；
+--     2) 按租户克隆船供/企业首单活动，避免只对某个租户生效。
+--
+-- 说明：
+--   - 活动 ID 用 MD5(tenant + 业务前缀) 固定生成，可重复执行不重复插入；
+--   - 规则里的 subjectType：1=船，2=采购主体；
+--   - 种子默认草稿（status=1）：首单立减直接面向全部租户发布会有预算风险，
+--     由运营在管理端按租户确认档位/预算后手动发布；已执行过旧版脚本的环境
+--     活动保持原状态，本脚本不回改（INSERT IGNORE 不覆盖运营调整）。
+--   - 不插入个人新人活动（个人场景由 227 修复现有活动）。
+--
+-- 执行：mysql -u root -p aryn_boot < 228first_order_activity_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1. 首单主体活跃作用域：只对 LOCKED/CONFIRMED 生成非空值，释放后自动变 NULL 允许重试
+SET @has_subject_scope := (
+  SELECT COUNT(*) FROM `information_schema`.`columns`
+  WHERE `table_schema` = 'aryn_boot' AND `table_name` = 'promotion_lock'
+    AND `column_name` = 'subject_active_scope'
+);
+SET @ddl := IF(@has_subject_scope = 0,
+  'ALTER TABLE `promotion_lock` ADD COLUMN `subject_active_scope` VARCHAR(160) '
+  'GENERATED ALWAYS AS (CASE WHEN `subject_id` IS NOT NULL AND `subject_type` IS NOT NULL '
+  'AND `status` IN (''1'',''2'') THEN CONCAT(`tenant_id`, '':'', `activity_id`, '':'', '
+  '`subject_type`, '':'', `subject_id`) ELSE NULL END) STORED COMMENT ''首单主体活跃作用域（释放后为空）''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @has_subject_index := (
+  SELECT COUNT(*) FROM `information_schema`.`statistics`
+  WHERE `table_schema` = 'aryn_boot' AND `table_name` = 'promotion_lock'
+    AND `index_name` = 'uk_promotion_lock_subject_active'
+);
+SET @ddl := IF(@has_subject_index = 0,
+  'ALTER TABLE `promotion_lock` ADD UNIQUE KEY `uk_promotion_lock_subject_active` (`subject_active_scope`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 2. 船供首单：满 1000 减 100 / 满 3000 减 400 / 满 5000 减 800，单笔封顶 800
+INSERT IGNORE INTO `promotion_activity`
+(`id`, `activity_name`, `activity_type`, `activity_code`, `scope_type`, `scope_value`, `purchase_scene`,
+ `rules`, `priority`, `total_budget`, `consumed_budget`, `per_user_limit`, `gift_stock`,
+ `stackable`, `coupon_stackable`, `points_stackable`, `start_time`, `end_time`, `status`, `publish_time`,
+ `remark`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT MD5(CONCAT('ship-first-', t.`id`)),
+       '船供首单立减',
+       '7',
+       'SYS_SHIP_FIRST_ORDER',
+       '4',
+       '2',
+       '2',
+       '{"tiers":[{"minAmount":1000,"discountAmount":100},{"minAmount":3000,"discountAmount":400},{"minAmount":5000,"discountAmount":800}],"firstOrderOnly":true,"subjectType":"1","monthlyBudget":50000,"maxDiscountAmount":800}',
+       100,
+       0,
+       0,
+       0,
+       0,
+       '0',
+       '1',
+       '1',
+       NOW(),
+       '2027-12-31 23:59:59',
+       '1',
+       NULL,
+       'P1 首单引擎：按船判定，已支付即消耗；全额退款不恢复',
+       t.`id`,
+       'system',
+       NOW(),
+       '0'
+FROM `sys_tenant` t
+WHERE t.`del_flag` = '0';
+
+-- 3. 企业首单：同档位，按采购主体判定
+INSERT IGNORE INTO `promotion_activity`
+(`id`, `activity_name`, `activity_type`, `activity_code`, `scope_type`, `scope_value`, `purchase_scene`,
+ `rules`, `priority`, `total_budget`, `consumed_budget`, `per_user_limit`, `gift_stock`,
+ `stackable`, `coupon_stackable`, `points_stackable`, `start_time`, `end_time`, `status`, `publish_time`,
+ `remark`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT MD5(CONCAT('org-first-', t.`id`)),
+       '企业首单立减',
+       '7',
+       'SYS_ORG_FIRST_ORDER',
+       '4',
+       '3',
+       '3',
+       '{"tiers":[{"minAmount":1000,"discountAmount":100},{"minAmount":3000,"discountAmount":400},{"minAmount":5000,"discountAmount":800}],"firstOrderOnly":true,"subjectType":"2","monthlyBudget":100000,"maxDiscountAmount":800}',
+       100,
+       0,
+       0,
+       0,
+       0,
+       '0',
+       '1',
+       '1',
+       NOW(),
+       '2027-12-31 23:59:59',
+       '1',
+       NULL,
+       'P1 首单引擎：按采购主体判定，不按成员账号重复；待审核主体不享',
+       t.`id`,
+       'system',
+       NOW(),
+       '0'
+FROM `sys_tenant` t
+WHERE t.`del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 首单核销报表菜单与按钮权限
+-- Source: db/boot/229first_order_report_menu_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 首单核销报表 — 菜单与按钮权限种子（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（P2）：首单核销报表接口见 FirstOrderReportController。
+-- 菜单挂在「营销管理」1779386604402573314 下，与船供活动同级。
+--
+-- 菜单 ID：
+--   2290000000000000100 首单核销报表  promotion:firstorderreport:page
+--   2290000000000000101 报表分页      promotion:firstorderreport:page
+--   2290000000000000102 报表导出      promotion:firstorderreport:export
+--
+-- 执行：mysql -u root -p aryn_boot < 229first_order_report_menu_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu`
+(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+ `create_time`, `outer_status`, `del_flag`, `application_key`, `create_by`)
+VALUES
+('2290000000000000100', '首单核销报表', 'promotion:firstorderreport:page', '/promotion/first-order-report', NULL,
+ '1779386604402573314', 'carbon:chart-line', 'promotion/first-order-report/index', 50, '0',
+ NOW(), '0', '0', 'app_base', 'system'),
+('2290000000000000101', '报表分页', 'promotion:firstorderreport:page', NULL, NULL,
+ '2290000000000000100', '', NULL, 1, '1', NOW(), '0', '0', 'app_base', 'system'),
+('2290000000000000102', '报表导出', 'promotion:firstorderreport:export', NULL, NULL,
+ '2290000000000000100', '', NULL, 2, '1', NOW(), '0', '0', 'app_base', 'system');
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(t.`id`, ':menu:', m.`id`)), t.`id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant` t
+JOIN `sys_menu` m ON m.`id` IN ('2290000000000000100', '2290000000000000101',
+                               '2290000000000000102')
+  AND m.`del_flag` = '0'
+WHERE t.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`role_id`, ':menu:', m.`id`)), r.`role_id`, m.`id`, NOW(), r.`tenant_id`
+FROM `sys_role_menu` r
+JOIN `sys_menu` m ON m.`id` IN ('2290000000000000100', '2290000000000000101',
+                               '2290000000000000102')
+  AND m.`del_flag` = '0'
+WHERE r.`menu_id` = '1779386604402573314';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 空态插画配置数据模型
+-- Source: db/boot/230status_tip_config_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 空态插画配置 — 数据模型（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-13）：
+--   wot-design-uni 的 wd-status-tip 默认图源 registry.npmmirror.com 已被 npmmirror
+--   的 unpkg 白名单拒绝（HTTP 451），C 端空态/失败态全部裂图。7 张预设图先随
+--   aryn-upms 静态资源发布（/status-tip/{search|network|content|collect|comment|halo|message}.png），
+--   购物车/订单/秒杀 3 张会场插画仍随小程序包内置（/static/promotion/empty/*.png）。
+--   本表提供租户级覆盖：运营在管理后台按图片位上传自己的图，未配置的位回落内置图。
+--
+--   与商品图同一套素材上传链路，存的是完整 URL（本地存储/MinIO/OSS 均可）。
+--
+-- 特性：可重复执行；CREATE TABLE IF NOT EXISTS，不 DROP/TRUNCATE 存量数据。
+-- 与 cloud 版一致性：本脚本与 db/cloud/244status_tip_config_incremental.sql 内容一致，仅目标库不同。
+-- 配套：菜单与权限见 db/boot/231status_tip_config_menu.sql；
+--       租户表白名单见 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables。
+-- 执行：mysql -u root -p aryn_boot < 230status_tip_config_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、sys_status_tip_config 空态插画配置表（租户级，一行一租户）
+--
+-- 唯一键 tenant_id：同一租户只有一条配置，保存走 upsert。
+-- 10 个 URL 列（7 个 wd-status-tip 预设位 + 3 张会场空态插画）可单独留空，
+-- 留空即回落内置图；本表不做逻辑删除入口（配置只改不删），del_flag 仅为与全库口径一致而保留。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `sys_status_tip_config` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `search_url` varchar(500) DEFAULT NULL COMMENT '搜索无结果图 URL',
+  `network_url` varchar(500) DEFAULT NULL COMMENT '网络异常图 URL',
+  `content_url` varchar(500) DEFAULT NULL COMMENT '内容为空图 URL',
+  `collect_url` varchar(500) DEFAULT NULL COMMENT '收藏为空图 URL',
+  `comment_url` varchar(500) DEFAULT NULL COMMENT '评论为空图 URL',
+  `halo_url` varchar(500) DEFAULT NULL COMMENT '券/资产为空图 URL',
+  `message_url` varchar(500) DEFAULT NULL COMMENT '消息为空图 URL',
+  `empty_cart_url` varchar(500) DEFAULT NULL COMMENT '购物车空态图 URL',
+  `empty_order_url` varchar(500) DEFAULT NULL COMMENT '订单列表空态图 URL',
+  `empty_seckill_url` varchar(500) DEFAULT NULL COMMENT '秒杀会场空态图 URL',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户 ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '修改时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_status_tip_tenant` (`tenant_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '空态插画配置' ROW_FORMAT = DYNAMIC;
+
+-- 自检：表存在、唯一键就位，且 10 个图片位列齐全（期望 table_rows=1、unique_key_rows=1、url_columns=10）
+SELECT
+  (SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = 'sys_status_tip_config') AS table_rows,
+  (SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'sys_status_tip_config'
+      AND index_name = 'uk_status_tip_tenant') AS unique_key_rows,
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'sys_status_tip_config'
+      AND column_name IN ('search_url', 'network_url', 'content_url', 'collect_url',
+        'comment_url', 'halo_url', 'message_url', 'empty_cart_url',
+        'empty_order_url', 'empty_seckill_url')) AS url_columns;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 空态插画配置菜单与按钮权限
+-- Source: db/boot/231status_tip_config_menu.sql
+-- ============================================================================
+-- ============================================================================
+-- 空态插画配置 — 菜单与按钮权限（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-13）：表见 230status_tip_config_incremental.sql。
+--   入口挂在「系统设置」10001 下，与版权配置/文件存储配置同级，属租户自己的
+--   品牌展示设置；不新增平台级入口。
+--
+-- 菜单（固定 ID，已确认 db/boot 与 db/cloud 全脚本无 231 前缀冲突）：
+--   2310000000000000100 空态插画配置（父=系统设置 10001，app_base）
+--   2310000000000000101 空态插画配置查询 upms:statustip:get
+--   2310000000000000102 空态插画配置修改 upms:statustip:edit
+--
+-- 授权口径：按「文件存储配置」推导——能管存储配置的角色/租户即可管自己的空态图。
+-- 注意：菜单/权限在登录时快照到会话，执行后需清理 Redis `menu_cache::*` 并重新登录才可见。
+-- 执行：mysql -u root -p aryn_boot < 231status_tip_config_menu.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单与按钮（INSERT IGNORE 幂等）
+-- ============================================================================
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2310000000000000100','空态插画配置','upms:statustip:get','/system/status-tip-config',NULL,'10001','carbon:image','upms/status-tip-config/index',17,'0',NOW(),'0','0','app_base','system'),
+('2310000000000000101','空态插画配置查询','upms:statustip:get',NULL,NULL,'2310000000000000100','','',1,'1',NOW(),'0','0','app_base','system'),
+('2310000000000000102','空态插画配置修改','upms:statustip:edit',NULL,NULL,'2310000000000000100','','',2,'1',NOW(),'0','0','app_base','system');
+
+-- ============================================================================
+-- 二、菜单授权（按「文件存储配置」推导）
+-- ============================================================================
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', m.`id`)), receiver.`role_id`, m.`id`, NOW(), receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` = '1491948958826921986') receiver
+JOIN `sys_menu` m ON m.`id` IN ('2310000000000000100','2310000000000000101','2310000000000000102')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', m.`id`)), receiver.`tenant_id`, m.`id`, NOW(), 'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` = '1491948958826921986') receiver
+JOIN `sys_menu` m ON m.`id` IN ('2310000000000000100','2310000000000000101','2310000000000000102')
+  AND m.`del_flag` = '0';
+
+-- 祖先容器补齐：父容器缺失时管理端菜单树会丢弃整棵子树，入口静默消失
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', ancestor.`id`)), receiver.`role_id`, ancestor.`id`, NOW(), receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` LIKE '23100000000000001%') receiver
+JOIN `sys_menu` child ON child.`id` = '2310000000000000100' AND child.`del_flag` = '0'
+JOIN `sys_menu` ancestor ON ancestor.`id` = child.`parent_id` AND ancestor.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', ancestor.`id`)), receiver.`tenant_id`, ancestor.`id`, NOW(), 'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` LIKE '23100000000000001%') receiver
+JOIN `sys_menu` child ON child.`id` = '2310000000000000100' AND child.`del_flag` = '0'
+JOIN `sys_menu` ancestor ON ancestor.`id` = child.`parent_id` AND ancestor.`del_flag` = '0';
+
+-- ============================================================================
+-- 三、自检
+--   期望：menu_rows=3、role_menu_distinct_roles>0（锚点菜单被授权过的角色数）
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu`
+    WHERE `id` IN ('2310000000000000100','2310000000000000101','2310000000000000102')
+      AND `del_flag` = '0') AS menu_rows,
+  (SELECT COUNT(DISTINCT `role_id`) FROM `sys_role_menu`
+    WHERE `menu_id` = '1491948958826921986') AS anchor_role_rows,
+  (SELECT COUNT(DISTINCT `role_id`) FROM `sys_role_menu`
+    WHERE `menu_id` IN ('2310000000000000100','2310000000000000101','2310000000000000102')) AS granted_role_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 购物车/订单/秒杀空态插画字段
+-- Source: db/boot/232status_tip_config_empty_illustrations.sql
+-- ============================================================================
+-- ============================================================================
+-- 空态插画配置 — 增加购物车 / 订单 / 秒杀三张会场插画（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-13）：
+--   空态配置表首版只覆盖 wd-status-tip 的 7 个预设位，购物车、订单列表、秒杀会场
+--   仍直接引用随包 PNG（/static/promotion/empty/*.png）。这三处同样是运营需要换图
+--   的空态，现统一收进 sys_status_tip_config：后台配了就用配置 URL，未配置仍回落
+--   随包内置图，不需要重新发版。
+--
+-- 特性：可重复执行；只加列，不 DROP/TRUNCATE，不覆盖任何存量配置。
+-- 与 cloud 版一致性：本脚本与 db/cloud/247status_tip_config_empty_illustrations.sql
+--   内容一致，仅目标库不同。
+-- 执行：mysql -u root -p aryn_boot < 232status_tip_config_empty_illustrations.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- 一、sys_status_tip_config 增加 3 个空态插画列
+--     empty_cart_url    购物车空态
+--     empty_order_url   订单列表空态
+--     empty_seckill_url 秒杀会场空态
+-- ---------------------------------------------------------------------------
+SET @add_empty_cart_url = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_status_tip_config` ADD COLUMN `empty_cart_url` varchar(500) DEFAULT NULL COMMENT ''购物车空态图 URL'' AFTER `message_url`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_status_tip_config'
+    AND COLUMN_NAME = 'empty_cart_url'
+);
+PREPARE stmt FROM @add_empty_cart_url; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_empty_order_url = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_status_tip_config` ADD COLUMN `empty_order_url` varchar(500) DEFAULT NULL COMMENT ''订单列表空态图 URL'' AFTER `empty_cart_url`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_status_tip_config'
+    AND COLUMN_NAME = 'empty_order_url'
+);
+PREPARE stmt FROM @add_empty_order_url; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_empty_seckill_url = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_status_tip_config` ADD COLUMN `empty_seckill_url` varchar(500) DEFAULT NULL COMMENT ''秒杀会场空态图 URL'' AFTER `empty_order_url`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_status_tip_config'
+    AND COLUMN_NAME = 'empty_seckill_url'
+);
+PREPARE stmt FROM @add_empty_seckill_url; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 二、自检：3 个列都存在（期望 added_columns=3）
+-- ---------------------------------------------------------------------------
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_status_tip_config'
+      AND COLUMN_NAME IN ('empty_cart_url', 'empty_order_url', 'empty_seckill_url')
+  ) AS added_columns;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 首单口径一致性修复（成员确认权回填 + 订单主体审核快照）
+-- Source: db/boot/233first_order_consistency_fix_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 首单口径一致性修复（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-12 需求「新人首单双轨与采购主体改造」审查修复，2026-11-13）：
+--   1. 船供提交权限口径统一为 vessel_member.can_confirm 列：发起人(1)/采购确认人(3)/
+--      业务员(4) 默认具备（与共享车 VESSEL_MANAGER_ROLES、成员管理 MEMBER_ADMIN_ROLES
+--      同口径），普通船员(2)不具备。历史行按角色回填，新写入由代码默认值保证。
+--   2. order_info 增加下单时主体审核状态快照 buyer_org_audit_status：
+--      企业首单消耗只统计「下单时主体已审核通过(快照=1)」的已支付单；
+--      待审核期间下的单即使支付也不烧掉工厂首单（否则「待审核可下单」与
+--      「审核通过后享首单」两条已确认口径互相打架）。
+--
+-- 兼容：
+--   · 历史企业单 buyer_org_id 为 NULL，本就不参与首单统计，快照列保持 NULL；
+--   · P0 上线到本脚本之间产生的企业单快照为 NULL，不消耗首单（宁宽勿烧，
+--     该窗口仅存在于未升级环境，运营可按需人工核对）；
+--   · 回填只把管理角色的 can_confirm 置 1，不降级任何已有授权。
+--
+-- 幂等：information_schema 判断 + PREPARE 动态执行；UPDATE 带值守卫，可重复执行。
+-- 执行：mysql -u root -p aryn_boot < 233first_order_consistency_fix_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 1. 船舶成员确认权回填：发起人/业务员默认具备采购确认权
+UPDATE `vessel_member`
+SET `can_confirm` = '1', `update_time` = NOW()
+WHERE `member_role` IN ('1', '4')
+  AND (`can_confirm` IS NULL OR `can_confirm` <> '1');
+
+-- 自检：期望管理角色无 can_confirm<>1 的行
+SELECT COUNT(*) AS manager_without_confirm FROM `vessel_member`
+WHERE `member_role` IN ('1', '4') AND (`can_confirm` IS NULL OR `can_confirm` <> '1');
+
+-- 2. 订单主体审核状态快照列
+SET @add_order_org_audit_status = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `buyer_org_audit_status` char(1) NULL COMMENT ''下单时采购主体审核状态快照：0待审核 1已通过 2已驳回 3已停用；首单消耗只统计已通过'' AFTER `buyer_org_credit_code`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_audit_status'
+);
+PREPARE stmt FROM @add_order_org_audit_status; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：order_info 存在快照列
+SELECT COLUMN_NAME FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_audit_status';
 
 SET FOREIGN_KEY_CHECKS = 1;

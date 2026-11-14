@@ -112,6 +112,7 @@ export default {
         readyForPickup: 'Ready for pickup.',
       },
       vesselDelivery: 'Vessel Delivery',
+      buyerOrgLabel: 'Buyer organization',
       deliveryWindow: 'Delivery window: {start} ~ {end}',
       vesselDeliveryHint: 'Company driver delivers to the port or vessel per the port call plan',
       boughtFor: 'For {name}',

@@ -189,7 +189,6 @@ describe('resolveNavigationScrollAppearance', () => {
       baseOpacity: 1,
       surfaceOpacity: 0,
       textColor: base.textColor,
-      hairlineOpacity: 0,
     });
   });
 
@@ -222,24 +221,20 @@ describe('resolveNavigationScrollAppearance', () => {
     expect(done.statusBarFrontColor).toBe('#000000');
   });
 
-  it('浅色目标底色才出现底部细线', () => {
-    expect(
-      resolveNavigationScrollAppearance(base, surface, fade(), 0)
-        .hairlineOpacity,
-    ).toBe(0);
-    expect(
-      resolveNavigationScrollAppearance(base, surface, fade(), 140)
-        .hairlineOpacity,
-    ).toBe(1);
-    const darkSurface = resolveNavigationScrollSurface(
-      makePage(fade({ surface: 'custom', surfaceColor: '#111111' })),
-      theme,
-      base,
-    );
-    expect(
-      resolveNavigationScrollAppearance(base, darkSurface, fade(), 140)
-        .hairlineOpacity,
-    ).toBe(0);
+  it('顶栏下沿不产生任何分割线字段（滚动前后都不画）', () => {
+    // 顶栏底边线已整体移除：磨砂态也不画。解析结果里不允许再出现 hairline
+    // 字段，避免管理端画布 / 草稿预览把这条线又接回来。
+    for (const scrollTop of [0, 1, 140]) {
+      const appearance = resolveNavigationScrollAppearance(
+        base,
+        surface,
+        fade(),
+        scrollTop,
+      );
+      expect(Object.keys(appearance).some((key) => /hairline/i.test(key))).toBe(
+        false,
+      );
+    }
   });
 
   it('distance 为遗留字段：不再影响切换（旧文档也按一步切换渲染）', () => {

@@ -5,6 +5,7 @@ import accountMember from './modules/accountMember.en-US'
 import accountSettings from './modules/accountSettings.en-US'
 import afterSales from './modules/afterSales.en-US'
 import app from './modules/app.en-US'
+import buyerOrg from './modules/buyerOrg.en-US'
 import cart from './modules/cart.en-US'
 import catalog from './modules/catalog.en-US'
 import checkout from './modules/checkout.en-US'
@@ -156,6 +157,7 @@ export default {
   ...sessionInvalid,
   ...loginDevices,
   ...cart,
+  ...buyerOrg,
   ...checkout,
   ...order,
   ...sharedCart,

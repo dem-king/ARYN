@@ -243,6 +243,42 @@ const required = [
   'material-default-group:',
   'uk_material_group_default_tenant',
   "221material_default_group_incremental.sql",
+  // 分销管理与销售管理独立为一级菜单（2026-11-11）：两个目录 parent_id 升为 '0'，
+  // 分销管理 redirect 置空（基础版套餐不含分销配置页），并补偿角色/租户目录授权
+  "SET `parent_id` = '0', `sort` = 52, `redirect` = NULL",
+  "SET `parent_id` = '0', `sort` = 54",
+  "222relocate_sales_distribution_menus.sql",
+  // 新人专享首单加品（2026-11-12）：8 款蛋奶肉果菜排到列表最前，rules.skus 与 scope_value 各 16 条一一对应
+  "223newbie_staples_backfill_incremental.sql",
+  "蛋奶肉果菜在前",
+  // 采购主体基础层（2026-11-12 P0）：四张表、岸上唯一键、订单/营销锁主体列与菜单权限
+  'CREATE TABLE IF NOT EXISTS `buyer_org`',
+  'CREATE TABLE IF NOT EXISTS `buyer_org_member`',
+  'CREATE TABLE IF NOT EXISTS `buyer_org_apply`',
+  'CREATE TABLE IF NOT EXISTS `buyer_org_invite_code`',
+  'ADD COLUMN `shore_active_scope`',
+  'uk_shared_cart_shore_scope',
+  'ADD COLUMN `buyer_org_id`',
+  'idx_order_buyer_org',
+  'ADD COLUMN `subject_type`',
+  'idx_promotion_lock_subject',
+  'ADD COLUMN `subject_active_scope`',
+  'uk_promotion_lock_subject_active',
+  'ADD COLUMN `buyer_org_audit_status`',
+  '233first_order_consistency_fix_incremental.sql',
+  'SYS_SHIP_FIRST_ORDER',
+  'SYS_ORG_FIRST_ORDER',
+  '2290000000000000100',
+  "'promotion:firstorderreport:page'",
+  'promotion/first-order-report/index',
+  "'order:buyerorg:page'",
+  '2260000000000000100',
+  "225buyer_org_schema_incremental.sql",
+  "226buyer_org_menu_incremental.sql",
+  "227buyer_org_personal_scene_fix_incremental.sql",
+  "228first_order_activity_incremental.sql",
+  "229first_order_report_menu_incremental.sql",
+  "'3170000000000000501'",
 ];
 
 for (const token of required) {
@@ -305,6 +341,14 @@ const sourceFiles = [
   '211order_pay_submit_gate_incremental.sql',
   '212alipay_mini_identity_incremental.sql',
   '221material_default_group_incremental.sql',
+  '222relocate_sales_distribution_menus.sql',
+  '223newbie_staples_backfill_incremental.sql',
+  '225buyer_org_schema_incremental.sql',
+  '226buyer_org_menu_incremental.sql',
+  '227buyer_org_personal_scene_fix_incremental.sql',
+  '228first_order_activity_incremental.sql',
+  '229first_order_report_menu_incremental.sql',
+  '233first_order_consistency_fix_incremental.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);
@@ -364,6 +408,18 @@ if ((bootSalesDdl.match(/CREATE TABLE IF NOT EXISTS/g) || []).length !== 13) {
   throw new Error('销售业绩域 DDL 区块建表数不是 13 张');
 }
 
+// 采购主体基础层：boot 225 与 cloud 237 的四张表 DDL 必须逐列一致；
+// cloud 237 的 shared_cart/order_info 在 aryn_order、promotion_lock 在 aryn_promotion，
+// 目标库与 Nacos 白名单差异不在 DDL 区块内。
+const bootBuyerOrgDdl = ddlBlock(join(root, '225buyer_org_schema_incremental.sql'));
+const cloudBuyerOrgDdl = ddlBlock(join(root, '..', 'cloud', '237buyer_org_schema_incremental.sql'));
+if (bootBuyerOrgDdl !== cloudBuyerOrgDdl) {
+  throw new Error('采购主体基础层 boot/225 与 cloud/237 表结构不一致（逐列比对失败），请同步两侧 DDL 区块');
+}
+if ((bootBuyerOrgDdl.match(/CREATE TABLE IF NOT EXISTS/g) || []).length !== 4) {
+  throw new Error('采购主体基础层 DDL 区块建表数不是 4 张');
+}
+
 // 类目角标配置化：boot 205 与 cloud 210（数据模型）必须语义一致，仅目标库/注释不同；
 // boot 206 与 cloud 211（菜单授权）同口径比对，避免两侧脚本漂移导致双模式行为不一致。
 for (const [bootFile, cloudFile, label] of [
@@ -375,6 +431,11 @@ for (const [bootFile, cloudFile, label] of [
   ['211order_pay_submit_gate_incremental.sql', '218order_pay_submit_gate_incremental.sql', '订单支付提交门禁'],
   ['212alipay_mini_identity_incremental.sql', '219alipay_mini_identity_incremental.sql', '支付宝小程序身份模式'],
   ['221material_default_group_incremental.sql', '232material_default_group_incremental.sql', '素材默认分组'],
+  ['222relocate_sales_distribution_menus.sql', '233relocate_sales_distribution_menus.sql', '分销/销售菜单独立'],
+  ['223newbie_staples_backfill_incremental.sql', '234newbie_staples_backfill_incremental.sql', '新人专享首单加品'],
+  ['226buyer_org_menu_incremental.sql', '238buyer_org_menu_incremental.sql', '采购主体菜单权限'],
+  ['227buyer_org_personal_scene_fix_incremental.sql', '239buyer_org_personal_scene_fix_incremental.sql', '个人新人活动场景修复'],
+  ['233first_order_consistency_fix_incremental.sql', '248first_order_consistency_fix_incremental.sql', '首单口径一致性修复'],
 ]) {
   const bootContent = semantic(readFileSync(join(root, bootFile), 'utf8'));
   const cloudPath = join(root, '..', 'cloud', cloudFile);

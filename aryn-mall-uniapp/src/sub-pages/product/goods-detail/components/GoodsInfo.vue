@@ -293,11 +293,12 @@ const memberGuideText = computed(() => {
 })
 
 /**
- * 价格区下方是否存在活动说明条。
+ * 价格区下方是否存在活动说明条（秒杀/会员价/新人价/限时折扣）。
  *
- * 标题卡原设计用 `margin-top: -32px` 上提、与价格渐变区咬合；一旦中间插入了
- * 活动条（秒杀/会员价/新人价/限时折扣），上提量会把标题拖进条内、首行被裁掉。
- * 有条时取消上提，让标题卡排在条下方。
+ * 价格渐变条在手机端写死 `h-72px`（比「主价 + 划线价」两行内容高出约 25px），
+ * 这段余量原本靠标题卡的 `margin-top: -32px` 上提盖掉。有活动条时标题卡按
+ * `--striped` 取消上提，余量就整块露在条与标题之间——表现为「有新人价/会员价时
+ * 间隔明显变大」。因此有条时让价格条高度跟随内容，余量从源头消掉。
  */
 const hasPriceStrip = computed(() =>
   Boolean(props.seckillInfo)
@@ -526,6 +527,7 @@ defineExpose({
     <view class="goods-body">
       <view
         class="goods-price-bar relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
+        :class="{ 'goods-price-bar--auto': hasPriceStrip }"
       >
         <view class="flex items-center justify-between pt-1">
           <!-- 价格：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价；主价旁的划线价随主价口径切换 -->
@@ -1009,9 +1011,23 @@ defineExpose({
   line-height: 1.6;
 }
 
-// 有活动条时标题卡不再上提，避免首行被条裁切
+// 有活动条时标题卡不再上提 -32px（会把首行拖进条内裁掉），只抵消活动条自身
+// 12rpx 的下外边距，让卡片与条贴边——与无活动条时「卡片紧贴价格区」一致
 .goods-title-card--striped {
-  margin-top: 0;
+  margin-top: -12rpx;
+}
+
+/**
+ * 有活动条时价格条高度跟随内容。
+ *
+ * 手机端 `h-72px` 比「主价 + 划线价」两行内容高约 25px，这段余量在无活动条时
+ * 由标题卡 `margin-top: -32px` 上提盖掉；一旦插入活动条，标题卡按 `--striped`
+ * 归零，余量就整块露在条与标题之间（用户看到「有新人价/会员价时间隔变大」）。
+ * 有条时去掉固定高度，让价格区按内容收口，两种形态的纵向节奏一致。
+ */
+.goods-price-bar--auto {
+  /* Uno 工具类注入在本段之后且同权，h-72px 会赢，必须 !important */
+  height: auto !important;
 }
 
 // 会员价角标：与新人价/折扣角标同一套白描边语言（价格区为渐变主色底）

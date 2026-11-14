@@ -351,6 +351,25 @@ class VesselBindServiceTest {
 	}
 
 	@Test
+	@DisplayName("IMO 唯一命中在营船：提交即自助通过，不再进审核队列")
+	void submitApplyAutoApprovesWhenImoMatches() {
+		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
+		when(vesselInfoMapper.selectList(any()))
+			.thenReturn(List.of(vessel(VESSEL_ID, "悦航1号", "IMO1234567", null)));
+		VesselBindApplyDTO dto = new VesselBindApplyDTO();
+		dto.setApplyVesselName("悦航1号");
+		dto.setApplyVesselImo("IMO1234567");
+
+		service.submitApply(TENANT, CREW, dto);
+
+		ArgumentCaptor<VesselBindApply> captor = ArgumentCaptor.forClass(VesselBindApply.class);
+		verify(vesselBindApplyMapper).updateById(captor.capture());
+		assertEquals(VesselBindApply.STATUS_APPROVED, captor.getValue().getStatus());
+		assertEquals(VESSEL_ID, captor.getValue().getMatchedVesselId());
+		verify(vesselMemberMapper).insert(any(VesselMember.class));
+	}
+
+	@Test
 	@DisplayName("提交申请后按审核权限通知运营，文案带船名/申请人/查看入口")
 	void submitApplyNotifiesReviewers() {
 		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
@@ -524,7 +543,8 @@ class VesselBindServiceTest {
 		verify(vesselMemberMapper).insert(memberCaptor.capture());
 		assertEquals(VesselMember.ROLE_SALES, memberCaptor.getValue().getMemberRole());
 		assertEquals("1", memberCaptor.getValue().getCanEdit());
-		assertEquals("0", memberCaptor.getValue().getCanConfirm());
+		// 业务员默认具备采购确认权（代船员下单场景），与共享车管理角色同口径
+		assertEquals("1", memberCaptor.getValue().getCanConfirm());
 	}
 
 	@Test

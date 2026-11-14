@@ -28,8 +28,10 @@ import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.dto.*;
 import com.aryn.cloud.order.api.entity.OrderConfig;
+import com.aryn.cloud.order.api.entity.BuyerOrg;
 import com.aryn.cloud.order.api.entity.OrderDelivery;
 import com.aryn.cloud.order.api.entity.OrderInfo;
+import com.aryn.cloud.order.api.enums.PurchaseSceneEnum;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderLogisticsStateEnum;
@@ -170,6 +172,11 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final com.aryn.cloud.order.service.IOrderDeliveryStateService orderDeliveryStateService;
 
 	private final com.aryn.cloud.order.service.IDeliveryAreaService deliveryAreaService;
+
+	private final com.aryn.cloud.order.service.IFreightRuleService freightRuleService;
+
+	/** 采购主体：企业采购订单落主体快照，名称/信用代码以主体档案为准 */
+	private final com.aryn.cloud.order.service.IBuyerOrgService buyerOrgService;
 
 	private final com.aryn.cloud.order.mapper.PromotionSnapshotMapper promotionSnapshotMapper;
 
@@ -869,12 +876,19 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
 			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping());
+					memberBenefits != null && memberBenefits.isFreeShipping(),
+					freightRuleService.match(orderInfo.getPurchaseScene(), orderInfo.getDeliveryWay(),
+							orderInfo.getRecipientProvinceCode()));
 			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
 					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
 							userAddress.getCityCode(), userAddress.getAreaCode())) {
 				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 			}
+		}
+		else {
+			// 自提 / 到船恒定免运费：仍走同一入口，只为回填免邮原因（确认页文案与下单同口径）
+			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
+					memberBenefits != null && memberBenefits.isFreeShipping(), null);
 		}
 		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成；
 		// 叠加策略下积分基数只统计允许积分的明细，不可叠仍请求积分则拒绝
@@ -1036,6 +1050,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private OrderInfo generateOrder(CreateOrderDTO createOrderDTO) {
 		OrderInfo orderInfo = new OrderInfo();
 		BeanUtil.copyProperties(createOrderDTO, orderInfo);
+		applyBuyerOrgSnapshot(createOrderDTO, orderInfo);
 		orderInfo.setId(IdUtil.getSnowflakeNextIdStr());
 		orderInfo.setAppraiseStatus(CommonConstants.NO);
 		orderInfo.setOrderNo(SnowflakeIdUtils.orderNo());
@@ -1055,6 +1070,33 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setOpenId(createOrderDTO.getOpenId());
 		orderInfo.setRequestId(createOrderDTO.getRequestId());
 		return orderInfo;
+	}
+
+	/**
+	 * 企业采购订单的主体快照：客户端传的名称/信用代码一律不可信，按主体档案覆盖。
+	 *
+	 * <p>只有 purchase_scene=3 且带 buyerOrgId 才落主体；历史岸上车没有主体时保持为空，
+	 * 不能因为补字段让旧车提交失败。主体必须存在、未停用，且下单用户是有效成员，
+	 * 否则直接拒绝——避免把订单挂到别家工厂，影响 P1 首单资格统计。
+	 */
+	private void applyBuyerOrgSnapshot(CreateOrderDTO createOrderDTO, OrderInfo orderInfo) {
+		orderInfo.setBuyerOrgId(null);
+		orderInfo.setBuyerOrgName(null);
+		orderInfo.setBuyerOrgCreditCode(null);
+		orderInfo.setBuyerOrgAuditStatus(null);
+		String purchaseScene = purchaseSceneValidator.normalize(createOrderDTO.getPurchaseScene());
+		if (!PurchaseSceneEnum.ENTERPRISE.getCode().equals(purchaseScene)
+				|| !StringUtils.hasText(createOrderDTO.getBuyerOrgId())) {
+			return;
+		}
+		BuyerOrg org = buyerOrgService.requireForOrder(ArynTenantContextHolder.getTenantId(),
+			createOrderDTO.getUserId(), createOrderDTO.getBuyerOrgId());
+		orderInfo.setBuyerOrgId(org.getId());
+		orderInfo.setBuyerOrgName(org.getOrgName());
+		orderInfo.setBuyerOrgCreditCode(org.getCreditCode());
+		// 审核状态快照决定首单消耗：待审核期间下的单即使支付也不烧掉工厂首单，
+		// 否则「待审核可下单」与「审核通过后享首单」两条口径互相打架。
+		orderInfo.setBuyerOrgAuditStatus(org.getAuditStatus());
 	}
 
 	@Override
@@ -1361,13 +1403,20 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 
 				orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-						memberBenefits != null && memberBenefits.isFreeShipping());
+						memberBenefits != null && memberBenefits.isFreeShipping(),
+						freightRuleService.match(orderInfo.getPurchaseScene(), orderInfo.getDeliveryWay(),
+								orderInfo.getRecipientProvinceCode()));
 				if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
 						&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
 								userAddress.getCityCode(), userAddress.getAreaCode())) {
 					throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 				}
 			}
+		}
+		else {
+			// 自提 / 到船恒定免运费：与下单同口径回填免邮原因，确认页据此展示「自提免运费」
+			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
+					memberBenefits != null && memberBenefits.isFreeShipping(), null);
 		}
 		// 积分抵现：与下单同口径，保证确认页金额与提交后一致；叠加策略下积分只作用于允许积分的明细
 		PointsDeductContextVO pointsContext = remotePointsService
@@ -1452,7 +1501,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		purchaseSceneValidator.validate(purchaseScene, orderInfo.getDeliveryWay());
 		orderInfo.setPurchaseScene(purchaseSceneValidator.normalize(purchaseScene));
 		VesselContextDTO context = deliveryContextValidator.validate(ArynTenantContextHolder.getTenantId(), userId,
-				orderInfo.getDeliveryWay(), orderInfo.getVesselId(), orderInfo.getVesselCallId());
+				orderInfo.getDeliveryWay(), orderInfo.getVesselId(), orderInfo.getVesselCallId(),
+				orderInfo.getPurchaseScene());
 		if (context != null) {
 			orderInfo.setVesselId(context.getVesselId());
 			orderInfo.setVesselName(context.getVesselName());

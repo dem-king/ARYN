@@ -37,8 +37,11 @@ public class PromotionContextDTO implements Serializable {
 	@Schema(description = "订单号（reserve 时选填）")
 	private String orderNo;
 
-	@Schema(description = "购买场景：1个人 2船供")
+	@Schema(description = "购买场景：1个人 2船供 3企业")
 	private String purchaseScene;
+
+	@Schema(description = "采购主体ID（企业采购首单/主体优惠使用）")
+	private String buyerOrgId;
 
 	@Schema(description = "船舶ID")
 	private String vesselId;

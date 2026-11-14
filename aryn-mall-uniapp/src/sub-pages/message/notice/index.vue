@@ -12,6 +12,7 @@ import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useAuthStore } from '@/store/authStore'
 import { useMessageStore } from '@/store/messageStore'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import { resolveNoticeJump } from '@/utils/notice-jump'
 import {
   formatNoticeTime,
@@ -42,6 +43,7 @@ const conversationHasMore = ref(false)
 const loading = ref(false)
 const authStore = useAuthStore()
 const messageStore = useMessageStore()
+const statusTipStore = useStatusTipStore()
 const { goLogin } = useRequireLogin()
 
 /** 页头不写产品内部说明：有未读报数，无未读给确定态，别让用户读到设计文档的句子 */
@@ -297,7 +299,7 @@ onUnload(() => uni.$off('message-push', refresh))
         </view>
         <wd-status-tip
           v-else-if="!loading && !notices.length"
-          image="message"
+          :image="statusTipStore.imageFor('message')"
           :tip="t('message.notice.empty')"
         />
       </view>
@@ -331,7 +333,7 @@ onUnload(() => uni.$off('message-push', refresh))
         </view>
         <wd-status-tip
           v-else-if="!loading && !conversations.length"
-          image="content"
+          :image="statusTipStore.imageFor('content')"
           :tip="t('message.support.empty')"
         />
         <button

@@ -11,7 +11,6 @@ interface Props {
   modelValue: string
   placeholder?: string
   placeholderLeft?: boolean
-  bordered?: boolean
   leftArrow?: boolean
   transparent?: boolean
   scrollTop?: number
@@ -28,13 +27,19 @@ interface Props {
    * 只靠滚动状态的话，页面停在顶部时顶栏还是实心白，会和玻璃浮层分家。
    */
   forceFrosted?: boolean
+  /**
+   * 磨砂材质由宿主页统一玻璃层接管（分类页头部玻璃：导航栏 + 图标条一块 blur）。
+   * 滚动路径不再自绘底色/毛玻璃，只保留文字/图标配色翻转——两块玻璃各自
+   * backdrop-filter 时拼接处必有接缝与裸带。forceFrosted 不受影响仍自绘：
+   * 浮层展开（页面可能在顶部）时宿主玻璃还没铺出来，顶栏必须自己成玻璃。
+   */
+  glassHosted?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   placeholder: '',
   placeholderLeft: false,
-  bordered: true,
   leftArrow: true,
   transparent: false,
   scrollTop: 0,
@@ -47,6 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
   gradient: true,
   searchBtn: true,
   forceFrosted: false,
+  glassHosted: false,
 })
 
 const emit = defineEmits<{
@@ -82,6 +88,14 @@ const frosted = computed(
     !props.transparent
     && !props.primary
     && (props.forceFrosted || (frostedScroll && pageScrolled?.value === true)),
+)
+
+/**
+ * 是否自绘磨砂底（86% 白 + blur）：滚动路径在 glassHosted 时托管给宿主玻璃层，
+ * 本组件只做文字/图标配色翻转；forceFrosted（浮层展开）永远自绘。
+ */
+const paintsOwnFrosted = computed(
+  () => frosted.value && (!props.glassHosted || props.forceFrosted),
 )
 
 /**
@@ -130,20 +144,21 @@ onMounted(() => {
  * 导航栏占位高度（状态栏 + 44px 内容区）。
  *
  * 只用于页面内等高占位。**浮层贴边不要用它**：它不含小程序胶囊的纵向偏移，
- * 也不含底部分隔线，按它贴边会在导航栏下沿漏出一条透出遮罩的缝。
+ * 按它贴边会在导航栏下沿漏出一条透出遮罩的缝。
  */
 const placeholderHeight = computed(() => statusBarHeight.value + navBarHeight.value)
 
 /**
- * 导航栏**实际渲染**高度（含胶囊纵向偏移与底部分隔线）。
+ * 导航栏**实际渲染**高度（含胶囊纵向偏移）。
  *
  * 供「需要从导航栏下沿开始渲染」的浮层使用（如分类页的全部分类面板）。
  * 微信里 capsuleCenterOffset 可能为负，导航栏实际高度会比「状态栏 + 44」略矮，
  * 浮层若按占位高度贴边，两块之间就会留下一根深色细线（遮罩从缝里透出来）。
- * 底部分隔线由 bordered 控制：面板展开时导航栏会关掉分隔线，高度同步减 1px。
+ *
+ * 顶栏不再画底部分隔线（见模板注释），高度里也就没有那 1px。
  */
 const visualHeight = computed(
-  () => placeholderHeight.value + capsuleCenterOffset.value + (props.bordered ? 1 : 0),
+  () => placeholderHeight.value + capsuleCenterOffset.value,
 )
 
 function updateValue(val: string) {
@@ -172,9 +187,15 @@ function handleLeftClick() {
 
 const dynamicStyle = computed(() => {
   let style = ''
-  if (frosted.value) {
+  if (paintsOwnFrosted.value) {
     // 磨砂玻璃：与 hr-navbar 的磨砂白目标态同一组数值（86% 白 + blur 18px）
     style += 'background-color: rgba(255, 255, 255, 0.86);'
+    style += 'color: #222222;'
+  }
+  else if (frosted.value) {
+    // 托管磨砂态（glassHosted 且非 forceFrosted）：底色/毛玻璃由宿主统一玻璃层
+    // 画，本组件保持全透明只翻转文字色——不能落到 bgColor 分支，否则实心白
+    // 会把宿主玻璃整段盖住，头部又变回两块玻璃。
     style += 'color: #222222;'
   }
   else if (props.transparent) {
@@ -218,7 +239,7 @@ defineExpose({ placeholderHeight, visualHeight })
 <template>
   <view
     class="fixed left-0 right-0 top-0 z-1000"
-    :class="{ 'hr-search-navbar--frosted': frosted }"
+    :class="{ 'hr-search-navbar--frosted': paintsOwnFrosted }"
     :style="dynamicStyle"
   >
     <view :style="{ paddingTop: `${statusBarHeight + capsuleCenterOffset}px`, height: `${navBarHeight}px`, paddingRight: `${capsulePaddingRight}px` }" class="flex items-center justify-between px-12rpx">
@@ -281,11 +302,6 @@ defineExpose({ placeholderHeight, visualHeight })
         <slot name="right" />
       </view>
     </view>
-    <view
-      v-if="bordered"
-      class="h-1px bg-[#eaeaea]"
-      :style="{ backgroundColor: frosted ? 'rgba(15, 23, 42, 0.08)' : '' }"
-    />
   </view>
   <view v-if="navPlaceholder" :style="{ height: `${placeholderHeight}px` }" />
 </template>

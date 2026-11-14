@@ -22,6 +22,7 @@ import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useTabBarLocale } from '@/composables/useTabBarLocale'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import {
   clearanceWinsOverMember,
@@ -51,6 +52,7 @@ import {
 } from '@/utils/newbie-price'
 
 const { handlePageScroll } = useFrostedNavbar()
+const statusTipStore = useStatusTipStore()
 
 definePage({
   name: 'shopping-cart',
@@ -1327,7 +1329,7 @@ onPageScroll(handlePageScroll)
       </view>
     </view>
     <view v-else class="cart-empty">
-      <image class="cart-empty-img" src="/static/promotion/empty/empty-cart.png" mode="aspectFit" />
+      <image class="cart-empty-img" :src="statusTipStore.imageFor('empty-cart')" mode="aspectFit" />
       <text class="cart-empty-title">
         {{ t('cart.emptyTitle') }}
       </text>

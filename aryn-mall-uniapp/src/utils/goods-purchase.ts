@@ -16,7 +16,7 @@ import { translate } from '@/locales'
 /** 单规格（后端 goods_spu.enable_specs 取值，与 QuickCartServiceImpl 的 SINGLE_SPEC 对齐） */
 export const ENABLE_SPECS_SINGLE = '0'
 
-/** 商品级固定运费（后端 goods_spu.freight_type 取值，与 ProductConstants.FREIGHT_TYPE_1 对齐；'0' 为零运费） */
+/** 商品级固定运费（后端 goods_spu.freight_type 取值，与 ProductConstants.FREIGHT_TYPE_1 对齐；'0' 为零运费；'2' 为随订单规则，商详不展示） */
 export const FREIGHT_TYPE_FIXED = '1'
 
 /** 单规格商品在弹层里的占位规格名，与 vk-data-goods-sku-popup 的 defaultSingleSkuName 对齐 */
@@ -149,7 +149,8 @@ export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
     }
   }
 
-  // 与后端计费同口径：仅 freight_type='1' 按件收固定运费，其余（含缺失）一律零运费
+  // 与后端计费同口径：仅 freight_type='1' 按商品收固定运费；'2'（随订单规则）由
+  // 订单级满额包邮在结算页计算，商详不展示门槛，避免同一规则出现第二套文案口径
   if (input.freightType !== FREIGHT_TYPE_FIXED)
     return { visible: false, text: '', detail: '', tappable: false }
 

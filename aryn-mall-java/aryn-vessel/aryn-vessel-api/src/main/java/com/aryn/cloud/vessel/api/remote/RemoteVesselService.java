@@ -35,6 +35,19 @@ public interface RemoteVesselService {
 	String getVesselMemberRole(String tenantId, String vesselId, String userId);
 
 	/**
+	 * 判断用户是否具备指定船舶的采购确认权（船供整单提交权限）。
+	 *
+	 * <p>以 {@code vessel_member.can_confirm} 列为准，不按角色硬编码：
+	 * 发起人/采购确认人/业务员默认具备（业务员代下单场景），普通船员不具备。
+	 *
+	 * @param tenantId 租户ID
+	 * @param vesselId 船舶ID
+	 * @param userId 商城用户ID
+	 * @return true 表示可提交船供整单
+	 */
+	boolean canConfirmSupply(String tenantId, String vesselId, String userId);
+
+	/**
 	 * 凭分享加入时自动补建船舶成员关系（幂等：已是成员则直接返回）。
 	 *
 	 * <p>场景：船员通过微信群分享卡片首次进入商城，此前没有船舶成员关系。

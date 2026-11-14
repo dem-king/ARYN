@@ -94,11 +94,11 @@ export default {
     newbieFloor: {
       defaultTitle: 'New User Perks',
       tag: 'NEW',
-      subtitle: 'First-order price',
+      subtitle: 'First unit per item',
       countdownEndedPrefix: 'Event',
       countdownEndedText: 'Ended',
       countdownPrefix: 'Ends in',
-      perks: 'New users within {registerDays} days · First unit at newcomer price',
+      perks: 'New users within {registerDays} days · First unit per item at newcomer price, extra units at sales price',
       priceBadge: 'New User Price',
       fallbackGoodsName: 'New User Item',
       limitToast: 'New User Price: limit {limit} per customer, extra units at sales price',

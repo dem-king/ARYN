@@ -9,6 +9,7 @@ import com.aryn.cloud.vessel.api.entity.VesselCall;
 import com.aryn.cloud.vessel.api.entity.VesselInfo;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.vessel.api.entity.VesselMemberAuditLog;
+import com.aryn.cloud.vessel.api.vo.VesselMembershipVO;
 import com.aryn.cloud.vessel.mapper.VesselCallMapper;
 import com.aryn.cloud.vessel.mapper.VesselInfoMapper;
 import com.aryn.cloud.vessel.mapper.VesselMemberAuditLogMapper;
@@ -110,12 +111,35 @@ class VesselContextServiceTest {
 		membership.setVesselId(VESSEL_ID);
 		membership.setUserId(USER);
 		membership.setStatus("1");
+		membership.setMemberRole(VesselMemberRole.OWNER);
+		membership.setCanConfirm("1");
 		when(vesselMemberMapper.selectList(any())).thenReturn(List.of(membership));
 		when(vesselInfoMapper.selectList(any())).thenReturn(List.of(vessel(VESSEL_ID)));
 
-		List<VesselInfo> vessels = service.myVessels(TENANT, USER);
+		List<VesselMembershipVO> vessels = service.myVessels(TENANT, USER);
 		assertEquals(1, vessels.size());
 		assertEquals(VESSEL_ID, vessels.get(0).getId());
+		assertEquals(VesselMemberRole.OWNER, vessels.get(0).getMemberRole());
+		assertEquals(Boolean.TRUE, vessels.get(0).getCanEdit());
+		// 确认权读 can_confirm 列：发起人默认具备，与提交校验同口径
+		assertEquals(Boolean.TRUE, vessels.get(0).getCanConfirm());
+	}
+
+	@Test
+	@DisplayName("普通船员 can_confirm=0 时 my-vessels 返回无确认权")
+	void myVesselsCrewHasNoConfirmPermission() {
+		VesselMember membership = new VesselMember();
+		membership.setTenantId(TENANT);
+		membership.setVesselId(VESSEL_ID);
+		membership.setUserId(USER);
+		membership.setStatus("1");
+		membership.setMemberRole(VesselMemberRole.CREW);
+		membership.setCanConfirm("0");
+		when(vesselMemberMapper.selectList(any())).thenReturn(List.of(membership));
+		when(vesselInfoMapper.selectList(any())).thenReturn(List.of(vessel(VESSEL_ID)));
+
+		List<VesselMembershipVO> vessels = service.myVessels(TENANT, USER);
+		assertEquals(Boolean.FALSE, vessels.get(0).getCanConfirm());
 	}
 
 	@Test

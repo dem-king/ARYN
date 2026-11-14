@@ -98,6 +98,11 @@ const skuLadders = ref<
 const tiers = ref<Array<{ discountAmount: number; minAmount: number }>>([
   { discountAmount: 0, minAmount: 0 },
 ]);
+/** type=7 首单引擎：首单专享、主体类型、月预算、单笔封顶（写在 rules JSON，不新增表字段）。 */
+const firstOrderOnly = ref(false);
+const firstOrderSubjectType = ref<'1' | '2'>('1');
+const monthlyBudget = ref(0);
+const maxDiscountAmount = ref(0);
 const giftThreshold = ref(0);
 const newbieSkus = ref<
   Array<{
@@ -263,6 +268,11 @@ const openDialog = (row?: any) => {
     const rules = row ? JSON.parse(row.rules) : {};
     skuLadders.value = rules.skuLadders ?? [];
     tiers.value = rules.tiers ?? [{ discountAmount: 0, minAmount: 0 }];
+    firstOrderOnly.value = rules.firstOrderOnly === true;
+    firstOrderSubjectType.value =
+      String(rules.subjectType || '1') === '2' ? '2' : '1';
+    monthlyBudget.value = Number(rules.monthlyBudget || 0);
+    maxDiscountAmount.value = Number(rules.maxDiscountAmount || 0);
     giftThreshold.value = rules.minAmount ?? 0;
     gifts.value = rules.gifts ?? [];
     newbieSkus.value = rules.skus ?? [];
@@ -273,6 +283,10 @@ const openDialog = (row?: any) => {
   } catch {
     skuLadders.value = [];
     tiers.value = [{ discountAmount: 0, minAmount: 0 }];
+    firstOrderOnly.value = false;
+    firstOrderSubjectType.value = '1';
+    monthlyBudget.value = 0;
+    maxDiscountAmount.value = 0;
     giftThreshold.value = 0;
     gifts.value = [];
     newbieSkus.value = [];
@@ -332,6 +346,19 @@ const buildPayload = () => {
     }
     case '5': {
       rules = { minAmount: giftThreshold.value, gifts: gifts.value };
+
+      break;
+    }
+    case '7': {
+      rules = {
+        tiers: tiers.value,
+        firstOrderOnly: firstOrderOnly.value,
+        monthlyBudget: monthlyBudget.value,
+        maxDiscountAmount: maxDiscountAmount.value,
+        ...(firstOrderOnly.value
+          ? { subjectType: firstOrderSubjectType.value }
+          : {}),
+      };
 
       break;
     }
@@ -1308,6 +1335,55 @@ useKeepAliveRefresh(initPage);
               >
                 加档
               </ElButton>
+            </ElFormItem>
+            <ElFormItem label="首单专享">
+              <ElSwitch
+                v-model="firstOrderOnly"
+                :disabled="isPublished"
+                active-text="仅主体首单可享"
+              />
+            </ElFormItem>
+            <ElFormItem v-if="firstOrderOnly" label="首单主体">
+              <ElSelect
+                v-model="firstOrderSubjectType"
+                :disabled="isPublished"
+                style="width: 180px"
+              >
+                <ElOption label="按船（船供采购）" value="1" />
+                <ElOption label="按采购主体（企业/工厂）" value="2" />
+              </ElSelect>
+            </ElFormItem>
+            <ElFormItem label="月预算">
+              <ElInputNumber
+                v-model="monthlyBudget"
+                :disabled="isPublished"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+                style="width: 160px"
+              />
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                0 表示不限；达到 80% 时运营预警
+              </span>
+            </ElFormItem>
+            <ElFormItem label="单笔封顶">
+              <ElInputNumber
+                v-model="maxDiscountAmount"
+                :disabled="isPublished"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+                style="width: 160px"
+              />
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                0 表示不封顶
+              </span>
             </ElFormItem>
           </template>
         </ElForm>

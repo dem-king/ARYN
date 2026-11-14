@@ -15,6 +15,9 @@
 		order_info.user_id,
 		order_info.delivery_way,
 		order_info.purchase_scene,
+		order_info.buyer_org_id,
+		order_info.buyer_org_name,
+		order_info.buyer_org_credit_code,
 		order_info.vessel_id,
 		order_info.vessel_name,
 		order_info.vessel_call_id,
@@ -89,6 +92,12 @@
         </if>
         <if test="query.userId != null and query.userId != ''">
             AND order_info.`user_id` = #{query.userId}
+        </if>
+        <if test="query.buyerOrgId != null and query.buyerOrgId != ''">
+            AND order_info.`buyer_org_id` = #{query.buyerOrgId}
+        </if>
+        <if test="query.buyerOrgName != null and query.buyerOrgName != ''">
+            AND order_info.`buyer_org_name` LIKE CONCAT('%', #{query.buyerOrgName}, '%')
         </if>
         <if test="query.payStatus != null and query.payStatus != ''">
             AND order_info.`pay_status` = #{query.payStatus}

@@ -4,7 +4,9 @@ import {
   buildAttrTagFromTemplate,
   filterAttrSuggestions,
   getAttrLabelPreset,
+  getAttrLabelSuggestions,
   getAttrValuePresets,
+  getAttrValueSuggestions,
   GOODS_ATTR_TAG_LABEL_PRESETS,
   GOODS_ATTR_TAG_TEMPLATES,
   isAttrValueUsed,
@@ -133,5 +135,67 @@ describe('goods attr tag presets', () => {
     // 不同属性名下的同名值不算重复
     expect(isAttrValueUsed(rows, '系列', '冷藏', 1)).toBe(false);
     expect(isAttrValueUsed(rows, '储存条件', '', 0)).toBe(false);
+  });
+
+  it('carries the hint and value count on label suggestions', () => {
+    // 属性名下拉要把「名称 + 说明 + 常用值条数」分开渲染，字段缺一个就会退回
+    // 长句连读；这里钉住每条候选都带得动这两项展示数据
+    const suggestions = getAttrLabelSuggestions('');
+    expect(suggestions).toHaveLength(GOODS_ATTR_TAG_LABEL_PRESETS.length);
+    expect(suggestions[0]).toEqual({
+      hint: GOODS_ATTR_TAG_LABEL_PRESETS[0]?.hint,
+      value: GOODS_ATTR_TAG_LABEL_PRESETS[0]?.label,
+      valueCount: GOODS_ATTR_TAG_LABEL_PRESETS[0]?.values.length,
+    });
+    for (const item of suggestions) {
+      expect(item.hint.length).toBeGreaterThan(0);
+      expect(item.valueCount).toBeGreaterThan(0);
+    }
+    expect(getAttrLabelSuggestions('储')).toEqual([
+      {
+        hint: '温层与保存方式',
+        value: '储存条件',
+        valueCount: 5,
+      },
+    ]);
+    // 说明文案里的字不参与匹配，否则输入「产地」会带出所有提示含「产地」的词条
+    expect(getAttrLabelSuggestions('商品归属')).toEqual([]);
+  });
+
+  it('scopes value suggestions to the chosen label and marks the owner', () => {
+    // 已选属性名：收敛到该属性名下的值，不再重复标注归属
+    const scoped = getAttrValueSuggestions('储存条件', '');
+    expect(scoped.map((item) => item.value)).toEqual(
+      getAttrValuePresets('储存条件'),
+    );
+    expect(
+      scoped.every((item) => item.scoped && item.label === '储存条件'),
+    ).toBe(true);
+
+    // 未选属性名：给全局候选池，每条都带所属属性名，运营才知道这词该配哪个名
+    const global = getAttrValueSuggestions('', '');
+    expect(global.length).toBeGreaterThan(GOODS_ATTR_TAG_LABEL_PRESETS.length);
+    expect(global.every((item) => !item.scoped)).toBe(true);
+    expect(global.find((item) => item.value === '冷藏')).toEqual({
+      label: '储存条件',
+      scoped: false,
+      value: '冷藏',
+    });
+  });
+
+  it('lets the value keyword match the owning label too', () => {
+    // 运营想配「储存条件」但记不住值，输入「储存」应能看到冷藏/冷冻…
+    const matched = getAttrValueSuggestions('', '储存');
+    expect(matched.map((item) => item.value)).toEqual(
+      getAttrValuePresets('储存条件'),
+    );
+
+    // 自建属性名走全局池，但依然可以在值里按关键词收敛
+    expect(
+      getAttrValueSuggestions('自定义维度', '冷').map((item) => item.value),
+    ).toEqual(['冷藏', '冷冻', '0-4℃冷藏']);
+    // 全局池里同名值只出现一次（不同属性名下的重复值不重复刷屏）
+    const values = getAttrValueSuggestions('', '').map((item) => item.value);
+    expect(new Set(values).size).toBe(values.length);
   });
 });

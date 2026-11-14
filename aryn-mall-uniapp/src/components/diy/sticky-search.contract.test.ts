@@ -41,7 +41,7 @@ describe('装修渲染器：常驻搜索框的识别与页面级渲染', () => {
     expect(code).toContain('const stickySearch = computed')
     expect(code).toContain('props.embedded')
     expect(code).toContain('sections.value[0]')
-    expect(code).toContain("component.type !== 'search-bar'")
+    expect(code).toContain('component.type !== \'search-bar\'')
     expect(code).toContain('showData.sticky !== true')
     // 横滑区块里的搜索框不在页面顶端，不能常驻
     expect(code).toContain('first.style.horizontalScroll')
@@ -62,7 +62,7 @@ describe('装修渲染器：常驻搜索框的识别与页面级渲染', () => {
     expect(code).toContain('const stickySearchId = computed')
   })
 
-  it('DiyPage 不消费滚动状态（scrollTop 只允许在叶子组件里 inject）', () => {
+  it('diyPage 不消费滚动状态（scrollTop 只允许在叶子组件里 inject）', () => {
     expect(code).not.toContain('DIY_NAVBAR_SCROLL_KEY')
     expect(code).not.toMatch(/\binject\(/)
     expect(code).not.toContain('scrollTop.value')
@@ -70,7 +70,7 @@ describe('装修渲染器：常驻搜索框的识别与页面级渲染', () => {
 
   it('吸顶基准线让出常驻搜索栏：Tab 栏 / 吸顶区块停在搜索框下沿', () => {
     expect(code).toContain('const stickyOffsetTop = computed')
-    expect(code).toContain("'--diy-sticky-top': `${stickyOffsetTop.value}px`")
+    expect(code).toContain('\'--diy-sticky-top\': `${stickyOffsetTop.value}px`')
     expect(code).toContain('style.top = `${stickyOffsetTop.value}px`')
     // 占位高度公式必须包含行高与搜索框自身外边距/内边距，否则吸顶栏会被盖住
     expect(code).toContain('SEARCH_BAR_ROW_HEIGHT')
@@ -78,14 +78,16 @@ describe('装修渲染器：常驻搜索框的识别与页面级渲染', () => {
   })
 })
 
-describe('常驻搜索栏接管头部下沿', () => {
-  it('导航栏底边细线交给搜索栏渲染，一整块头部不被切成两段', () => {
-    // 导航栏磨砂白 + 自己的 1px 细线 + 搜索栏磨砂白，会在头部中间露一条缝；
-    // 常驻搜索栏出现时由 DiyPage 关掉导航栏细线，改由搜索栏底边承担分界。
-    expect(source(DIY_RENDERER)).toContain(':hairline="!stickySearch"')
+describe('头部下沿不画分割线', () => {
+  it('导航栏与常驻搜索栏都不渲染底边细线，整块头部是一张连续表面', () => {
+    // 历史上两者各有一条 1px 细线（导航栏自己一条、搜索栏接管下沿一条），
+    // 叠在磨砂白上就是一道割裂感很强的灰线。现在整体移除：既不接受 hairline
+    // 开关，也不留 hairline 节点。
     const navbar = source(NAVBAR)
-    expect(navbar).toContain('hairline?: boolean')
-    expect(navbar).toContain('v-if="hairline"')
+    expect(navbar).not.toContain('hairline?: boolean')
+    expect(navbar).not.toContain('hr-navbar-bg__hairline')
+    expect(source(SEARCH_BAR)).not.toContain('search-bar-material__hairline')
+    expect(source(DIY_RENDERER)).not.toContain(':hairline=')
   })
 })
 
@@ -116,39 +118,49 @@ describe('搜索栏组件：常驻层材质与静置零变化', () => {
     expect(code).toContain('const materialVisible = computed')
     expect(code).toContain('material.value.baseOpacity * materialVisible.value')
     expect(code).toContain('material.value.surfaceOpacity * materialVisible.value')
-    expect(code).toContain('material.value.hairlineOpacity * materialVisible.value')
   })
 
   it('材质与导航栏同源：复用 CSS 变量 + 毛玻璃双前缀', () => {
     expect(code).toContain('--diy-nav-surface-bg')
-    expect(code).toContain('--diy-nav-hairline')
     expect(code).toContain('search-bar-material__base')
     expect(code).toContain('search-bar-material__surface')
-    expect(code).toContain('search-bar-material__hairline')
     expect(code).toContain('-WEBKIT-backdrop-filter')
   })
 
   it('默认保持配置色实心胶囊；滚动后融入磨砂头部（整条头部一块玻璃）', () => {
     // 静置态不做玻璃色层：彩色头部上那层半透明胶囊会发灰、显脏
     expect(code).not.toContain('search-bar-glass')
-    expect(code).toContain("'search-bar-inner--blended': blended")
-    expect(code).toContain("backgroundColor: blended ? 'transparent' : bgColor")
+    expect(code).toContain('\'search-bar-inner--blended\': blended')
+    expect(code).toContain('backgroundColor: blended ? \'transparent\' : bgColor')
     // 只有头部材质真的铺出来（scrollEffect=fade）时才撤掉输入条底色，
     // 否则 scrollEffect 非 fade 的页面文字会直接飘在滚动内容上
     expect(code).toContain('material.value.surfaceOpacity > 0')
   })
 
-  it('pinned 用页面级 fixed 且压在导航栏之下（z-index < 500）', () => {
-    expect(code).toContain("'position': 'fixed'")
-    expect(code).toContain("'z-index': '480'")
+  it('pinned 用页面级 fixed；未托管时压在导航栏之下（480），托管延伸玻璃时抬到其上（501）', () => {
+    expect(code).toContain('\'position\': \'fixed\'')
+    // hr-navbar-bg 延伸层 z-index 499：托管后内容层必须抬到玻璃之上，
+    // 否则输入条/铃铛会被磨砂面盖住；未托管保持压在导航栏（500）之下的旧序
+    expect(code).toContain('\'z-index\': props.materialHosted ? \'501\' : \'480\'')
     expect(code).toContain('pinnedTop')
     expect(code).toContain('pinnedInsetX')
   })
 
+  it('沉浸式导航开启时材质托管给 hr-navbar-bg 延伸层，整条头部只做一次毛玻璃', () => {
+    // 托管后本组件不再自绘 base/surface（两层 86% 白叠加近实心、双 blur 接缝）
+    expect(code).toContain('v-if="pinned && !materialHosted"')
+    expect(code).toContain('props.materialHosted')
+    // DiyPage 只在沉浸式导航开启时下发托管，并把玻璃延伸高度交给 hr-navbar
+    const renderer = source(DIY_RENDERER)
+    expect(renderer).toContain(':material-hosted="immersiveNavEnabled"')
+    expect(renderer).toContain(':bg-extra-height="headerGlassExtraHeight"')
+    expect(renderer).toContain('headerGlassExtraHeight')
+  })
+
   it('占位实例不可见不可点、只保留高度；普通实例样式原样返回', () => {
     expect(code).toContain('props.stickyPlaceholder')
-    expect(code).toContain("'visibility': 'hidden'")
-    expect(code).toContain("'pointer-events': 'none'")
+    expect(code).toContain('\'visibility\': \'hidden\'')
+    expect(code).toContain('\'pointer-events\': \'none\'')
     expect(code).toContain('if (!props.pinned)')
     // 行内容必须叠在材质层之上，否则材质会盖住搜索条与铃铛
     expect(code).toContain('position: relative')

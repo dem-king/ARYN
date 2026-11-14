@@ -185,10 +185,93 @@ public class VesselBindServiceImpl implements IVesselBindService {
 		vesselBindApplyMapper.insert(apply);
 		log.info("船舶绑定申请已提交 tenant={} user={} role={} vessel={}", tenantId, userId, role,
 				apply.getApplyVesselName());
+		// 自助绑定：身份键唯一命中在营船时直接通过，不再进管理端审核队列。
+		// 只有「系统里还没有这条船」才留在认领池，等运营建档后自动放行。
+		if (tryAutoBind(tenantId, apply)) {
+			log.info("船舶自助绑定已自动通过 tenant={} apply={} vessel={} user={}", tenantId, apply.getApplyNo(),
+					apply.getMatchedVesselId(), userId);
+			TransactionalMqUtils.sendAfterCommit(() -> notifyApplyResult(apply, true, null, role));
+			return toApplyVO(apply, Map.of());
+		}
 		// 提交后通知有审核权限的运营：此前只有申请结果会通知申请人，
 		// 新申请上来时运营不刷新管理端列表就完全不知道（铃铛/语音播报同理）
 		TransactionalMqUtils.sendAfterCommit(() -> notifyReviewers(tenantId, apply));
 		return toApplyVO(apply, Map.of());
+	}
+
+	/**
+	 * 自助绑定自动放行：按身份键匹配在营船，唯一命中即落成员并置申请为已通过。
+	 *
+	 * <p>匹配优先级与 {@link #precheckApply} 一致：IMO/呼号强身份键优先，其次船名精确唯一。
+	 * 命中多条一律不自动选（同名船/同 IMO 重复建档都可能存在），退回人工认领池。
+	 *
+	 * <p>角色只取申请角色且必须属于可分配白名单，绝不会因为申请拿到「发起人」。
+	 *
+	 * @return true 表示已自动通过；false 表示留在认领池
+	 */
+	private boolean tryAutoBind(String tenantId, VesselBindApply apply) {
+		VesselInfo target = matchUniqueVessel(tenantId, apply);
+		if (target == null) {
+			return false;
+		}
+		String role = VesselMemberRole.isAssignable(apply.getApplyRole()) ? apply.getApplyRole()
+				: VesselMemberRole.CREW;
+		// 已在船上不再走成员写入：ensureOnboard 遇到角色不同会就地改角色，
+		// 一个「发起人/采购确认人」重复提交普通船员申请会被降权。已在船上直接认定申请通过。
+		Long active = vesselMemberMapper.selectCount(Wrappers.lambdaQuery(VesselMember.class)
+			.eq(VesselMember::getTenantId, tenantId)
+			.eq(VesselMember::getVesselId, target.getId())
+			.eq(VesselMember::getUserId, apply.getUserId()));
+		if (active == null || active == 0) {
+			String bindReason = "自助绑定（申请单 " + apply.getApplyNo() + "，身份键命中「" + target.getVesselName()
+					+ "」）";
+			memberRegistrar.ensureOnboard(tenantId, target.getId(), apply.getUserId(), role, FLAG_YES,
+					VesselMemberRole.defaultCanConfirm(role), bindReason, VesselMemberBindSource.APPLY_AUTO);
+		}
+		apply.setStatus(VesselBindApply.STATUS_APPROVED);
+		apply.setMatchedVesselId(target.getId());
+		apply.setAuditBy("SYSTEM");
+		apply.setAuditTime(LocalDateTime.now());
+		apply.setAuditRemark((active != null && active > 0 ? "自助绑定：您已是该船成员，直接通过；" : "自助绑定免审核：")
+				+ "身份键唯一命中「" + target.getVesselName() + "」");
+		vesselBindApplyMapper.updateById(apply);
+		return true;
+	}
+
+	/**
+	 * 唯一命中的在营船；命中 0 条或多条都返回 null（多条必须人工核实，不自动选）。
+	 */
+	private VesselInfo matchUniqueVessel(String tenantId, VesselBindApply apply) {
+		String imo = trimOrEmpty(apply.getApplyVesselImo());
+		String callSign = trimOrEmpty(apply.getApplyVesselCallSign());
+		List<VesselInfo> strong = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		if (StringUtils.hasText(imo)) {
+			for (VesselInfo vessel : vesselInfoMapper.selectList(
+				activeVesselQuery(tenantId).eq(VesselInfo::getImoCode, imo))) {
+				if (vessel.getId() != null && seen.add(vessel.getId())) {
+					strong.add(vessel);
+				}
+			}
+		}
+		if (StringUtils.hasText(callSign)) {
+			for (VesselInfo vessel : vesselInfoMapper.selectList(
+				activeVesselQuery(tenantId).eq(VesselInfo::getCallSign, callSign))) {
+				if (vessel.getId() != null && seen.add(vessel.getId())) {
+					strong.add(vessel);
+				}
+			}
+		}
+		if (!strong.isEmpty()) {
+			return strong.size() == 1 ? strong.get(0) : null;
+		}
+		String name = trimOrEmpty(apply.getApplyVesselName());
+		if (!StringUtils.hasText(name)) {
+			return null;
+		}
+		List<VesselInfo> sameName = vesselInfoMapper.selectList(
+			activeVesselQuery(tenantId).eq(VesselInfo::getVesselName, name));
+		return sameName.size() == 1 ? sameName.get(0) : null;
 	}
 
 	/**
@@ -390,7 +473,7 @@ public class VesselBindServiceImpl implements IVesselBindService {
 
 		// 走统一入口：被移出过的人重新拉进来会复用历史行（唯一键不含 del_flag）
 		VesselMemberRegistrar.OnboardResult result = memberRegistrar.ensureOnboard(tenantId, vesselId, targetUserId, role,
-				FLAG_YES, VesselMemberRole.CONFIRMER.equals(role) ? FLAG_YES : FLAG_NO, dto.getRemark(),
+				FLAG_YES, VesselMemberRole.defaultCanConfirm(role), dto.getRemark(),
 				VesselMemberBindSource.MEMBER_ADD);
 		log.info("添加船舶成员 tenant={} vessel={} target={} role={} operator={}", tenantId, vesselId, targetUserId, role,
 				operatorUserId);
@@ -905,7 +988,7 @@ public class VesselBindServiceImpl implements IVesselBindService {
 			? trimToNull(dto == null ? null : dto.getAuditRemark())
 			: "绑定申请审核通过（申请单 " + apply.getApplyNo() + "）";
 		memberRegistrar.ensureOnboard(tenantId, vesselId, apply.getUserId(), role, FLAG_YES,
-				VesselMemberRole.CONFIRMER.equals(role) ? FLAG_YES : FLAG_NO, bindReason, resolved.bindSource());
+				VesselMemberRole.defaultCanConfirm(role), bindReason, resolved.bindSource());
 
 		apply.setStatus(VesselBindApply.STATUS_APPROVED);
 		apply.setMatchedVesselId(vesselId);
@@ -985,7 +1068,7 @@ public class VesselBindServiceImpl implements IVesselBindService {
 				String boundName = displayOr(vesselName, apply.getApplyVesselName());
 				summary = "您申请的「" + boundName + "」已绑定成功";
 				content.append("您的").append(applicant).append("绑定申请（申请单 ").append(apply.getApplyNo())
-					.append("）已通过审核，已加入「").append(boundName).append("」。");
+					.append("）已绑定成功，已加入「").append(boundName).append("」。");
 				if (StringUtils.hasText(roleText)) {
 					content.append("您在本船的角色为：").append(roleText).append("。");
 				}

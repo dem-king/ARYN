@@ -132,6 +132,8 @@ const iconColor = computed(() =>
           </svg>
           <span class="search-placeholder">{{ displayText }}</span>
         </div>
+        <!-- 「搜索」按钮：与 C 端同尺寸同 token（主题主色自适应），预览与实机一致 -->
+        <div class="search-bar-action">搜索</div>
       </div>
       <!-- 小程序端搜索栏右侧还有消息铃铛（带未读角标）与扫码入口，预览按同尺寸静态呈现 -->
       <div class="search-bar-bell">
@@ -187,21 +189,39 @@ const iconColor = computed(() =>
 
     .search-bar-left {
       display: flex;
+      flex: 1;
       gap: 6px;
       align-items: center;
       min-width: 0;
+    }
 
-      .search-icon {
-        flex-shrink: 0;
-      }
+    .search-icon {
+      flex-shrink: 0;
+    }
 
-      .search-placeholder {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 14px;
-        color: #999;
-        white-space: nowrap;
-      }
+    .search-placeholder {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 14px;
+      color: #999;
+      white-space: nowrap;
+    }
+
+    /* 「搜索」按钮：与 C 端 diy-search-bar 逐值对齐（间距 4px / 高 28px /
+       圆角 7px / 横内边距 12px / 字号 13px），背景取主题主色 token 自适应换肤 */
+    .search-bar-action {
+      display: flex;
+      flex: none;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      margin-left: 4px;
+      font-size: 13px;
+      line-height: 1;
+      color: #fff;
+      text-align: center;
+      background: var(--wot-color-theme-primary, #ff2237);
+      border-radius: 7px;
     }
   }
 

@@ -144,6 +144,8 @@ secure:
       - /app/tenant/shop-info
       # 版权配置（三端登录页/页脚免登读取；平台端登录页无会话，固定取平台租户配置）
       - /app/copyright-config
+      # 空态插画配置（C 端空态/失败态免登读取）
+      - /app/status-tip-config
       - /notify/**
       - /app/couponinfo/page
       - /app/couponinfo/byIds/**
@@ -164,12 +166,16 @@ secure:
       - /app/discount/prices
       - /app/newbie/current
       - /app/newbie/prices
+      # 新人页三场景聚合（可选登录：未登录只返回活动配置与 eligible=null）
+      - /app/newbie/scenes
       # 会员价批量查价（C端商详/购物车/列表二次聚合，可选登录：未登录返回活动配置价）
       - /app/member/prices
       # 低价捡漏专区（商品级出清标签选品/批量查价，免登）
       - /app/clearance/activity-goods
       - /app/clearance/prices
       - /file/local/**
+      # 空态插画（wd-status-tip 预设图）随 upms 静态资源发布，免登读取
+      - /status-tip/**
 
 decoration:
   release:
@@ -220,6 +226,7 @@ hx:
       - sys_dept
       - sys_tenant_menu
       - sys_copyright_config
+      - sys_status_tip_config
       - sys_material
       - sys_material_group
       - goods_appraise
@@ -314,6 +321,7 @@ hx:
       - delivery_task_log
       - delivery_evidence
       - delivery_area
+      - freight_rule
       - delivery_account_binding
       - delivery_qualification_operation
       - sys_user_wechat_binding
@@ -330,6 +338,10 @@ hx:
       - shared_cart_item
       - shared_cart_import
       - shared_cart_import_row
+      - buyer_org
+      - buyer_org_member
+      - buyer_org_apply
+      - buyer_org_invite_code
       - replenish_direct_import
       - replenish_direct_import_row
       - fulfillment_wave

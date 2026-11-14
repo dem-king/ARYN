@@ -7,6 +7,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.entity.PromotionLock;
+import com.aryn.cloud.promotion.api.vo.FirstOrderEligibilityVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.mapper.PromotionLockMapper;
@@ -66,6 +67,7 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		PromotionCalculationVO calculation = promotionEngineService.preview(context);
 		assertNewbieInFlightUnique(context, calculation);
 		assertPerUserLimit(context, calculation);
+		assertFirstOrderSubjectUnique(context, calculation);
 		dropUnavailableGifts(context, calculation);
 		for (PromotionCalculationVO.ActivityDetail detail : calculation.getDetails()) {
 			if (!insertLock(context, detail)) {
@@ -92,6 +94,7 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		lock.setActivityName(detail.getActivityName());
 		lock.setDiscountAmount(detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO);
 		lock.setRuleSnapshot(detail.getRuleSnapshot());
+		applySubject(lock, context, detail);
 		lock.setStatus(PromotionLock.STATUS_LOCKED);
 		lock.setTenantId(context.getTenantId());
 		lock.setCreateTime(LocalDateTime.now());
@@ -101,8 +104,38 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 			return true;
 		}
 		catch (DuplicateKeyException ex) {
+			if (StringUtils.hasText(lock.getSubjectType()) && StringUtils.hasText(lock.getSubjectId())) {
+				// 首单主体唯一约束：并发两单只有一单能拿到首单，后到者必须刷新价格，不能静默带优惠成单
+				throw new ArynBusinessException("首单优惠已被其他订单占用，请刷新价格后重新提交");
+			}
 			log.info("订单[{}]活动[{}]并发锁定命中唯一约束，幂等跳过", context.getOrderId(), detail.getActivityId());
 			return false;
+		}
+	}
+
+	/** 首单活动把主体写进锁，供主体唯一索引与报表使用；普通活动保持为空。 */
+	private void applySubject(PromotionLock lock, PromotionContextDTO context,
+			PromotionCalculationVO.ActivityDetail detail) {
+		if (!StringUtils.hasText(detail.getRuleSnapshot())) {
+			return;
+		}
+		try {
+			JSONObject rules = JSONUtil.parseObj(detail.getRuleSnapshot());
+			if (!Boolean.TRUE.equals(rules.getBool("firstOrderOnly", false))) {
+				return;
+			}
+			String subjectType = rules.getStr("subjectType");
+			if (FirstOrderEligibilityVO.SUBJECT_SHIP.equals(subjectType)) {
+				lock.setSubjectType(subjectType);
+				lock.setSubjectId(context.getVesselId());
+			}
+			else if (FirstOrderEligibilityVO.SUBJECT_BUYER_ORG.equals(subjectType)) {
+				lock.setSubjectType(subjectType);
+				lock.setSubjectId(context.getBuyerOrgId());
+			}
+		}
+		catch (Exception ex) {
+			log.warn("活动[{}]首单规则解析失败，锁不落主体: {}", detail.getActivityId(), ex.getMessage());
 		}
 	}
 
@@ -163,9 +196,43 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 	}
 
 	/**
-	 * 赠品额度竞态兜底：并发把赠品抢完后本次降级为不赠，
-	 * 赠品金额为 0，不影响订单应付，也不阻断付费商品成交。
+	 * 首单竞态兜底：preview 已按主体占用剔除；并发双单同时通过试算时，
+	 * 这里在落锁前再查一次，最终由 promotion_lock 主体唯一索引兜底。
 	 */
+	private void assertFirstOrderSubjectUnique(PromotionContextDTO context, PromotionCalculationVO calculation) {
+		if (calculation == null || calculation.getDetails() == null) {
+			return;
+		}
+		for (PromotionCalculationVO.ActivityDetail detail : calculation.getDetails()) {
+			if (!StringUtils.hasText(detail.getRuleSnapshot())) {
+				continue;
+			}
+			try {
+				JSONObject rules = JSONUtil.parseObj(detail.getRuleSnapshot());
+				if (!Boolean.TRUE.equals(rules.getBool("firstOrderOnly", false))) {
+					continue;
+				}
+				String subjectType = rules.getStr("subjectType");
+				String subjectId = FirstOrderEligibilityVO.SUBJECT_SHIP.equals(subjectType)
+						? context.getVesselId() : context.getBuyerOrgId();
+				if (!StringUtils.hasText(subjectType) || !StringUtils.hasText(subjectId)) {
+					throw new ArynBusinessException("首单活动缺少主体信息，无法锁定优惠");
+				}
+				if (promotionLockUsage.countSubjectLocks(context.getTenantId(), subjectType, subjectId,
+						detail.getActivityId()) > 0) {
+					throw new ArynBusinessException("首单优惠已被其他订单占用，请刷新价格后重新提交");
+				}
+			}
+			catch (ArynBusinessException ex) {
+				throw ex;
+			}
+			catch (Exception ex) {
+				log.warn("首单主体占用查询失败，按放行处理 activity={}: {}", detail.getActivityId(), ex.getMessage());
+			}
+		}
+	}
+
+
 	private void dropUnavailableGifts(PromotionContextDTO context, PromotionCalculationVO calculation) {
 		for (PromotionCalculationVO.ActivityDetail detail : new ArrayList<>(calculation.getDetails())) {
 			if (!PromotionActivity.TYPE_GIFT.equals(detail.getActivityType())) {

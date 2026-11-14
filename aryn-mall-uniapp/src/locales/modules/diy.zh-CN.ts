@@ -96,11 +96,11 @@ export default {
     newbieFloor: {
       defaultTitle: '新人专享',
       tag: '新',
-      subtitle: '首单专享价',
+      subtitle: '每款首件专享价',
       countdownEndedPrefix: '活动',
       countdownEndedText: '已结束',
       countdownPrefix: '距结束',
-      perks: '注册{registerDays}天内新人 · 首件享新人价，超出按销售价',
+      perks: '注册{registerDays}天内新人 · 每款首件享新人价，超出按销售价',
       priceBadge: '新人价',
       fallbackGoodsName: '新人专享商品',
       limitToast: '新人专享价每人限购 {limit} 件，超出按销售价',

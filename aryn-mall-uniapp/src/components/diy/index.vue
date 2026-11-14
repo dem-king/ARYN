@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DecorationSection } from './schema/types'
 
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 
@@ -185,6 +185,7 @@ const stickySearchId = computed(() => stickySearch.value?.id ?? '')
 const stickyOffsetTop = computed(
   () => stickyTop.value + (stickySearch.value?.occupiedHeight ?? 0),
 )
+
 // 主题色浅色面：主色追加 9% 透明（hex 8 位），服务承诺圆底等 tint 消费。
 // CSS 无法从 var() 派生透明度（小程序不支持 color-mix），只能两端同口径预计算；
 // 非 6 位 hex 不下发，组件侧走自己的 rgba 兜底。管理端画布在
@@ -207,6 +208,102 @@ const immersiveNavEnabled = computed(
     && document.value.page.navigation.visible
     && document.value.page.navigation.scrollEffect?.mode === 'fade',
 )
+
+/**
+ * 页面是否存在「吸顶 Tab 栏」的楼层（与 diy-goods-tabs 的缺省口径一致：
+ * props.stickyTabs !== false 即开启）。楼层自身开了 sticky 的除外——那种
+ * 组合下 Tab 栏随楼层一起钉住，被楼层的层叠上下文困住，骑不到页面玻璃上。
+ */
+const hasStickyTabs = computed(() =>
+  sections.value.some(section =>
+    !section.style.sticky
+    && section.components.some(
+      item =>
+        item.type === 'goods-tabs'
+        && (item.props as Record<string, unknown> | undefined)?.stickyTabs !== false,
+    ),
+  ),
+)
+
+/**
+ * 各楼层吸顶 Tab 栏的实时吸顶态与实测栏高（由 diy-goods-tabs 上报，key = 组件 id）。
+ *
+ * 只有**已经吸顶**的 Tab 栏才允许把栏高算进头部玻璃：Tab 栏还在页面中段时，
+ * 它离吸顶线可能还差一整屏，提前按吸顶高度铺玻璃，顶部就会凭空多出一条栏高
+ * 的磨砂白，商品从下面滑过时被这块「不存在的栏」盖住。用一层 Record（不是单个
+ * boolean）：同页可能有多个 tab 楼层，各自独立上报。
+ *
+ * 栏高也由子组件给：微信小程序的**页面级** `uni.createSelectorQuery()` 选择
+ * 不到自定义组件内部节点，DiyPage 自己查 `.goods-tabs__bar` 恒返回 null，
+ * 真机表现就是「Tab 栏吸顶变透明了、背后没有玻璃」，文字直接压在商品卡上。
+ */
+const tabsStuckBySection = ref<Record<string, { height: number, stuck: boolean }>>({})
+
+const anyTabsStuck = computed(() =>
+  hasStickyTabs.value && Object.values(tabsStuckBySection.value).some(state => state.stuck),
+)
+
+/** 已吸顶栏的实测高度（取最大值：同页多个 Tab 楼层时以最高的一条为准） */
+const stuckTabsBarHeight = computed(() =>
+  Object.values(tabsStuckBySection.value)
+    .filter(state => state.stuck)
+    .reduce((max, state) => Math.max(max, state.height), 0),
+)
+
+/**
+ * 吸顶态 / 栏高上报入口（**方法引用**，不在模板里写内联闭包）。
+ *
+ * 小程序模板里的内联箭头会被塞进渲染数据（`bindstuckChange="{{item.at}}"`），
+ * 每次渲染都生成新闭包；用方法引用 + 子组件回传 `tabKey` 更稳。
+ */
+function onTabsStuckChange(tabKey: string, stuck: boolean, height: number) {
+  if (!tabKey)
+    return
+  const current = tabsStuckBySection.value[tabKey]
+  if (current && current.stuck === stuck && current.height === height)
+    return
+  tabsStuckBySection.value = {
+    ...tabsStuckBySection.value,
+    [tabKey]: { height, stuck },
+  }
+}
+
+/**
+ * 某条 Tab 栏是否真的被宿主玻璃盖住：已吸顶且栏高已上报（> 0）。
+ *
+ * 玻璃延伸高度 = 搜索栏 + 栏高，栏高量不到时为 0，此时玻璃底沿只到搜索栏，
+ * 撤掉 Tab 栏自身磨砂就会漏出一段纯透明 —— 文字直接压在商品卡上。这里把
+ * 「玻璃是否真的垫在背后」做成显式条件下传给子组件，宁可留着两块玻璃的接缝，
+ * 也不能出现没有背景的文字。
+ */
+function tabGlassCoversBar(componentId: string): boolean {
+  if (!immersiveNavEnabled.value)
+    return false
+  const state = tabsStuckBySection.value[componentId]
+  return Boolean(state?.stuck && state.height > 0)
+}
+
+watch([sections, hasStickyTabs], () => {
+  // 装修配置换了：旧 Tab 栏的吸顶态与栏高作废，等新栏吸顶后重新上报
+  tabsStuckBySection.value = {}
+}, { immediate: true })
+
+/**
+ * 头部玻璃向下延伸高度：沉浸式导航开启时让 hr-navbar-bg 覆盖「导航栏下沿 →
+ * 搜索栏下沿」之间的留白与搜索栏整条；吸顶 Tab 栏**已吸顶**时再计入实测栏高，
+ * 玻璃底沿 = 吸顶线 + 栏高，Tab 栏撤自身磨砂透明骑在玻璃上——整条头部只做
+ * 一次 backdrop-filter，两块玻璃各自 blur 时拼接处必有裸带与接缝。
+ *
+ * 未吸顶时不计栏高：玻璃止于搜索栏下沿，不会提前把 Tab 栏的高度铺出来。
+ */
+const headerGlassExtraHeight = computed(() => {
+  if (!immersiveNavEnabled.value)
+    return 0
+  return (
+    (stickySearch.value?.occupiedHeight ?? 0)
+    + (anyTabsStuck.value ? stuckTabsBarHeight.value : 0)
+  )
+})
 
 /**
  * 目标底色 + 目标态 alpha → CSS rgba()。
@@ -254,7 +351,6 @@ const pageStyle = computed(() => ({
         '--diy-nav-surface-blur': navigationScrollSurface.value.blur
           ? 'blur(18px) saturate(160%)'
           : 'none',
-        '--diy-nav-hairline': 'rgba(15, 23, 42, 0.08)',
       }
     : {}),
   // 有效主色 = 页面固化主题 > 商城默认主题，与 ConfigProvider 下发的
@@ -358,21 +454,22 @@ function sectionStyle(section: DecorationSection) {
       v-if="!embedded && document.page.navigation.visible"
       :title="title"
       :left-arrow="false"
-      :bordered="false"
       :background-color="navigationAppearance.backgroundColor"
       :background-image="navigationAppearance.backgroundImage"
       :text-color="navigationAppearance.textColor"
       :scroll-effect="navigationScrollEffect"
       :scroll-surface="navigationScrollSurface"
-      :hairline="!stickySearch"
+      :bg-extra-height="headerGlassExtraHeight"
     />
     <!--
       常驻搜索栏：首区块第一个搜索框开启「滚动常驻」后，由页面级渲染一份固定层
       （滚动进度只在该组件内部消费），区块里那份退化为只占高度的占位实例。
+      沉浸式导航开启时它的材质托管给 hr-navbar-bg 延伸层，整条头部一块玻璃。
     -->
     <DiySearchBar
       v-if="stickySearch"
       pinned
+      :material-hosted="immersiveNavEnabled"
       :show-data="stickySearch.props"
       :host-background="stickySearch.hostBackground"
       :pinned-top="stickySearch.top"
@@ -487,6 +584,10 @@ function sectionStyle(section: DecorationSection) {
             v-else-if="item.type === 'goods-tabs'"
             :show-data="item.props"
             :immersive-nav="immersiveNavEnabled"
+            :sticky-line="section.style.sticky ? 0 : stickyOffsetTop"
+            :glass-covers-bar="tabGlassCoversBar(item.id)"
+            :tab-key="item.id"
+            @stuck-change="onTabsStuckChange"
           />
           <DiyMemberBenefits
             v-else-if="item.type === 'member-benefits'"

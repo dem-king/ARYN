@@ -25,6 +25,7 @@ import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useResponsiveColumns } from '@/composables/useResponsiveColumns'
 import { useZonePrices } from '@/composables/useZonePrices'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import { imageAspectPadding } from '@/utils/image-ratio'
 import { splitIntoColumns } from '@/utils/masonry'
 import { STOCK_LOW_THRESHOLD } from '@/utils/stock-display'
@@ -83,6 +84,8 @@ const emit = defineEmits<{
   /** 列表滚动事件原样上抛：宿主页据此驱动顶栏磨砂材质（分类页头部覆盖层） */
   (e: 'scroll', event: { detail?: { scrollTop?: number } }): void
 }>()
+
+const statusTipStore = useStatusTipStore()
 
 function handleAdded(spuId: string) {
   emit('added', spuId)
@@ -461,7 +464,7 @@ function imageBoxStyle(item: any) {
       <template #empty>
         <view class="list-empty">
           <wd-status-tip
-            :image="loadFailed ? 'network' : 'content'"
+            :image="statusTipStore.imageFor(loadFailed ? 'network' : 'content')"
             image-size="176rpx"
             :tip="loadFailed ? t('catalog.loadFailedRetry') : t('catalog.noProductsForFilter')"
           />

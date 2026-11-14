@@ -11,6 +11,7 @@ import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
+import com.aryn.cloud.order.api.entity.BuyerOrg;
 import com.aryn.cloud.order.api.entity.SharedCartImport;
 import com.aryn.cloud.order.api.entity.SharedCartImportRow;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
@@ -29,6 +30,7 @@ import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IOrderInfoService;
+import com.aryn.cloud.order.service.IBuyerOrgService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.SharedCartInviteNotifyService;
@@ -125,6 +127,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	/** 配送范围（岸上车地址在创建与提交两处校验，范围口径与普通订单 way=3 一致） */
 	private final IDeliveryAreaService deliveryAreaService;
 
+	/** 采购主体：岸上车创建必须绑定主体，创建人须为该主体有效成员 */
+	private final IBuyerOrgService buyerOrgService;
+
 	/** 商品域：摘要卡片需要 SKU 售价与规格（明细表只存 ID，不存快照） */
 	@DubboReference
 	private RemoteGoodsSkuService remoteGoodsSkuService;
@@ -164,10 +169,14 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		boolean shoreCart = SharedCart.CART_TYPE_SHORE.equals(dto.normalizedCartType());
 		String vesselRole = null;
 		UserAddress address = null;
+		BuyerOrg buyerOrg = null;
 		if (shoreCart) {
 			// 岸上企业车：收货人地址是配送终点，必须取发起人地址簿里的地址
 			// （getById 两参带 userId 归属校验，不能借别人的地址建车），且须在公司配送范围内。
 			address = requireShoreAddress(tenantId, userId, dto.getUserAddressId());
+			// 岸上企业车必须先有采购主体：主体不存在/停用/驳回、或发起人不是有效成员都会被拦。
+			// 待审核主体放行（可先下企业单），是否享首单由 P1 引擎按 audit_status 判。
+			buyerOrg = buyerOrgService.requireUsableForCart(tenantId, userId, dto.getBuyerOrgId());
 		}
 		else {
 			// 发起人必须是该船在船成员：前端只对已选船+靠港的用户开放创建入口，但入参不可信。
@@ -184,11 +193,11 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 
 		// 同车去重：船供车按船舶（同船同时只允许一个「收集中」，否则同船同一靠港会各下各的单）；
-		// 岸上车按发起人（工厂地址是私有的，没有「同址去重」的共享维度，一人一张收集中即可，
-		// 数据库兜底见 uk_shared_cart_shore_active）。命中时返回已有购物车并自动并入，
+		// 岸上车按「发起人 + 采购主体」（同一发起人可在不同工厂各开一张车，
+		// 同一工厂仍只允许一张收集中车，数据库兜底见 uk_shared_cart_shore_scope）。命中时返回已有购物车并自动并入，
 		// 由前端打开该车（并发场景由唯一索引兜底）。
 		SharedCart existing = shoreCart
-				? findActiveShoreCart(tenantId, userId)
+				? findActiveShoreCart(tenantId, userId, buyerOrg.getId())
 				: findActiveShipCart(tenantId, dto.getVesselId());
 		if (existing != null) {
 			log.info("{}共享购物车[{}]已有进行中记录，创建请求被引导至已有购物车",
@@ -206,6 +215,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		cart.setVesselCallId(shoreCart ? null : dto.getVesselCallId());
 		cart.setUserAddressId(shoreCart ? address.getId() : null);
 		cart.setAddressSnapshot(shoreCart ? buildAddressSnapshot(address) : null);
+		cart.setBuyerOrgId(shoreCart ? buyerOrg.getId() : null);
+		cart.setBuyerOrgName(shoreCart ? buyerOrg.getOrgName() : null);
 		cart.setOwnerUserId(userId);
 		cart.setConfirmerUserId(userId);
 		cart.setStatus(SharedCart.STATUS_COLLECTING);
@@ -276,12 +287,13 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				.last("LIMIT 1"));
 	}
 
-	/** 发起人的岸上收集中车：岸上场景不存在「同船」共享维度，按发起人收敛为一张。 */
-	private SharedCart findActiveShoreCart(String tenantId, String ownerUserId) {
+	/** 发起人在指定主体下的岸上收集中车：同一工厂只收敛为一张，不同主体互不影响。 */
+	private SharedCart findActiveShoreCart(String tenantId, String ownerUserId, String buyerOrgId) {
 		return sharedCartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
 				.eq(SharedCart::getTenantId, tenantId)
 				.eq(SharedCart::getCartType, SharedCart.CART_TYPE_SHORE)
 				.eq(SharedCart::getOwnerUserId, ownerUserId)
+				.eq(SharedCart::getBuyerOrgId, buyerOrgId)
 				.eq(SharedCart::getStatus, SharedCart.STATUS_COLLECTING)
 				.last("LIMIT 1"));
 	}
@@ -1108,6 +1120,12 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			vo.setVesselCallId(cart.getVesselCallId());
 			vo.setUserAddressId(cart.getUserAddressId());
 			vo.setAddressSnapshot(cart.getAddressSnapshot());
+			vo.setBuyerOrgId(cart.getBuyerOrgId());
+			vo.setBuyerOrgName(cart.getBuyerOrgName());
+			if (StringUtils.hasText(cart.getBuyerOrgId())) {
+				BuyerOrg org = buyerOrgService.getOrg(tenantId, cart.getBuyerOrgId());
+				vo.setBuyerOrgAuditStatus(org == null ? null : org.getAuditStatus());
+			}
 			vo.setOwnerUserId(cart.getOwnerUserId());
 			vo.setConfirmerUserId(cart.getConfirmerUserId());
 			vo.setStatus(cart.getStatus());
@@ -1597,6 +1615,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			createOrderDTO.setDeliveryWay("3");
 			createOrderDTO.setPurchaseScene("3");
 			createOrderDTO.setUserAddressId(cart.getUserAddressId());
+			// 主体快照随订单落库：P1 首单资格按 buyer_org_id 判，不能只看下单账号。
+			// 历史岸上车没有主体，保持为空允许继续提交（不能因为补字段把旧车卡死）。
+			createOrderDTO.setBuyerOrgId(cart.getBuyerOrgId());
+			createOrderDTO.setBuyerOrgName(cart.getBuyerOrgName());
 		}
 		else {
 			createOrderDTO.setDeliveryWay("4");

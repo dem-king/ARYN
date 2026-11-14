@@ -4,6 +4,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
+import com.aryn.cloud.order.api.entity.BuyerOrg;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
@@ -69,6 +70,7 @@ class SharedCartServiceImplTest {
 	private RemoteUserAddressService remoteUserAddressService;
 	private IDeliveryAreaService deliveryAreaService;
 	private SharedCartInviteNotifyService inviteNotifyService;
+	private com.aryn.cloud.order.service.IBuyerOrgService buyerOrgService;
 	private SharedCartServiceImpl service;
 
 	@BeforeEach
@@ -82,9 +84,11 @@ class SharedCartServiceImplTest {
 		remoteUserAddressService = mock(RemoteUserAddressService.class);
 		deliveryAreaService = mock(IDeliveryAreaService.class);
 		inviteNotifyService = mock(SharedCartInviteNotifyService.class);
+		buyerOrgService = mock(com.aryn.cloud.order.service.IBuyerOrgService.class);
 		service = new SharedCartServiceImpl(sharedCartMapper, sharedCartMemberMapper,
 				sharedCartItemMapper, mock(SharedCartImportMapper.class),
 				mock(SharedCartImportRowMapper.class), orderInfoService, deliveryAreaService,
+				buyerOrgService,
 				mock(ChainAiAssistant.class), inviteNotifyService);
 		// @DubboReference 字段不走构造器，测试里反射注入
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
@@ -176,8 +180,10 @@ class SharedCartServiceImplTest {
 		SharedCartCreateDTO dto = new SharedCartCreateDTO();
 		dto.setCartType(SharedCart.CART_TYPE_SHORE);
 		dto.setUserAddressId("addr-1");
+		dto.setBuyerOrgId("org-1");
 		when(remoteUserAddressService.getById("addr-1", "user-1")).thenReturn(shoreAddress());
 		when(deliveryAreaService.isAddressInDeliveryArea("320000", "320600", "320602")).thenReturn(true);
+		when(buyerOrgService.requireUsableForCart(TENANT, "user-1", "org-1")).thenReturn(buyerOrg());
 		// 无已有收集中车
 		when(sharedCartMapper.selectOne(any(Wrapper.class))).thenReturn(null);
 
@@ -189,6 +195,9 @@ class SharedCartServiceImplTest {
 		assertThat(cartCaptor.getValue().getVesselId()).isNull();
 		assertThat(cartCaptor.getValue().getUserAddressId()).isEqualTo("addr-1");
 		assertThat(cartCaptor.getValue().getAddressSnapshot()).contains("张三").contains("13800000000");
+		// 采购主体随车落快照，订单提交时直接取用
+		assertThat(cartCaptor.getValue().getBuyerOrgId()).isEqualTo("org-1");
+		assertThat(cartCaptor.getValue().getBuyerOrgName()).isEqualTo("宁波恒远机械");
 		// 岸上车不校验船舶成员
 		verify(remoteVesselService, never()).getVesselMemberRole(any(), any(), any());
 		assertThat(created.getCartType()).isEqualTo(SharedCart.CART_TYPE_SHORE);
@@ -199,8 +208,10 @@ class SharedCartServiceImplTest {
 		SharedCartCreateDTO dto = new SharedCartCreateDTO();
 		dto.setCartType(SharedCart.CART_TYPE_SHORE);
 		dto.setUserAddressId("addr-1");
+		dto.setBuyerOrgId("org-1");
 		when(remoteUserAddressService.getById("addr-1", "user-1")).thenReturn(shoreAddress());
 		when(deliveryAreaService.isAddressInDeliveryArea("320000", "320600", "320602")).thenReturn(true);
+		when(buyerOrgService.requireUsableForCart(TENANT, "user-1", "org-1")).thenReturn(buyerOrg());
 		SharedCart active = shoreCollectingCart();
 		when(sharedCartMapper.selectOne(any(Wrapper.class))).thenReturn(active);
 		// 发起人已在成员表（owner 建车时写入），adopt 走幂等分支
@@ -381,6 +392,8 @@ class SharedCartServiceImplTest {
 		cart.setVesselId(null);
 		cart.setUserAddressId("addr-1");
 		cart.setAddressSnapshot("江苏省南通市崇川区港闸路1号 张三 13800000000");
+		cart.setBuyerOrgId("org-1");
+		cart.setBuyerOrgName("宁波恒远机械");
 		cart.setOwnerUserId("user-1");
 		cart.setConfirmerUserId("user-1");
 		cart.setStatus(SharedCart.STATUS_COLLECTING);
@@ -402,6 +415,16 @@ class SharedCartServiceImplTest {
 		address.setAreaName("崇川区");
 		address.setDetailAddress("港闸路1号");
 		return address;
+	}
+
+	private BuyerOrg buyerOrg() {
+		BuyerOrg org = new BuyerOrg();
+		org.setId("org-1");
+		org.setTenantId(TENANT);
+		org.setOrgName("宁波恒远机械");
+		org.setStatus("1");
+		org.setAuditStatus("1");
+		return org;
 	}
 
 	private SharedCart collectingCart(String callId) {

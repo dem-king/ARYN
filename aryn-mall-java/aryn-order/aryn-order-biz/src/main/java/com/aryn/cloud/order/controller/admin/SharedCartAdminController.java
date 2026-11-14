@@ -103,6 +103,10 @@ public class SharedCartAdminController {
 				.eq(StringUtils.hasText(query.getVesselCallId()), SharedCart::getVesselCallId,
 						query.getVesselCallId())
 				.like(StringUtils.hasText(query.getCartNo()), SharedCart::getCartNo, query.getCartNo())
+				.eq(StringUtils.hasText(query.getBuyerOrgId()), SharedCart::getBuyerOrgId,
+						query.getBuyerOrgId())
+				.like(StringUtils.hasText(query.getBuyerOrgName()), SharedCart::getBuyerOrgName,
+						query.getBuyerOrgName())
 				.orderByDesc(SharedCart::getCreateTime));
 
 		List<SharedCart> carts = cartPage.getRecords();

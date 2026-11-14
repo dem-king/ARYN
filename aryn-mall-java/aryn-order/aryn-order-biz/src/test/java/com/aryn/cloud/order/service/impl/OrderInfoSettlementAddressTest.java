@@ -4,8 +4,11 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.core.entity.CallbackPrefixProperties;
 import com.aryn.cloud.common.logistics.util.Kuaidi100Utils;
+import com.aryn.cloud.order.api.constant.BuyerOrgConstants;
+import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SettlementOrderDTO;
+import com.aryn.cloud.order.api.entity.BuyerOrg;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
@@ -69,6 +72,10 @@ class OrderInfoSettlementAddressTest {
 
 	private OrderPriceComputeService orderPriceComputeService;
 
+	private com.aryn.cloud.order.service.IBuyerOrgService buyerOrgService;
+
+	private PurchaseSceneValidator purchaseSceneValidator;
+
 	@BeforeAll
 	static void initMybatisMetadata() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), OrderInfo.class);
@@ -83,6 +90,8 @@ class OrderInfoSettlementAddressTest {
 		remoteMallUserService = mock(RemoteMallUserService.class);
 		remoteUserAddressService = mock(RemoteUserAddressService.class);
 		orderPriceComputeService = mock(OrderPriceComputeService.class);
+		buyerOrgService = mock(com.aryn.cloud.order.service.IBuyerOrgService.class);
+		purchaseSceneValidator = mock(PurchaseSceneValidator.class);
 
 		com.aryn.cloud.order.service.OrderStaffNotifyService staffNotifyService = mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class);
 		@SuppressWarnings("unchecked")
@@ -102,8 +111,10 @@ class OrderInfoSettlementAddressTest {
 				mock(com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService.class), mock(RocketMQTemplate.class),
 				mock(CallbackPrefixProperties.class), mock(IDeliveryTaskService.class),
 				mock(com.aryn.cloud.order.service.IOrderDeliveryStateService.class),
-				mock(com.aryn.cloud.order.service.IDeliveryAreaService.class), mock(PromotionSnapshotMapper.class),
-				mock(PurchaseSceneValidator.class), mock(DeliveryContextValidator.class),
+				mock(com.aryn.cloud.order.service.IDeliveryAreaService.class),
+				mock(com.aryn.cloud.order.service.IFreightRuleService.class),
+				buyerOrgService, mock(PromotionSnapshotMapper.class),
+				purchaseSceneValidator, mock(DeliveryContextValidator.class),
 				mock(com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier.class),
 				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class),
 				mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class), sharedCartProvider, staffNotifyService,
@@ -181,7 +192,7 @@ class OrderInfoSettlementAddressTest {
 		assertThat(result.getRecipientPhone()).isNull();
 		assertThat(result.getOrderItemList()).hasSize(1);
 		verify(remoteUserAddressService, never()).getById(any(), any());
-		verify(orderPriceComputeService, never()).orderFreightHandler(any(), anyList(), anyList(), anyBoolean());
+		verify(orderPriceComputeService, never()).orderFreightHandler(any(), anyList(), anyList(), anyBoolean(), any());
 	}
 
 	@Test
@@ -207,7 +218,7 @@ class OrderInfoSettlementAddressTest {
 		assertThat(result.getRecipientName()).isEqualTo("张三");
 		assertThat(result.getRecipientPhone()).isEqualTo("13222222222");
 		assertThat(result.getRecipientAddress()).isEqualTo("测试地址 1 号");
-		verify(orderPriceComputeService).orderFreightHandler(any(), anyList(), anyList(), anyBoolean());
+		verify(orderPriceComputeService).orderFreightHandler(any(), anyList(), anyList(), anyBoolean(), any());
 	}
 
 	@Test
@@ -221,5 +232,73 @@ class OrderInfoSettlementAddressTest {
 		SettlementOrderDTO cleared = dto("3", null);
 		cleared.setRemark("");
 		assertThat(service.settlementOrder(cleared).getRemark()).isEmpty();
+	}
+
+	@Test
+	@DisplayName("企业订单落主体快照：名称/信用代码以档案为准，覆盖客户端伪造值")
+	void enterpriseOrderSnapshotsBuyerOrg() {
+		BuyerOrg org = new BuyerOrg()
+			.setId("org-1")
+			.setOrgName("宁波恒远机械")
+			.setCreditCode("91330200MA2H12345X")
+			.setAuditStatus(BuyerOrgConstants.AUDIT_APPROVED)
+			.setStatus(BuyerOrgConstants.STATUS_NORMAL);
+		when(purchaseSceneValidator.normalize(any())).thenReturn("3");
+		when(buyerOrgService.requireForOrder(any(), any(), any())).thenReturn(org);
+
+		CreateOrderDTO dto = new CreateOrderDTO();
+		dto.setUserId("user-1");
+		dto.setPurchaseScene("3");
+		dto.setBuyerOrgId("org-1");
+		dto.setBuyerOrgName("客户端伪造名称");
+
+		OrderInfo order = ReflectionTestUtils.invokeMethod(service, "generateOrder", dto);
+
+		assertThat(order.getBuyerOrgId()).isEqualTo("org-1");
+		assertThat(order.getBuyerOrgName()).isEqualTo("宁波恒远机械");
+		assertThat(order.getBuyerOrgCreditCode()).isEqualTo("91330200MA2H12345X");
+		assertThat(order.getBuyerOrgAuditStatus()).isEqualTo(BuyerOrgConstants.AUDIT_APPROVED);
+		verify(buyerOrgService).requireForOrder(any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("待审核主体下单落审核状态快照 0：支付后不消耗首单，审核通过仍可享")
+	void pendingOrgOrderSnapshotsPendingAuditStatus() {
+		BuyerOrg org = new BuyerOrg()
+			.setId("org-1")
+			.setOrgName("宁波恒远机械")
+			.setAuditStatus(BuyerOrgConstants.AUDIT_PENDING)
+			.setStatus(BuyerOrgConstants.STATUS_NORMAL);
+		when(purchaseSceneValidator.normalize(any())).thenReturn("3");
+		when(buyerOrgService.requireForOrder(any(), any(), any())).thenReturn(org);
+
+		CreateOrderDTO dto = new CreateOrderDTO();
+		dto.setUserId("user-1");
+		dto.setPurchaseScene("3");
+		dto.setBuyerOrgId("org-1");
+
+		OrderInfo order = ReflectionTestUtils.invokeMethod(service, "generateOrder", dto);
+
+		assertThat(order.getBuyerOrgId()).isEqualTo("org-1");
+		assertThat(order.getBuyerOrgAuditStatus()).isEqualTo(BuyerOrgConstants.AUDIT_PENDING);
+	}
+
+	@Test
+	@DisplayName("个人/船供订单即使误传 buyerOrgId 也不落主体，避免污染首单统计")
+	void nonEnterpriseOrderIgnoresBuyerOrg() {
+		when(purchaseSceneValidator.normalize(any())).thenReturn("1");
+
+		CreateOrderDTO dto = new CreateOrderDTO();
+		dto.setUserId("user-1");
+		dto.setPurchaseScene("1");
+		dto.setBuyerOrgId("org-1");
+
+		OrderInfo order = ReflectionTestUtils.invokeMethod(service, "generateOrder", dto);
+
+		assertThat(order.getBuyerOrgId()).isNull();
+		assertThat(order.getBuyerOrgName()).isNull();
+		assertThat(order.getBuyerOrgCreditCode()).isNull();
+		assertThat(order.getBuyerOrgAuditStatus()).isNull();
+		verify(buyerOrgService, never()).requireForOrder(any(), any(), any());
 	}
 }

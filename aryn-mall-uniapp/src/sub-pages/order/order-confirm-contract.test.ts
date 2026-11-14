@@ -52,9 +52,12 @@ describe('order confirm duplicate SKU merge contract', () => {
   it('builds skuReqList from the merged duplicate-SKU list', () => {
     const confirm = source(ORDER_CONFIRM)
     const initData = functionSource(confirm, 'initData')
-    // 提交参数必须由合并后的列表构造；原样映射会让同 SKU 的两行一起提交
-    expect(initData).toContain('mergeDuplicateSkuItems(createGoodsList.value || [])')
-    expect(initData).toContain('state.orderParams.skuReqList = orderItemList')
+    // 提交参数必须由合并后的列表构造；原样映射会让同 SKU 的两行一起提交。
+    // 凑单返回后也要重建同一份清单，因此合并逻辑抽到 buildSkuReqList 共用
+    const builder = functionSource(confirm, 'buildSkuReqList')
+    expect(builder).toContain('mergeDuplicateSkuItems(createGoodsList.value || [])')
+    expect(builder).toContain('orderItemList')
+    expect(initData).toContain('state.orderParams.skuReqList = buildSkuReqList()')
   })
 
   it('keeps the cross-port-call guard on the raw createGoodsList rows', () => {

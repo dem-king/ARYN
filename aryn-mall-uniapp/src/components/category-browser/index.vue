@@ -270,8 +270,8 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.visualHeight ?? 0)
       ref="searchNavbarRef"
       :left-arrow="props.showBack"
       :disabled="true"
-      :bordered="!sheetVisible"
       :force-frosted="sheetVisible"
+      :glass-hosted="true"
       :placeholder="t('catalog.searchProducts')"
       :search-btn="true"
       @search="toSearch"
@@ -287,9 +287,23 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.visualHeight ?? 0)
     </hr-search-navbar>
 
     <!--
+      头部统一玻璃层：滚动后整条头部（导航栏 + 一级图标条）只画这一块
+      86% 白 + 毛玻璃，搜索导航栏与图标条自身都撤掉自绘磨砂（glass-hosted /
+      frosted 只撤底色），消除两块玻璃拼接处的接缝与裸带——商品从下方滑过时
+      不再分层。高度盖满 categoryHeaderHeight，下沿正好是排序条的吸顶线。
+      「全部分类」浮层展开时让位（玻璃关、顶栏走 forceFrosted 自绘），
+      避免浮层场景下顶栏双层白。
+    -->
+    <view
+      class="category-header-glass"
+      :class="{ 'category-header-glass--on': scrolled && !sheetVisible }"
+      :style="{ height: `${categoryHeaderHeight}px` }"
+    />
+
+    <!--
       头部覆盖层：一级图标条钉在搜索栏下沿，内容从其下方穿过。
-      滚动后本层一步切成半透明白 + 背景模糊（与首页顶栏同一材质），
-      图标条自身撤掉白底（:frosted），毛玻璃才透得出来。
+      滚动后本层撤掉自绘底色，磨砂白与毛玻璃由统一玻璃层负责，
+      图标条自身撤掉白底（:frosted），玻璃才透得出来。
     -->
     <view class="category-header" :class="{ 'category-header--frosted': scrolled }">
       <category-icon-strip
@@ -472,10 +486,29 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.visualHeight ?? 0)
   background: var(--app-card);
 }
 
-/* 滚动后一步切磨砂：半透明白 + 背景模糊，与首页顶栏同一材质数值 */
+/* 滚动后撤掉自绘底色：磨砂白与毛玻璃由统一玻璃层（890）负责，图标条内容在其上 */
 .category-header--frosted {
+  background: transparent;
+}
+
+/**
+ * 头部统一玻璃层：盖满「导航栏 + 图标条」整条头部，滚动后一步出现。
+ * 只画这一块磨砂（86% 白 + blur 18px，与首页顶栏同材质数值），搜索导航栏
+ * （1000）与图标条覆盖层（900）的内容都在它之上；排序条吸顶后紧贴下沿。
+ * z-index 低于「全部分类」浮层（999）：浮层打开时整块盖住图标条区段。
+ */
+.category-header-glass {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 890;
+  pointer-events: none;
+}
+
+/* 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的写法） */
+.category-header-glass--on {
   background: rgba(255, 255, 255, 0.86);
-  /* 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的写法） */
   -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
 }

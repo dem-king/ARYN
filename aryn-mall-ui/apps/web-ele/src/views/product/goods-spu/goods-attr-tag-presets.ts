@@ -107,6 +107,85 @@ export const GOODS_ATTR_TAG_LABEL_PRESETS: GoodsAttrTagLabelPreset[] = [
   },
 ];
 
+/** 一条属性名候选的展示数据：主文案 + 说明，供下拉做两行排版 */
+export interface GoodsAttrTagLabelSuggestion {
+  hint: string;
+  value: string;
+  /** 该属性名下的常用值条数，让运营知道选中后还能挑值 */
+  valueCount: number;
+}
+
+/**
+ * 属性名下拉候选。只按属性名做包含匹配，不带 hint 匹配——
+ * 运营输入「储」是想找「储存条件」，不该被说明文案里的词带出无关条目。
+ */
+export function getAttrLabelSuggestions(
+  keyword: null | string | undefined,
+): GoodsAttrTagLabelSuggestion[] {
+  return filterAttrSuggestions(
+    GOODS_ATTR_TAG_LABEL_PRESETS.map((item) => item.label),
+    keyword,
+  ).map((value) => {
+    const preset = getAttrLabelPreset(value);
+    return {
+      hint: preset?.hint ?? '',
+      value,
+      valueCount: preset?.values.length ?? 0,
+    };
+  });
+}
+
+/** 一条属性值候选的展示数据：值 + 所属属性名，未选属性名时也能看懂上下文 */
+export interface GoodsAttrTagValueSuggestion {
+  /** 候选是否已按当前行的属性名收敛；false 时列表是全局候选池 */
+  scoped: boolean;
+  /** 该值所属的属性名 */
+  label: string;
+  value: string;
+}
+
+/**
+ * 属性值下拉候选：
+ * - 当前行已选预设属性名 → 只给该属性名下的值（`scoped=true`）；
+ * - 未选 / 自建属性名 → 给全部预设值的并集，并在候选项上标注所属属性名；
+ * - 关键词同时匹配属性值与属性名（输入「储存」能带出「冷藏」）。
+ */
+export function getAttrValueSuggestions(
+  label: null | string | undefined,
+  keyword: null | string | undefined,
+): GoodsAttrTagValueSuggestion[] {
+  const key = (label ?? '').trim();
+  const query = (keyword ?? '').trim().toLowerCase();
+  const scopedPreset = GOODS_ATTR_TAG_LABEL_PRESETS.find(
+    (item) => item.label === key,
+  );
+  const groups = scopedPreset
+    ? [{ label: scopedPreset.label, values: scopedPreset.values }]
+    : GOODS_ATTR_TAG_LABEL_PRESETS.map((item) => ({
+        label: item.label,
+        values: item.values,
+      }));
+  const seen = new Set<string>();
+  const suggestions: GoodsAttrTagValueSuggestion[] = [];
+  for (const group of groups) {
+    for (const value of group.values) {
+      if (seen.has(value)) continue;
+      const matches =
+        !query ||
+        value.toLowerCase().includes(query) ||
+        group.label.toLowerCase().includes(query);
+      if (!matches) continue;
+      seen.add(value);
+      suggestions.push({
+        label: group.label,
+        scoped: Boolean(scopedPreset),
+        value,
+      });
+    }
+  }
+  return suggestions;
+}
+
 /**
  * 属性名 → 候选值。属性名不在预设表时返回空数组，
  * 表示「这个词是运营自建的」，前端就不展示值候选，避免误导。

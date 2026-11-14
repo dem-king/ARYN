@@ -177,4 +177,38 @@ class OrderDeliveryContextTest {
 		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(), purchaseSceneValidator.normalize(null));
 	}
 
+	@Test
+	@DisplayName("船供采购无采购确认权（普通船员）被拒")
+	void shipSupplyRequiresConfirmPermission() {
+		when(remoteVesselService.isVesselMember(TENANT, VESSEL_ID, USER)).thenReturn(true);
+		when(remoteVesselService.canConfirmSupply(TENANT, VESSEL_ID, USER)).thenReturn(false);
+		assertThrows(ArynBusinessException.class,
+				() -> deliveryContextValidator.validate(TENANT, USER, DeliveryWayEnum.INTERNAL_PORT.getCode(),
+						VESSEL_ID, CALL_ID, PurchaseSceneEnum.SHIP_SUPPLY.getCode()));
+	}
+
+	@Test
+	@DisplayName("具备采购确认权（发起人/确认人/业务员）提交船供单通过，返回服务端配送快照")
+	void shipSupplyConfirmerPasses() {
+		when(remoteVesselService.isVesselMember(TENANT, VESSEL_ID, USER)).thenReturn(true);
+		when(remoteVesselService.canConfirmSupply(TENANT, VESSEL_ID, USER)).thenReturn(true);
+		when(remoteVesselService.getVesselCallContext(TENANT, CALL_ID)).thenReturn(context());
+		VesselContextDTO result = deliveryContextValidator.validate(TENANT, USER,
+				DeliveryWayEnum.INTERNAL_PORT.getCode(), VESSEL_ID, CALL_ID,
+				PurchaseSceneEnum.SHIP_SUPPLY.getCode());
+		assertNotNull(result);
+		assertEquals("上海港", result.getPortName());
+	}
+
+	@Test
+	@DisplayName("个人到船配送不校验采购确认权")
+	void personalInternalDeliverySkipsConfirmerRole() {
+		when(remoteVesselService.isVesselMember(TENANT, VESSEL_ID, USER)).thenReturn(true);
+		when(remoteVesselService.getVesselCallContext(TENANT, CALL_ID)).thenReturn(context());
+		VesselContextDTO result = deliveryContextValidator.validate(TENANT, USER,
+				DeliveryWayEnum.INTERNAL_PORT.getCode(), VESSEL_ID, CALL_ID,
+				PurchaseSceneEnum.PERSONAL.getCode());
+		assertNotNull(result);
+	}
+
 }

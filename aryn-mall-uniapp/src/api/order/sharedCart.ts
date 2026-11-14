@@ -35,6 +35,12 @@ export interface SharedCart {
   userAddressId?: string
   /** 岸上车收货地址快照（「省市区+详址 收货人 电话」）；船供车为空 */
   addressSnapshot?: string
+  /** 岸上车采购主体ID；船供车与历史车为空 */
+  buyerOrgId?: string
+  /** 岸上车采购主体名称快照 */
+  buyerOrgName?: string
+  /** 采购主体当前审核状态：0待审核 1已通过 2已驳回 3已停用 */
+  buyerOrgAuditStatus?: string
   portCode?: string
   portName?: string
   berth?: string
@@ -139,6 +145,8 @@ export interface SharedCartCreatePayload {
   vesselCallId?: string
   /** 岸上车必填：发起人地址簿中的收货地址ID */
   userAddressId?: string
+  /** 岸上车必填：发起人所属的采购主体ID（须为有效成员） */
+  buyerOrgId?: string
   expiresAt?: string
   remark?: string
 }

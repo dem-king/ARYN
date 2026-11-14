@@ -85,7 +85,7 @@ class GoodsSocialBubbleServiceImplTest {
 		GoodsSocialBubbleVO bubble = service.build(SPU_ID);
 
 		assertThat(bubble).isNotNull();
-		assertThat(bubble.getSocialText()).isEqualTo("回头客3000+");
+		assertThat(bubble.getSocialText()).isEqualTo("月 3000+ 位回头客");
 		assertThat(bubble.getSocialKind()).isEqualTo("repeat");
 		assertThat(bubble.getPraiseText()).isEqualTo("好评率96%");
 		assertThat(bubble.getPraiseRate()).isEqualByComparingTo("96");
@@ -138,7 +138,7 @@ class GoodsSocialBubbleServiceImplTest {
 		GoodsSocialBubbleVO bubble = service.build(SPU_ID);
 
 		assertThat(bubble).isNotNull();
-		assertThat(bubble.getSocialText()).isEqualTo("回头客3000+");
+		assertThat(bubble.getSocialText()).isEqualTo("月 3000+ 位回头客");
 		assertThat(bubble.getPraiseText()).isNull();
 	}
 

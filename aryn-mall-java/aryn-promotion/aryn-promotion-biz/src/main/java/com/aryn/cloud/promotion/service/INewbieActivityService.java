@@ -47,4 +47,15 @@ public interface INewbieActivityService {
 	 */
 	AppNewbiePriceVO getSkuPrices(List<String> skuIds, String userId);
 
+	/**
+	 * 新人专享页三场景聚合：个人新人价 / 船供首单 / 企业首单。
+	 *
+	 * @param limit 个人场景商品条数
+	 * @param userId 当前登录用户；未登录资格为 null
+	 * @param vesselId 当前用户主船（船供场景首单判定用，可空）
+	 * @param buyerOrgId 当前用户主采购主体（企业场景首单判定用，可空）
+	 */
+	List<com.aryn.cloud.promotion.api.vo.AppNewbieSceneVO> getScenes(int limit, String userId, String vesselId,
+			String buyerOrgId);
+
 }

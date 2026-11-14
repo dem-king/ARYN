@@ -108,7 +108,8 @@ const navigationStyle = computed(() => ({
  * 两层 DOM 分工（与 C 端同构）：
  *   · 页面在顶部：base 层 = 当前静态外观（纯色 / 左右渐变），surface 层隐藏；
  *   · 一旦滚动（scrollTop>0）：一步切到 surface 层 = 目标底色（磨砂白 / 主题色 /
- *     自定义色），base 层隐藏；浅色目标底色同时出现 hairline；
+ *     自定义色），base 层隐藏；
+ *   · 顶栏下沿不画分割线（真机与预览一致）；
  *   · 不做距离插值，因此没有「透明 → 模糊」的过渡过程。
  * mode!=='fade' 时整条链路返回 progress=0，渲染与改动前完全一致。
  */
@@ -238,7 +239,7 @@ const isEmpty = computed(() =>
         class="phone-navigation"
         :style="navigationOuterStyle"
       >
-        <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示）+ 细线，一步切换 -->
+        <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示），一步切换 -->
         <template v-if="fadeEnabled">
           <div
             class="phone-navigation__base"
@@ -248,10 +249,6 @@ const isEmpty = computed(() =>
             class="phone-navigation__surface"
             :class="{ 'is-blur': scrollAppearance.blur }"
             :style="navigationSurfaceLayerStyle"
-          ></div>
-          <div
-            class="phone-navigation__hairline"
-            :style="{ opacity: scrollAppearance.hairlineOpacity }"
           ></div>
         </template>
         <span class="phone-navigation__title">
@@ -369,15 +366,5 @@ const isEmpty = computed(() =>
 
 .phone-navigation__surface.is-blur {
   backdrop-filter: blur(18px) saturate(160%);
-}
-
-.phone-navigation__hairline {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 1px;
-  pointer-events: none;
-  background: rgb(15 23 42 / 8%);
 }
 </style>

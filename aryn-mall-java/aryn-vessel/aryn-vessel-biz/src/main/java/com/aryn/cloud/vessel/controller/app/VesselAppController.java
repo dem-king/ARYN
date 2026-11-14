@@ -38,7 +38,7 @@ public class VesselAppController {
 
 	@Operation(summary = "我的船舶列表")
 	@GetMapping("/my-vessels")
-	public Result<List<VesselInfo>> myVessels() {
+	public Result<List<com.aryn.cloud.vessel.api.vo.VesselMembershipVO>> myVessels() {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(vesselService.myVessels(user.getTenantId(), user.getUserId()));
 	}

@@ -126,7 +126,7 @@ const navigationStyle = computed(() => ({
  * 合成（resolveNavigationScrollAppearance）：
  *   · 页面在顶部：base 层显示起始外观，surface 层隐藏；
  *   · 一旦滚动：一步切换到目标底色（磨砂白/主题色/自定义色 + 毛玻璃）、
- *     surface 层显示，base 层隐藏，浅色目标底色同时出现底部细线；
+ *     surface 层显示，base 层隐藏；顶栏下沿不画分割线；
  *   · 不做距离插值，因此没有「透明 → 模糊」的过渡过程。
  * mode!=='fade' 时 progress=0，导航外观与改动前完全一致。
  */
@@ -296,7 +296,7 @@ function sectionAmbientColor(
       class="preview-navigation"
       :style="navigationOuterStyle"
     >
-      <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示）+ 细线，一步切换 -->
+      <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示），一步切换 -->
       <template v-if="fadeEnabled">
         <div
           class="preview-navigation__base"
@@ -306,10 +306,6 @@ function sectionAmbientColor(
           class="preview-navigation__surface"
           :class="{ 'is-blur': scrollAppearance.blur }"
           :style="navigationSurfaceLayerStyle"
-        ></div>
-        <div
-          class="preview-navigation__hairline"
-          :style="{ opacity: scrollAppearance.hairlineOpacity }"
         ></div>
       </template>
       <span class="preview-navigation__title">
@@ -447,16 +443,6 @@ function sectionAmbientColor(
 
 .preview-navigation__surface.is-blur {
   backdrop-filter: blur(18px) saturate(160%);
-}
-
-.preview-navigation__hairline {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 1px;
-  pointer-events: none;
-  background: rgb(15 23 42 / 8%);
 }
 
 .preview-embedded {

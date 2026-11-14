@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { captureDistributionShareParams, flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
 import { refreshBindingOnShow } from '@/api/core/tenant-identity'
+import { captureDistributionShareParams, flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
 import { translate } from '@/locales'
 import { useAuthStore } from '@/store/authStore'
 import { COPYRIGHT_REFRESH_THROTTLE_MS, useCopyrightStore } from '@/store/copyrightStore'
 import { useLocaleStore } from '@/store/localeStore'
 import { MALL_THEME_REFRESH_THROTTLE_MS, useMallThemeStore } from '@/store/mallThemeStore'
+import { STATUS_TIP_REFRESH_THROTTLE_MS, useStatusTipStore } from '@/store/statusTipStore'
 import { useUserStore } from '@/store/userStore'
 
 /**
@@ -28,6 +29,8 @@ function prefetchUserInfo() {
  */
 onLaunch(async () => {
   useLocaleStore().init()
+  // 空态插画配置：页面空态/失败态在首屏就可能出现，启动即拉一次（失败静默回落内置图）
+  void useStatusTipStore().ensureLoaded()
   // #ifdef MP
   updateManager()
   // #endif
@@ -45,6 +48,8 @@ onShow((options) => {
   void useMallThemeStore().refresh({ maxAgeMs: MALL_THEME_REFRESH_THROTTLE_MS })
   // 版权/品牌配置同理：管理端改完「下次打开生效」
   void useCopyrightStore().refresh({ maxAgeMs: COPYRIGHT_REFRESH_THROTTLE_MS })
+  // 空态插画同理：后台换图后回前台刷新，带节流避免频繁 onShow 重复请求
+  void useStatusTipStore().refresh({ maxAgeMs: STATUS_TIP_REFRESH_THROTTLE_MS })
 })
 
 function updateManager() {

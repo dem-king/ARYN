@@ -66,19 +66,20 @@ describe('编辑画布：导航滚动渐显预览态', () => {
     // scrollTop 是可选 prop（默认 0），只参与样式计算
     expect(phoneCanvas).toMatch(/scrollTop\?:\s*number/);
     expect(phoneCanvas).toContain('props.scrollTop ?? 0');
-    // 先静态目标底色、再按进度合成：两层 DOM + hairline，与 C 端 hr-navbar 同构
+    // 先静态目标底色、再按进度合成：两层 DOM，与 C 端 hr-navbar 同构
     expect(phoneCanvas).toContain('resolveNavigationScrollSurface');
     expect(phoneCanvas).toContain('resolveNavigationScrollAppearance');
     expect(phoneCanvas).toContain('phone-navigation__base');
     expect(phoneCanvas).toContain('phone-navigation__surface');
-    expect(phoneCanvas).toContain('phone-navigation__hairline');
     expect(phoneCanvas).toContain('scrollAppearance.value.baseOpacity');
     expect(phoneCanvas).toContain('scrollAppearance.value.surfaceOpacity');
-    expect(phoneCanvas).toContain('scrollAppearance.hairlineOpacity');
+    // 顶栏下沿不画分割线：画布不能私自多渲染一条线（真机与预览必须一致）
+    expect(phoneCanvas).not.toContain('phone-navigation__hairline');
+    expect(phoneCanvas).not.toContain('hairlineOpacity');
   });
 
   it('画布与草稿预览的导航材质一步切换、不挂 CSS 过渡（否则预览里仍是「渐变」）', () => {
-    // 共享解析层已改为 0/1 两态；若画布/预览再给 base/surface/hairline/title
+    // 共享解析层已改为 0/1 两态；若画布/预览再给 base/surface/title
     // 挂 160ms 过渡，运营在「顶部/滚动后」与草稿预览里看到的就仍是渐变过程，
     // 与真机不一致。C 端 hr-navbar 已删除 transition，管理端两侧必须一起删。
     for (const [label, source] of [
@@ -208,7 +209,9 @@ describe('草稿预览：真实滚动接线与导航吸顶', () => {
     expect(previewCanvas).toContain('resolveNavigationScrollAppearance');
     expect(previewCanvas).toContain('preview-navigation__base');
     expect(previewCanvas).toContain('preview-navigation__surface');
-    expect(previewCanvas).toContain('preview-navigation__hairline');
+    // 草稿预览同样不画顶栏底边线
+    expect(previewCanvas).not.toContain('preview-navigation__hairline');
+    expect(previewCanvas).not.toContain('hairlineOpacity');
     // 内嵌页型不渲染装修导航的既有判定保持不变
     expect(previewCanvas).toContain(
       'v-if="!isEmbeddedPage && document.page.navigation.visible"',

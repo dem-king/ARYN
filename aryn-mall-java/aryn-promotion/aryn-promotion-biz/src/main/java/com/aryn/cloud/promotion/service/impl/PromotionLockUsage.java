@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -37,6 +39,33 @@ public class PromotionLockUsage {
 			.eq(PromotionLock::getActivityId, activityId)
 			.in(PromotionLock::getStatus, List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)));
 		return count == null ? 0 : count;
+	}
+
+	/** 主体（船/采购主体）在某首单活动下已占用的次数。 */
+	public long countSubjectLocks(String tenantId, String subjectType, String subjectId, String activityId) {
+		if (subjectType == null || subjectId == null) {
+			return 0;
+		}
+		Long count = promotionLockMapper.selectCount(Wrappers.lambdaQuery(PromotionLock.class)
+			.eq(PromotionLock::getTenantId, tenantId)
+			.eq(PromotionLock::getSubjectType, subjectType)
+			.eq(PromotionLock::getSubjectId, subjectId)
+			.eq(PromotionLock::getActivityId, activityId)
+			.in(PromotionLock::getStatus, List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)));
+		return count == null ? 0 : count;
+	}
+
+	/** 活动从指定时间起已锁定/已确认的让利总额（月度预算统计）。 */
+	public BigDecimal sumDiscountSince(String tenantId, String activityId, LocalDateTime start) {
+		return promotionLockMapper.selectList(Wrappers.lambdaQuery(PromotionLock.class)
+				.eq(PromotionLock::getTenantId, tenantId)
+				.eq(PromotionLock::getActivityId, activityId)
+				.in(PromotionLock::getStatus, List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED))
+				.ge(PromotionLock::getCreateTime, start))
+			.stream()
+			.map(PromotionLock::getDiscountAmount)
+			.filter(java.util.Objects::nonNull)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}
 
 	/** 活动已占用的赠品数量（从锁定快照恢复）。 */

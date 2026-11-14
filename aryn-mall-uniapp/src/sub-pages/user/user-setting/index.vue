@@ -62,7 +62,7 @@ onPageScroll(handlePageScroll)
     <view class="m-2 rounded-xl bg-white p-4" @click="toUserDetail">
       <view class="flex items-center">
         <image
-          :src="userStore.getUserAvatar || '/static/images/default-avatar.png'"
+          :src="userStore.getUserAvatar || '/static/default-avatar.png'"
           class="h-80rpx w-80rpx rounded-full"
           mode="aspectFill"
         />

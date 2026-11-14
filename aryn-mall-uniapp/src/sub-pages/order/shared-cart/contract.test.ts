@@ -907,3 +907,55 @@ describe('shared cart list page layout contract', () => {
     }
   })
 })
+
+/**
+ * P0 采购主体契约：企业首单按 `buyer_org` 算，岸上车必须携带主体。
+ *
+ * 这些约定都是运行时静默失败的：漏传 buyerOrgId 只会收到后端报错，
+ * 历史车主体为空如果直接留白，用户会以为数据丢了。
+ */
+describe('shared cart buyer organization contract', () => {
+  it('keeps the C-end buyer-org API mounted under the order domain', () => {
+    const api = source('src/api/order/buyerOrg.ts')
+    expect(api).toContain('/mall-order/app/buyer-org')
+    expect(api).toContain('getMyBuyerOrgs')
+  })
+
+  it('carries buyerOrgId through the create payload', () => {
+    const api = source('src/api/order/sharedCart.ts')
+    expect(api).toMatch(/buyerOrgId\?: string/)
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('buyerOrgId: isShore ? createState.buyerOrgId : undefined')
+  })
+
+  it('blocks shore cart creation when no buyer organization is selected', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toMatch(/isShore && !createState\.buyerOrgId/)
+    expect(list).toContain('sharedCart.list.buyerOrgRequired')
+  })
+
+  it('only offers usable organizations and marks pending ones', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('usableBuyerOrgs')
+    expect(list).toContain('BUYER_ORG_AUDIT_PENDING')
+    expect(list).toContain('BUYER_ORG_AUDIT_APPROVED')
+    expect(list).toContain('sharedCart.common.orgAuditPending')
+  })
+
+  it('shows an explicit "not linked" state for historical shore carts', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(list).toContain("cart.buyerOrgName || t('sharedCart.common.orgPending')")
+    expect(detail).toContain("cart.buyerOrgName || t('sharedCart.common.orgPending')")
+    expect(detail).toContain('sharedCart.common.orgAuditPending')
+  })
+
+  it('keeps the server-side guard for both cart and order snapshot', () => {
+    const service = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    expect(service).toContain('requireUsableForCart')
+    expect(service).toContain('findActiveShoreCart(tenantId, userId, buyerOrg.getId())')
+    const order = repoSource(`${ORDER_BIZ}/service/impl/OrderInfoServiceImpl.java`)
+    expect(order).toContain('applyBuyerOrgSnapshot')
+    expect(order).toContain('requireForOrder')
+  })
+})

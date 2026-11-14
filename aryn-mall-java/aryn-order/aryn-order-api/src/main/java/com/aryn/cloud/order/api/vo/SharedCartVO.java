@@ -52,6 +52,15 @@ public class SharedCartVO implements Serializable {
 	@Schema(description = "岸上车收货地址快照（船供车为空）")
 	private String addressSnapshot;
 
+	@Schema(description = "采购主体ID（岸上车；历史车为空）")
+	private String buyerOrgId;
+
+	@Schema(description = "采购主体名称快照")
+	private String buyerOrgName;
+
+	@Schema(description = "采购主体当前审核状态：0待审核 1已通过 2已驳回 3已停用；历史空车为空")
+	private String buyerOrgAuditStatus;
+
 	@Schema(description = "港口编码")
 	private String portCode;
 

@@ -5,8 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { getByOrderId } from '@/sub-pages/api/order/delivery'
 import { useDict } from '@/sub-pages/utils/dict'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useStatusTipStore } from '@/store/statusTipStore'
 
 const { handlePageScroll } = useFrostedNavbar()
+const statusTipStore = useStatusTipStore()
 
 definePage({
   name: 'order-logistics',
@@ -100,7 +102,11 @@ onPageScroll(handlePageScroll)
             :description="item.logisticsTime"
           />
         </wd-steps>
-        <wd-status-tip v-else image="content" :tip="t('order.logistics.empty')" />
+        <wd-status-tip
+          v-else
+          :image="statusTipStore.imageFor('content')"
+          :tip="t('order.logistics.empty')"
+        />
       </view>
     </template>
   </view>

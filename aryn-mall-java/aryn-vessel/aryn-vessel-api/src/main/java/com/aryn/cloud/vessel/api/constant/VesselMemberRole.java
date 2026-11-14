@@ -42,6 +42,15 @@ public final class VesselMemberRole {
 	 */
 	public static final List<String> ASSIGNABLE = List.of(CREW, CONFIRMER, SALES);
 
+	/**
+	 * 默认具备采购确认权的角色：发起人 / 采购确认人 / 业务员。
+	 *
+	 * <p>与船舶域成员管理（MEMBER_ADMIN_ROLES）、订单域共享车（VESSEL_MANAGER_ROLES）同口径：
+	 * 业务员代船员下单、发起人整船确认都是合法场景。权限判定统一读 {@code can_confirm} 列，
+	 * 本列表只决定写入时的默认值。
+	 */
+	public static final List<String> CONFIRM_CAPABLE = List.of(OWNER, CONFIRMER, SALES);
+
 	/** 取值 -> 中文名 */
 	public static final List<Option> OPTIONS = List.of(new Option(OWNER, "发起人"), new Option(CREW, "普通船员"),
 			new Option(CONFIRMER, "采购确认人"), new Option(SALES, "商城业务员"));
@@ -52,6 +61,11 @@ public final class VesselMemberRole {
 	/** 是否为可分配角色（非 null 且属于 {@link #ASSIGNABLE}） */
 	public static boolean isAssignable(String role) {
 		return role != null && ASSIGNABLE.contains(role);
+	}
+
+	/** 角色对应的默认采购确认权（"1"/"0"），写入 {@code can_confirm} 列时统一使用 */
+	public static String defaultCanConfirm(String role) {
+		return role != null && CONFIRM_CAPABLE.contains(role) ? "1" : "0";
 	}
 
 	/** 码值 -> 中文名；未知值回退到「成员」，避免前端出现空白角色 */

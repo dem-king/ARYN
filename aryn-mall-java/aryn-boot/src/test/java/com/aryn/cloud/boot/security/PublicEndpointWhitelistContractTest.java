@@ -58,6 +58,8 @@ class PublicEndpointWhitelistContractTest {
 			"/app/tenant/shop-info",
 			// 版权配置（三端登录页/页脚免登读取）
 			"/app/copyright-config",
+			// 空态插画配置（C 端空态/失败态免登读取）
+			"/app/status-tip-config",
 			// 商品域：分类树 / 品牌列表与品牌筛选项 / 商品列表与详情 / 快捷加购 / 搜索联想
 			"/app/goodscategory/tree",
 			"/app/goodsbrand/list",
@@ -86,6 +88,7 @@ class PublicEndpointWhitelistContractTest {
 			"/app/discount/prices",
 			"/app/newbie/current",
 			"/app/newbie/prices",
+			"/app/newbie/scenes",
 			// 会员价批量查价（可选登录：未登录返回活动配置价，资格为 null）
 			"/app/member/prices",
 			// 低价捡漏专区（商品级出清标签选品/批量查价，免登）
@@ -233,6 +236,33 @@ class PublicEndpointWhitelistContractTest {
 		assertThat(sql).contains("Path=/boot/app/copyright-config");
 		assertThat(sql).contains("`md5` = MD5(@gateway_content)");
 		assertThat(sql).contains("sys_copyright_config");
+		assertThat(sql).doesNotContain("Path=/boot/app/**");
+	}
+
+	@Test
+	void statusTipConfigIsPublicInBothCloudPrefixesWithExactBootRoute() throws IOException {
+		// 空态插画免登下发：与版权配置同样的四处口径（网关双前缀 + 精确 boot 兼容路由 + 租户表登记）。
+		// 存量环境靠 246 号增量脚本升级；基线 3aryn_nacos.sql 必须同时可重装。
+		String seed = Files.readString(projectRoot.resolve("db/cloud/3aryn_nacos.sql"));
+		List<String> whitelist = yamlUrlEntries(gatewayConfigContent(seed));
+		assertThat(matchesAny(whitelist, "/upms/app/status-tip-config"))
+				.as("cloud 网关应放行 /upms/app/status-tip-config，实际解析到：%s", whitelist).isTrue();
+		assertThat(matchesAny(whitelist, "/boot/app/status-tip-config"))
+				.as("cloud 网关应放行 boot 兼容前缀 /boot/app/status-tip-config").isTrue();
+		assertThat(whitelist).as("boot 兼容白名单不得用域级通配一把放开")
+				.doesNotContain("/boot/app/**");
+		// upms 启动期 TenantSchemaValidator 按此清单建表校验，漏登记直接起不来
+		assertThat(seed).contains("- sys_status_tip_config");
+
+		Path script = projectRoot.resolve("db/cloud/246status_tip_config_nacos.sql");
+		assertThat(script).exists();
+		String sql = Files.readString(script);
+		assertThat(sql).contains("'aryn-gateway-dev.yml'");
+		assertThat(sql).contains("/upms/app/status-tip-config");
+		assertThat(sql).contains("/boot/app/status-tip-config");
+		assertThat(sql).contains("Path=/boot/app/status-tip-config");
+		assertThat(sql).contains("`md5` = MD5(@gateway_content)");
+		assertThat(sql).contains("sys_status_tip_config");
 		assertThat(sql).doesNotContain("Path=/boot/app/**");
 	}
 

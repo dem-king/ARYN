@@ -3,8 +3,8 @@ import type { NavigationScrollAppearance, NavigationSurfaceAppearance } from '@/
 import type { NavigationAppearance } from '@/components/diy/schema/navigation-style'
 import type { NavigationScrollEffect } from '@/components/diy/schema/types'
 
-import { computed, inject, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 
 import {
   FROSTED_SCROLL_EFFECT,
@@ -15,12 +15,11 @@ import {
 import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
 import { FROSTED_NAVBAR_KEY } from '@/composables/useFrostedNavbar'
 import { useMallThemeStore } from '@/store/mallThemeStore'
-import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 import { toNativeNavigationBarHexColor } from '@/utils/navigation-bar-color'
+import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 
 interface Props {
   title?: string
-  bordered?: boolean
   leftArrow?: boolean
   /**
    * 导航栏底色：装修页传入页面设置的 navigation.backgroundColor。
@@ -46,24 +45,23 @@ interface Props {
    */
   scrollSurface?: NavigationSurfaceAppearance | null
   /**
-   * 是否渲染底边细线（仅 fade 模式有效）。
-   *
-   * 页面把搜索框设为「滚动常驻」时，搜索栏会钉在导航栏正下方并共用同一套材质，
-   * 导航栏自己的底边细线会把一整块头部从中间切开（导航白条 + 细线 + 搜索白条），
-   * 此时由 DiyPage 传 false 关掉；其余页面缺省 true，行为不变。
+   * 背景层向下延伸高度（px）：常驻搜索栏场景由 DiyPage 下发「首区块上留白 +
+   * 常驻搜索栏占用高度」，让「导航栏 + 留白 + 搜索栏」成为一整块毛玻璃。
+   * 三块玻璃各自 backdrop-filter 时拼接处必有裸带与接缝（商品滑过时分层），
+   * blur 只能做一次。base 层仍只画导航条高度：页面顶部的留白要保持原设计
+   * （首屏搜索框直接坐在区块渐变上），只有滚动后的目标态铺满延伸区。
    */
-  hairline?: boolean
+  bgExtraHeight?: number
 }
 const props = withDefaults(defineProps<Props>(), {
   title: '',
-  bordered: true,
   leftArrow: true,
   backgroundColor: '',
   textColor: '',
   backgroundImage: '',
   scrollEffect: null,
   scrollSurface: null,
-  hairline: true,
+  bgExtraHeight: 0,
 })
 
 const isCanBack = ref(true)
@@ -182,16 +180,26 @@ const fadeAppearance = computed<NavigationScrollAppearance>(() =>
 )
 
 /**
- * 沉浸式导航背景层高度 = 状态栏 + 44px 导航条内容区。
- * 与 wd-navbar 的 fixed 根同口径（padding-top: statusBarHeight + 44px 内容区）。
+ * 沉浸式导航背景层高度。
+ *
+ * 条带高度 = 状态栏 + 44px 导航条内容区（与 wd-navbar 的 fixed 根同口径，
+ * padding-top: statusBarHeight + 44px 内容区）；常驻搜索栏场景再向下延伸
+ * bgExtraHeight，把「导航栏下沿 → 搜索栏下沿」之间的留白与搜索栏一并纳入
+ * 同一块毛玻璃（玻璃底沿 = 吸顶 Tab 栏的吸顶线，正好衔接）。
  */
 const { statusBarHeight = 0 } = uni.getWindowInfo()
-const navbarBgHeight = statusBarHeight + 44
+const navbarBandHeight = statusBarHeight + 44
+/** 延伸高度是异步回填的（Tab 栏实测高度在挂载后才量到），必须保持响应式 */
+const navbarBgHeight = computed(() => navbarBandHeight + props.bgExtraHeight)
 
-/** base 层：静态外观（纯色 / 左右渐变背景图），已滚动时整体隐藏 */
-const baseLayerStyle = computed(
-  () => `${navbarStyle.value}opacity:${fadeAppearance.value.baseOpacity};`,
-)
+/**
+ * base 层：静态外观（纯色 / 左右渐变背景图），已滚动时整体隐藏。
+ *  向下延伸时 base 只画导航条带——顶部留白区保持首屏设计稿观感。
+ */
+const baseLayerStyle = computed(() => {
+  const size = props.bgExtraHeight > 0 ? `height:${navbarBandHeight}px;` : ''
+  return `${size}${navbarStyle.value}opacity:${fadeAppearance.value.baseOpacity};`
+})
 
 /**
  * 目标底色 + 不透明度 → CSS rgba()。
@@ -320,17 +328,18 @@ function handleLeftClick() {
 <template>
   <!--
     沉浸式导航背景层：只有 fade 模式才渲染，位于 wd-navbar（z-index 500）之下、
-    页面内容之上（z-index 499）。pointer-events:none 保证不挡页面点击；
-    高度 = 状态栏 + 44px，与 wd-navbar 的 fixed 根同口径。
-    起始外观与目标外观一步切换（不做距离插值），无 scrollEffect 的其余
-    业务页不会渲染这个节点，模板契约与改造前一致。
+    页面内容之上（z-index 499）。pointer-events:none 保证不挡页面点击。
+    高度 = 状态栏 + 44px；常驻搜索栏场景下再向下延伸 bgExtraHeight，让
+    「导航栏 + 留白 + 常驻搜索栏」共用同一块毛玻璃（blur 只做一次，拼接处
+    不再有裸带）。起始外观与目标外观一步切换（不做距离插值），无 scrollEffect
+    的其余业务页不会渲染这个节点，模板契约与改造前一致。
   -->
   <view
     v-if="fadeEnabled"
     class="hr-navbar-bg"
     :style="{ height: `${navbarBgHeight}px` }"
   >
-    <!-- base 层：起始外观（纯色 / 左右渐变背景图），已滚动时整体隐藏 -->
+    <!-- base 层：起始外观（纯色 / 左右渐变背景图），已滚动时整体隐藏；延伸时只画导航条带 -->
     <view class="hr-navbar-bg__base" :style="baseLayerStyle" />
     <!-- surface 层：目标底色 + 可选毛玻璃，已滚动时整体显示 -->
     <view
@@ -338,18 +347,12 @@ function handleLeftClick() {
       :class="{ 'is-blur': fadeAppearance.blur }"
       :style="surfaceLayerStyle"
     />
-    <!-- 底部细线：浅色目标底色与内容的分界，随滚动状态出现；常驻搜索栏接管下沿时渲染者变为搜索栏 -->
-    <view
-      v-if="hairline"
-      class="hr-navbar-bg__hairline"
-      :style="{ opacity: `${fadeAppearance.hairlineOpacity}` }"
-    />
   </view>
   <wd-navbar
     placeholder
     safe-area-inset-top
     fixed
-    :bordered="bordered"
+    :bordered="false"
     :custom-style="navbarCustomStyle"
     :title="title"
   >
@@ -396,8 +399,7 @@ function handleLeftClick() {
   overflow: hidden;
 
   &__base,
-  &__surface,
-  &__hairline {
+  &__surface {
     position: absolute;
     top: 0;
     left: 0;
@@ -409,12 +411,6 @@ function handleLeftClick() {
   &__surface.is-blur {
     -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
     backdrop-filter: blur(18px) saturate(160%);
-  }
-
-  &__hairline {
-    top: auto;
-    height: 1px;
-    background-color: rgba(15, 23, 42, 0.08);
   }
 }
 </style>

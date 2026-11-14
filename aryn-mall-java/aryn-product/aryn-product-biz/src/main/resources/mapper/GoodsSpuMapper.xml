@@ -182,6 +182,11 @@
                 AND goods_spu.original_price &gt; 0
                 AND goods_spu.original_price &gt;= goods_spu.sales_price * #{bargainRate}
             </if>
+            <!-- 运费类型过滤（2026-11-12 满额包邮）：凑单页只拉「随订单规则」商品；
+                 未传时整段不输出，存量列表行为逐字不变 -->
+            <if test="query.freightType != null and query.freightType != ''">
+                AND goods_spu.freight_type = #{query.freightType}
+            </if>
             <!-- 会员专区：商品级标签选品；未传时本段不输出，存量行为不变 -->
             <if test="memberItem != null and memberItem">
                 AND goods_spu.is_member_item = 1

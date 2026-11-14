@@ -307,7 +307,6 @@ onPageScroll(handlePageScroll)
 <template>
   <hr-navbar
     :title="navbarTitle"
-    :bordered="false"
     :background-color="BRAND_COLOR"
     text-color="#ffffff"
   />
@@ -348,6 +347,9 @@ onPageScroll(handlePageScroll)
             {{ state.order.recipientArea }}
             {{ state.order.recipientAddress }}
           </text>
+          <text v-if="state.order.buyerOrgName" class="od-address__meta">
+            {{ t('order.detail.buyerOrgLabel') }}：{{ state.order.buyerOrgName }}
+          </text>
         </view>
       </view>
     </view>
@@ -364,6 +366,9 @@ onPageScroll(handlePageScroll)
         <view class="od-address__body">
           <text class="od-address__name od-address__name--block">
             {{ state.order.vesselName || t('order.detail.vesselDelivery') }}
+          </text>
+          <text v-if="state.order.buyerOrgName" class="od-address__meta">
+            {{ t('order.detail.buyerOrgLabel') }}：{{ state.order.buyerOrgName }}
           </text>
           <text class="od-address__detail">
             {{ state.order.portName }} {{ state.order.berth }}

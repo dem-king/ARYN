@@ -4,14 +4,14 @@ import { translate } from '@/locales'
 /**
  * 预支付统一契约：C 端只消费自有字段，不直接依赖微信/支付宝 SDK Response。
  */
-export type PayInvokeType =
-  | 'WX_MINI'
-  | 'WX_APP'
-  | 'ALI_APP'
-  | 'ALI_MINI'
-  | 'REDIRECT'
-  | 'ALREADY_PAID'
-  | 'NONE'
+export type PayInvokeType
+  = | 'WX_MINI'
+    | 'WX_APP'
+    | 'ALI_APP'
+    | 'ALI_MINI'
+    | 'REDIRECT'
+    | 'ALREADY_PAID'
+    | 'NONE'
 
 export interface PayPrepayResult {
   channel: string
@@ -27,6 +27,9 @@ export type ClientPlatform = 'WX_MA' | 'ALI_MINI' | 'H5' | 'APP' | ''
 
 /** 当前客户端平台：用于能力查询参数与前端二次过滤，不作为资金安全依据。 */
 export function detectClientPlatform(): ClientPlatform {
+  // 故意经 globalThis 可选读取编译期平台：H5 端该全局可能不存在，
+  // 缺失时回退下方 getSystemInfoSync 分支，因此不能改为 require('process')
+  // eslint-disable-next-line node/prefer-global/process
   const buildPlatform = (globalThis as any).process?.env?.UNI_PLATFORM
   let platform: ClientPlatform = ''
   // #ifdef MP-WEIXIN
@@ -44,10 +47,14 @@ export function detectClientPlatform(): ClientPlatform {
   }
   if (typeof uni !== 'undefined' && typeof uni.getSystemInfoSync === 'function') {
     const runtime = uni.getSystemInfoSync().uniPlatform
-    if (runtime === 'mp-weixin') return 'WX_MA'
-    if (runtime === 'mp-alipay') return 'ALI_MINI'
-    if (runtime === 'web') return 'H5'
-    if (runtime === 'app') return 'APP'
+    if (runtime === 'mp-weixin')
+      return 'WX_MA'
+    if (runtime === 'mp-alipay')
+      return 'ALI_MINI'
+    if (runtime === 'web')
+      return 'H5'
+    if (runtime === 'app')
+      return 'APP'
   }
   return ''
 }
@@ -241,9 +248,11 @@ function redirectToChannel(url?: string) {
   }
   // #ifdef H5
   window.location.href = url
-  return
   // #endif
+  // #ifndef H5
+  // 非 H5 端没有网页跳转能力：REDIRECT 渠道直接视为不可用
   showMessage(translate('labels.payUnavailable'))
+  // #endif
 }
 
 function providerAvailable(provider: string): Promise<boolean> {

@@ -71,7 +71,18 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayRefundOrderMapper.java#selectPendingAlipayReconcile",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplatePage",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplateById",
-			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#increaseMarketDownloadCount");
+			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#increaseMarketDownloadCount",
+			// 版权配置（2026-11-13 复核）：登录前无租户上下文，读取显式带 tenant_id/主键，
+			// 服务层 requireTenantId fail-closed、租户取自上下文而非请求体；selectPlatformTenantId
+			// 是按 tenant_type='1' 的平台身份全局反查，只返回 ID，与 PayConfig 预登录反查同口径
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysCopyrightConfigMapper.java#selectByTenantAndClient",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysCopyrightConfigMapper.java#selectPlatformTenantId",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysCopyrightConfigMapper.java#selectTenantBrand",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysCopyrightConfigMapper.java#overwriteByTenantAndId",
+			// 空态插画配置（2026-11-13 复核）：C 端未登录渲染，读取/覆盖均显式带 tenant_id（+主键），
+			// 服务层 requireTenantId fail-closed，与版权配置同口径
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysStatusTipConfigMapper.java#selectByTenant",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysStatusTipConfigMapper.java#overwriteByTenantAndId");
 
 	private final Path projectRoot = findProjectRoot();
 

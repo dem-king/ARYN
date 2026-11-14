@@ -149,6 +149,8 @@ const state = reactive<State>({
   isAddressShow: false, // 是否显示收货地址
 })
 onLoad(async (options) => {
+  // 凑单页加购后返回：重新结算，避免用户看到旧的「还差 Y 元 / 运费」
+  uni.$on('order-confirm:refresh', handleFillGapRefresh)
   state.createWay = options?.createWay || '2'
   state.orderParams.requestId = createOrderRequestId()
   // 拼团单：活动 SKU 由拼团详情页写入 goodsStore，此处只记录拼团记录 ID，
@@ -408,21 +410,7 @@ function initData() {
     return
   }
   loading.value = true
-  // 购物车按靠港分组，同一 SKU 可能合法地出现多行（已结束靠港的滞留行 +
-  // 当前无靠港行）；结算/下单接口只接受一个 SKU 一行，这里按 SKU 合并数量后再提交。
-  // 注意：防串船校验仍用原始 createGoodsList 逐行比对，不能用合并后的列表
-  const mergedGoodsList = mergeDuplicateSkuItems(createGoodsList.value || [])
-  const orderItemList: Array<any> = []
-  mergedGoodsList.forEach((item: any) => {
-    orderItemList.push({
-      spuId: item.spuId,
-      picUrl: item.picUrl,
-      spuName: item.spuName,
-      quantity: item.quantity,
-      specsInfo: item.specsInfo,
-      skuId: item.skuId,
-    })
-  })
+  state.orderParams.skuReqList = buildSkuReqList()
   if (importContextActive.value && importHandoff.value) {
     // 导入直下单：配送方式与场景在向导里锁定，不走全局船舶上下文推断。
     // 船供=way4/scene2（船舶与靠港取自交接，刷新后仍能恢复）；岸上=way3/scene3。
@@ -454,8 +442,31 @@ function initData() {
     && (state.orderParams.deliveryWay === '3' || state.orderParams.deliveryWay === '4')) {
     state.orderParams.paymentType = '3'
   }
-  state.orderParams.skuReqList = orderItemList
   toSettlement()
+}
+
+/**
+ * 由购物车快照生成结算/下单的 SKU 清单。
+ *
+ * 购物车按靠港分组，同一 SKU 可能合法地出现多行（已结束靠港的滞留行 +
+ * 当前无靠港行）；结算/下单接口只接受一个 SKU 一行，这里按 SKU 合并数量后再提交。
+ * 注意：防串船校验仍用原始 createGoodsList 逐行比对，不能用合并后的列表。
+ * 凑单页会往同一份快照追加新行，返回后必须用本函数重建，否则新商品不进入本单。
+ */
+function buildSkuReqList() {
+  const mergedGoodsList = mergeDuplicateSkuItems(createGoodsList.value || [])
+  const orderItemList: Array<any> = []
+  mergedGoodsList.forEach((item: any) => {
+    orderItemList.push({
+      spuId: item.spuId,
+      picUrl: item.picUrl,
+      spuName: item.spuName,
+      quantity: item.quantity,
+      specsInfo: item.specsInfo,
+      skuId: item.skuId,
+    })
+  })
+  return orderItemList
 }
 /**
  * 查询默认地址。
@@ -610,6 +621,36 @@ async function reSettleWithAutoCoupon() {
     couponState.couponUserId = ''
     await toSettlement().catch(() => {})
   }
+}
+
+/**
+ * 点击「满 X 元免运费，还差 Y 元」进入凑单页。
+ *
+ * 门槛与差额只透传结算接口下发的值，不在前端算；凑单页加购完成后通过
+ * `order-confirm:refresh` 事件回来触发一次重新结算，运费与差额仍以服务端为准。
+ */
+function openFillGap() {
+  // 仅购物车下单（createWay=1）支持凑单：即时购买/导入/拼团的商品快照不是购物车勾选项，
+  // 加购后无法安全并入同一单，入口只保留文案提示
+  if (state.createWay !== '1')
+    return
+  const threshold = Number(state.orderInfo?.freightThreshold)
+  const gap = Number(state.orderInfo?.freightGap)
+  if (!Number.isFinite(gap) || gap <= 0)
+    return
+  const params = [`gap=${gap}`]
+  if (Number.isFinite(threshold) && threshold > 0) {
+    params.push(`threshold=${threshold}`)
+  }
+  uni.navigateTo({ url: `/sub-pages/order/fill-gap/index?${params.join('&')}` })
+}
+
+/** 凑单页返回：购物车快照已追加新行，重建 SKU 清单后重新结算 */
+function handleFillGapRefresh() {
+  if (state.createWay !== '1' || submitting.value)
+    return
+  state.orderParams.skuReqList = buildSkuReqList()
+  void toSettlement()
 }
 
 // 去结算
@@ -794,6 +835,7 @@ uni.$on('update:selectedAddress', handleSelectedAddressUpdate)
 
 onUnload(() => {
   uni.$off('update:selectedAddress', handleSelectedAddressUpdate)
+  uni.$off('order-confirm:refresh', handleFillGapRefresh)
 })
 
 // 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
@@ -934,7 +976,8 @@ onPageScroll(handlePageScroll)
       :points-enabled="pointsEnabled"
       :address-pending="!selectedAddress?.id"
       :delivery-way-locked="importContextActive"
-      @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon" @points-toggle="pointsToggle"
+      :fill-gap-enabled="state.createWay === '1'"
+      @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon" @points-toggle="pointsToggle" @fill-gap="openFillGap"
     />
 
     <!-- 底部结算栏占位：与固定栏高度+安全区匹配，防止内容被盖 -->

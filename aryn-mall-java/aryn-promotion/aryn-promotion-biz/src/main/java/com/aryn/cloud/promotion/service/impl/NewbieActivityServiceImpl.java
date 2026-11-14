@@ -10,6 +10,8 @@ import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService;
 import com.aryn.cloud.promotion.api.vo.AppNewbieFloorVO;
 import com.aryn.cloud.promotion.api.vo.AppNewbiePriceVO;
+import com.aryn.cloud.promotion.api.vo.AppNewbieSceneVO;
+import com.aryn.cloud.promotion.api.vo.FirstOrderEligibilityVO;
 import com.aryn.cloud.promotion.api.vo.NewbieEligibilityVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.INewbieActivityService;
@@ -84,13 +86,111 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 	@Override
 	public AppNewbieFloorVO getCurrentFloor(int limit, String userId) {
 		int maxGoods = Math.max(1, Math.min(limit, MAX_LIST_GOODS));
-		for (PromotionActivity activity : activeActivities()) {
+		for (PromotionActivity activity : activeActivities("1")) {
 			AppNewbieFloorVO floor = toFloor(activity, maxGoods, userId);
 			if (floor != null) {
 				return floor;
 			}
 		}
 		return null;
+	}
+
+	@Override
+	public List<AppNewbieSceneVO> getScenes(int limit, String userId, String vesselId, String buyerOrgId) {
+		int maxGoods = Math.max(1, Math.min(limit, MAX_LIST_GOODS));
+		List<AppNewbieSceneVO> scenes = new ArrayList<>();
+		scenes.add(toPersonalScene(maxGoods, userId));
+		scenes.add(toFirstOrderScene("2", vesselId, userId));
+		scenes.add(toFirstOrderScene("3", buyerOrgId, userId));
+		return scenes;
+	}
+
+	private AppNewbieSceneVO toPersonalScene(int maxGoods, String userId) {
+		for (PromotionActivity activity : activeActivities("1")) {
+			AppNewbieFloorVO floor = toFloor(activity, maxGoods, userId);
+			if (floor == null) {
+				continue;
+			}
+			AppNewbieSceneVO scene = baseScene("1", activity);
+			scene.setGoodsList(floor.getGoodsList());
+			scene.setEligible(floor.getEligible());
+			scene.setIneligibleReason(floor.getIneligibleReason());
+			scene.setEndTime(floor.getEndTime());
+			// 与楼层同源：长期有效的结束时间是远期哨兵，必须带标记否则专享页会渲染成巨型倒计时
+			scene.setLongTerm(floor.getLongTerm());
+			return scene;
+		}
+		return emptyScene("1");
+	}
+
+	private AppNewbieSceneVO toFirstOrderScene(String sceneCode, String subjectId, String userId) {
+		for (PromotionActivity activity : activeActivities(sceneCode)) {
+			if (!PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT.equals(activity.getActivityType())) {
+				continue;
+			}
+			AppNewbieSceneVO scene = baseScene(sceneCode, activity);
+			JSONObject rules = JSONUtil.parseObj(activity.getRules());
+			JSONArray tiers = rules.getJSONArray("tiers");
+			List<AppNewbieSceneVO.TierVO> tierList = new ArrayList<>();
+			if (tiers != null) {
+				for (Object element : tiers) {
+					JSONObject tier = (JSONObject) element;
+					AppNewbieSceneVO.TierVO vo = new AppNewbieSceneVO.TierVO();
+					vo.setMinAmount(tier.getBigDecimal("minAmount"));
+					vo.setDiscountAmount(tier.getBigDecimal("discountAmount"));
+					tierList.add(vo);
+				}
+			}
+			scene.setTiers(tierList);
+			scene.setMaxDiscountAmount(rules.getBigDecimal("maxDiscountAmount"));
+			scene.setSubjectType(rules.getStr("subjectType"));
+			// 未登录不下发资格；已登录但缺少主船/主体时也不编造结论（null）
+			if (StringUtils.hasText(userId) && Boolean.TRUE.equals(rules.getBool("firstOrderOnly", false))) {
+				FirstOrderEligibilityVO eligibility = checkFirstOrder(sceneCode, subjectId);
+				if (eligibility != null) {
+					scene.setEligible(eligibility.getEligible());
+					scene.setIneligibleReason(eligibility.getReason());
+				}
+			}
+			return scene;
+		}
+		return emptyScene(sceneCode);
+	}
+
+	private AppNewbieSceneVO baseScene(String sceneCode, PromotionActivity activity) {
+		AppNewbieSceneVO scene = new AppNewbieSceneVO();
+		scene.setScene(sceneCode);
+		scene.setActivityId(activity.getId());
+		scene.setActivityName(activity.getActivityName());
+		scene.setActivityType(activity.getActivityType());
+		scene.setEndTime(activity.getEndTime());
+		return scene;
+	}
+
+	private AppNewbieSceneVO emptyScene(String sceneCode) {
+		AppNewbieSceneVO scene = new AppNewbieSceneVO();
+		scene.setScene(sceneCode);
+		return scene;
+	}
+
+	private FirstOrderEligibilityVO checkFirstOrder(String sceneCode, String subjectId) {
+		if (!StringUtils.hasText(subjectId)) {
+			return null;
+		}
+		try {
+			return "2".equals(sceneCode)
+					? remoteBuyerProfileService.checkShipFirstOrderEligibility(
+						ArynTenantContextHolder.getTenantId(), subjectId)
+					: remoteBuyerProfileService.checkBuyerOrgFirstOrderEligibility(
+						ArynTenantContextHolder.getTenantId(), subjectId);
+		}
+		catch (Exception ex) {
+			log.warn("首单资格展示查询失败，scene={} subject={}: {}", sceneCode, subjectId, ex.getMessage());
+			FirstOrderEligibilityVO fallback = new FirstOrderEligibilityVO();
+			fallback.setEligible(Boolean.FALSE);
+			fallback.setReason("ERROR");
+			return fallback;
+		}
 	}
 
 	@Override
@@ -108,7 +208,7 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 		if (wanted.isEmpty()) {
 			return null;
 		}
-		for (PromotionActivity activity : activeActivities()) {
+		for (PromotionActivity activity : activeActivities("1")) {
 			AppNewbiePriceVO price = toSkuPrices(activity, wanted, userId);
 			if (price != null) {
 				return price;
@@ -118,17 +218,23 @@ public class NewbieActivityServiceImpl implements INewbieActivityService {
 	}
 
 	/**
-	 * 进行中的新人价活动，按优先级降序（与楼层「多活动并存取优先级最高」的展示语义一致）。
+	 * 进行中的新人相关活动，按优先级降序；scene=1 兼容历史未回填场景。
 	 */
-	private List<PromotionActivity> activeActivities() {
+	private List<PromotionActivity> activeActivities(String scene) {
 		LocalDateTime now = LocalDateTime.now();
 		return promotionActivityMapper.selectList(
 				Wrappers.lambdaQuery(PromotionActivity.class)
 					.eq(PromotionActivity::getTenantId, ArynTenantContextHolder.getTenantId())
-					.eq(PromotionActivity::getActivityType, PromotionActivity.TYPE_NEWBIE_PRICE)
 					.eq(PromotionActivity::getStatus, PromotionActivity.STATUS_PUBLISHED)
 					.le(PromotionActivity::getStartTime, now)
 					.ge(PromotionActivity::getEndTime, now)
+					.and("1".equals(scene), w -> w.eq(PromotionActivity::getPurchaseScene, scene)
+						.or().isNull(PromotionActivity::getPurchaseScene))
+					.eq(!"1".equals(scene), PromotionActivity::getPurchaseScene, scene)
+					.and("1".equals(scene), w -> w.eq(PromotionActivity::getActivityType,
+						PromotionActivity.TYPE_NEWBIE_PRICE))
+					.and(!"1".equals(scene), w -> w.eq(PromotionActivity::getActivityType,
+						PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT))
 					.orderByDesc(PromotionActivity::getPriority)
 					.orderByDesc(PromotionActivity::getCreateTime));
 	}

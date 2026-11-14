@@ -146,7 +146,9 @@ class OrderInfoCodPaymentTest {
 				remoteUserAddressService, orderDeliveryMapper, orderRefundMapper, remoteCouponUserService,
 				remoteSeckillService, mock(com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService.class), rocketMQTemplate, callbackPrefixProperties, deliveryTaskService,
 				orderDeliveryStateService,
-				deliveryAreaService, promotionSnapshotMapper, purchaseSceneValidator, deliveryContextValidator,
+				deliveryAreaService, mock(com.aryn.cloud.order.service.IFreightRuleService.class),
+				mock(com.aryn.cloud.order.service.IBuyerOrgService.class),
+				promotionSnapshotMapper, purchaseSceneValidator, deliveryContextValidator,
 				orderPaySuccessNotifier, promotionEngine, remoteMaterialService, sharedCartServiceProvider,
 				mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class),
 				remoteSalesAttributionService);

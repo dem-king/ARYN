@@ -51,6 +51,17 @@ public class AppNewbieController {
 		return Result.success(newbieActivityService.getCurrentFloor(limit, userId));
 	}
 
+	@Operation(summary = "新人专享三场景（个人新人价/船供首单/企业首单）")
+	@GetMapping("/scenes")
+	public Result<List<com.aryn.cloud.promotion.api.vo.AppNewbieSceneVO>> scenes(
+			@RequestParam(value = "limit", required = false, defaultValue = "200") int limit,
+			@RequestParam(value = "vesselId", required = false) String vesselId,
+			@RequestParam(value = "buyerOrgId", required = false) String buyerOrgId) {
+		ArynUser user = SecurityUtils.getUser();
+		String userId = user != null ? user.getUserId() : null;
+		return Result.success(newbieActivityService.getScenes(limit, userId, vesselId, buyerOrgId));
+	}
+
 	/**
 	 * 批量查询指定 SKU 的新人价（商详 / 购物车展示用）。
 	 *

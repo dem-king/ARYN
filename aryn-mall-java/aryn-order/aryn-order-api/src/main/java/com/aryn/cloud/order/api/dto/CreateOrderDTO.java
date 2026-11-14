@@ -82,6 +82,12 @@ public class CreateOrderDTO {
 	@Pattern(regexp = "[123]", message = "购买场景不合法")
 	private String purchaseScene;
 
+	@Schema(description = "采购主体ID（企业采购场景；服务端按主体档案覆盖名称与信用代码）")
+	private String buyerOrgId;
+
+	@Schema(description = "采购主体名称（客户端传入不可信，服务端覆盖）")
+	private String buyerOrgName;
+
 	@Schema(description = "配送船舶ID（到船配送必填）")
 	private String vesselId;
 

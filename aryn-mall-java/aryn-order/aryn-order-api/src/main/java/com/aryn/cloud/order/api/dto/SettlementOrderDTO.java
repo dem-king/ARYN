@@ -63,6 +63,9 @@ public class SettlementOrderDTO {
 	@Schema(description = "配送船舶ID（到船配送必填）")
 	private String vesselId;
 
+	@Schema(description = "采购主体ID（岸上企业采购必填，用于首单资格与快照）")
+	private String buyerOrgId;
+
 	@Schema(description = "靠港计划ID（到船配送必填）")
 	private String vesselCallId;
 

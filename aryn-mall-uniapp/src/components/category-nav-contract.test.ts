@@ -91,11 +91,12 @@ describe('category page structure', () => {
     expect(styleBlock).toContain('border-bottom-left-radius')
   })
 
-  it('浮层与搜索导航栏同为一整块玻璃：同组磨砂数值、展开时导航栏强制玻璃并去分隔线', () => {
+  it('浮层与搜索导航栏同为一整块玻璃：同组磨砂数值、展开时导航栏强制玻璃', () => {
     const pageSource = source(page)
     // 强制顶栏玻璃：页面停在顶部时顶栏本来是实心白，不强制会与玻璃面板分家
     expect(pageSource).toContain(':force-frosted="sheetVisible"')
-    expect(pageSource).toContain(':bordered="!sheetVisible"')
+    // 顶栏底边线已整体移除（静态与磨砂态都不画），页面不再需要开关它
+    expect(pageSource).not.toContain(':bordered=')
     expect(pageSource).toMatch(/<category-all-sheet[\s\S]*?\bfrosted\b/)
 
     const sheet = source('src/components/category-all-sheet/index.vue')

@@ -58,7 +58,17 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (e: 'added', spuId: string): void
+  /**
+   * 加购成功。
+   *
+   * 第二个参数携带本次实际加入的 SKU/数量：结算页的凑单入口需要把新行
+   * 回写结算快照，仅有 spuId 无法在多规格商品上定位 SKU。
+   */
+  (e: 'added', spuId: string, detail?: {
+    skuId?: string
+    quantity?: number
+    info?: any
+  }): void
 }>()
 
 const { t } = useI18n()
@@ -111,7 +121,11 @@ async function handleAdd() {
     sharedCart: props.sharedCart,
   })
   if (result.added) {
-    emit('added', props.spuId)
+    emit('added', props.spuId, {
+      skuId: result.skuId,
+      quantity: result.quantity,
+      info: result.info,
+    })
     return
   }
   if (result.needChoose) {
@@ -130,7 +144,7 @@ async function handleSkuAdd(data: any) {
     if (dest === 'abort')
       return
     skuKey.value = false
-    emit('added', props.spuId)
+    emit('added', props.spuId, { skuId: data.skuId, quantity: data.quantity })
   }
   catch {
     // 请求异常已由统一拦截器提示，弹层保持打开让用户重试

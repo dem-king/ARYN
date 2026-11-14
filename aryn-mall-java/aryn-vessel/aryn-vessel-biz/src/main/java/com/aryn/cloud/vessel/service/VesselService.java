@@ -104,9 +104,9 @@ public interface VesselService {
 	VesselCall updateCall(String tenantId, VesselCall call);
 
 	/**
-	 * C 端：当前用户作为在船成员的船舶列表。
+	 * C 端：当前用户作为在船成员的船舶列表（含成员角色与操作权限）。
 	 */
-	List<VesselInfo> myVessels(String tenantId, String userId);
+	List<com.aryn.cloud.vessel.api.vo.VesselMembershipVO> myVessels(String tenantId, String userId);
 
 	/**
 	 * C 端：指定船舶可用的靠港计划（排除已过期/已完成/已取消）。
@@ -128,6 +128,14 @@ public interface VesselService {
 	 * @return 角色编码（1发起人/2普通船员/3采购确认人/4业务员）；非在船成员返回 null
 	 */
 	String memberRole(String tenantId, String vesselId, String userId);
+
+	/**
+	 * 判断用户是否具备指定船舶的采购确认权（船供整单提交权限）。
+	 *
+	 * <p>以 {@code vessel_member.can_confirm} 列为准，不按角色硬编码：
+	 * 发起人/采购确认人/业务员默认具备，普通船员不具备。
+	 */
+	boolean canConfirmSupply(String tenantId, String vesselId, String userId);
 
 	/**
 	 * 按靠港计划 ID 查询可配送上下文（船舶+港口+时间窗）；不存在或已过期返回 null。

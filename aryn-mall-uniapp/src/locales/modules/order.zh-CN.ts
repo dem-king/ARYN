@@ -112,6 +112,7 @@ export default {
         readyForPickup: '商家已备货，等待提货中',
       },
       vesselDelivery: '船舶配送',
+      buyerOrgLabel: '采购主体',
       deliveryWindow: '配送时间窗：{start} ~ {end}',
       vesselDeliveryHint: '由公司司机按靠港计划送达港口/船舶',
       boughtFor: '为 {name} 购买',

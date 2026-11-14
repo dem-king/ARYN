@@ -80,6 +80,16 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  /**
+   * 材质由宿主玻璃层接管：沉浸式导航开启时 DiyPage 让 hr-navbar-bg 向下延伸
+   * 覆盖「留白 + 搜索栏」，整条头部只做一次 backdrop-filter。本组件不再自绘
+   * base/surface（两层 86% 白叠加近实心、两次 blur 接不出连续材质），只保留
+   * 输入条/铃铛等内容层；blended 与图标配色逻辑照旧由滚动状态驱动。
+   */
+  materialHosted: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const { t } = useI18n()
@@ -219,9 +229,6 @@ const materialBaseStyle = computed(() =>
 const materialSurfaceStyle = computed(() =>
   `background:var(--diy-nav-surface-bg, rgba(255, 255, 255, 0.86));opacity:${(material.value.surfaceOpacity * materialVisible.value).toFixed(3)};`,
 )
-const materialHairlineStyle = computed(() =>
-  `background:var(--diy-nav-hairline, rgba(15, 23, 42, 0.08));opacity:${(material.value.hairlineOpacity * materialVisible.value).toFixed(3)};`,
-)
 /** 毛玻璃只在目标态启用；与 hr-navbar 的 is-blur 同值 */
 const materialSurfaceBlur = computed(() => props.pinned && material.value.blur)
 
@@ -256,7 +263,9 @@ const dynamicStyles = computed(() => {
     'top': `${Math.max(0, props.pinnedTop || 0)}px`,
     'left': `${insetX}px`,
     'right': `${insetX}px`,
-    'z-index': '480',
+    // 材质托管给 hr-navbar-bg（z-index 499）时，内容层必须抬到延伸玻璃之上，
+    // 否则输入条/铃铛会被玻璃面盖住；未托管时保持压在导航栏（500）之下的旧序。
+    'z-index': props.materialHosted ? '501' : '480',
   }
 })
 
@@ -314,18 +323,20 @@ function stopRotation() {
     :style="dynamicStyles"
   >
     <!--
-      常驻层材质：起始底色 → 目标底色 → 底边细线，三层与 hr-navbar 同源、
-      随导航滚动状态一步切换（CSS 变量 --diy-nav-surface-* 由 DiyPage 挂在
-      .diy-page 根节点上继承）。普通/占位实例不渲染，模板契约与改造前一致。
+      常驻层材质：起始底色 → 目标底色，两层与 hr-navbar 同源、随导航滚动状态
+      一步切换（CSS 变量 --diy-nav-surface-* 由 DiyPage 挂在 .diy-page 根节点上
+      继承）。普通/占位实例不渲染，模板契约与改造前一致。
+      沉浸式导航开启时材质托管给 hr-navbar-bg 延伸层（materialHosted）：
+      整条头部只做一次毛玻璃，这里不再自绘，避免两层白叠加与双 blur 接缝。
+      不画底边细线：整条头部（导航栏 + 常驻搜索栏）是一块连续材质。
     -->
-    <view v-if="pinned" class="search-bar-material">
+    <view v-if="pinned && !materialHosted" class="search-bar-material">
       <view class="search-bar-material__base" :style="materialBaseStyle" />
       <view
         class="search-bar-material__surface"
         :class="{ 'is-blur': materialSurfaceBlur }"
         :style="materialSurfaceStyle"
       />
-      <view class="search-bar-material__hairline" :style="materialHairlineStyle" />
     </view>
 
     <view class="search-bar-row">
@@ -339,6 +350,14 @@ function stopRotation() {
         <text class="search-bar-placeholder">
           {{ displayText }}
         </text>
+        <!--
+          「搜索」按钮：背景走主题主色 token（与 hr-search-navbar 的搜索按钮同源），
+          多租户换肤/页面级主题自动跟随，不写死品牌色；文字固定白色，与全站主色
+          按钮口径一致（深色底白字）。点击冒泡给输入条本身的 handleSearch。
+        -->
+        <view class="search-bar-action">
+          {{ t('search.searchButton') }}
+        </view>
       </view>
 
       <!-- 消息角标：未登录时整个铃铛不渲染（消息中心是需登录页），未读为 0 时只渲染铃铛、不渲染角标 -->
@@ -376,12 +395,34 @@ function stopRotation() {
     padding: 0 12px;
 
     .search-bar-placeholder {
+      flex: 1;
+      min-width: 0;
       margin-left: 6px;
       overflow: hidden;
       font-size: 14px;
       color: #999;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    /*
+     * 「搜索」按钮：背景取主题主色 token（--wot-color-theme-primary 由 DiyPage
+     * 按「页面级主题 > 商城默认主题」下放，与同组件铃铛角标同一变量），换肤/
+     * 多租户自动跟随，不写死品牌色。尺寸与 hr-search-navbar 的搜索按钮同口径。
+     */
+    .search-bar-action {
+      display: flex;
+      flex: none;
+      margin-left: 4px;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 7px;
+      background: var(--wot-color-theme-primary, #ff2237);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1;
+      text-align: center;
     }
   }
 
@@ -425,8 +466,7 @@ function stopRotation() {
     pointer-events: none;
 
     &__base,
-    &__surface,
-    &__hairline {
+    &__surface {
       position: absolute;
       top: 0;
       right: 0;
@@ -442,11 +482,6 @@ function stopRotation() {
     &__surface.is-blur {
       -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
       backdrop-filter: blur(18px) saturate(160%);
-    }
-
-    &__hairline {
-      top: auto;
-      height: 1px;
     }
   }
 }

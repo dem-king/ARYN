@@ -130,6 +130,14 @@
           }
         },
         {
+          "path": "order/fill-gap/index",
+          "type": "page",
+          "name": "order-fill-gap",
+          "style": {
+            "navigationBarTitleText": "凑单免运费"
+          }
+        },
+        {
           "path": "order/order-detail/index",
           "type": "page",
           "name": "order-detail",
@@ -218,6 +226,16 @@
             "enablePullDownRefresh": true,
             "navigationStyle": "custom",
             "navigationBarTitleText": "共享购物车"
+          }
+        },
+        {
+          "path": "order/buyer-org/index",
+          "type": "page",
+          "name": "buyer-org",
+          "style": {
+            "enablePullDownRefresh": true,
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "采购主体"
           }
         },
         {

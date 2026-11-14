@@ -185,6 +185,18 @@ const sections = [
   ['版权配置数据模型', '219copyright_config_incremental.sql'],
   ['版权配置菜单权限与品牌种子', '220copyright_config_menu.sql'],
   ['素材默认分组落库', '221material_default_group_incremental.sql'],
+  ['分销管理与销售管理独立为一级菜单', '222relocate_sales_distribution_menus.sql'],
+  ['新人专享首单加品（蛋奶肉果菜 8 款）', '223newbie_staples_backfill_incremental.sql'],
+  ['订单级运费规则（满额包邮）', '224freight_rule_incremental.sql'],
+  ['采购主体基础层（四张表 + 岸上车/订单/营销锁字段）', '225buyer_org_schema_incremental.sql'],
+  ['采购主体管理菜单与按钮权限', '226buyer_org_menu_incremental.sql'],
+  ['个人新人活动购买场景修复', '227buyer_org_personal_scene_fix_incremental.sql'],
+  ['首单活动种子与主体唯一约束', '228first_order_activity_incremental.sql'],
+  ['首单核销报表菜单与按钮权限', '229first_order_report_menu_incremental.sql'],
+  ['空态插画配置数据模型', '230status_tip_config_incremental.sql'],
+  ['空态插画配置菜单与按钮权限', '231status_tip_config_menu.sql'],
+  ['购物车/订单/秒杀空态插画字段', '232status_tip_config_empty_illustrations.sql'],
+  ['首单口径一致性修复（成员确认权回填 + 订单主体审核快照）', '233first_order_consistency_fix_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -292,6 +304,15 @@ DROP TABLE IF EXISTS \`stat_daily_spu_sales\`;
 DROP TABLE IF EXISTS \`goods_sku_price_daily\`;
 -- 版权配置（219copyright_config_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS \`sys_copyright_config\`;
+-- 订单级运费规则（224freight_rule_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`freight_rule\`;
+-- 采购主体基础层（225buyer_org_schema_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`buyer_org\`;
+DROP TABLE IF EXISTS \`buyer_org_member\`;
+DROP TABLE IF EXISTS \`buyer_org_apply\`;
+DROP TABLE IF EXISTS \`buyer_org_invite_code\`;
+-- 空态插画配置（230status_tip_config_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`sys_status_tip_config\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

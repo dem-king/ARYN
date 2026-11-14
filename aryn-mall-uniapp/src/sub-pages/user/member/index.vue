@@ -321,7 +321,6 @@ onPageScroll(handlePageScroll)
 <template>
   <hr-navbar
     :title="t('accountMember.title')"
-    :bordered="false"
     :background-color="BRAND_COLOR"
     text-color="#ffffff"
   />

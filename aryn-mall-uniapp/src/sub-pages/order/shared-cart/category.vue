@@ -22,6 +22,7 @@ import CategoryAllSheet from '@/components/category-all-sheet/index.vue'
 import CategoryIconStrip from '@/components/category-icon-strip/index.vue'
 import GoodsListPanel from '@/components/goods-list-panel/index.vue'
 import HrNavbar from '@/components/hr-navbar/index.vue'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import { resolveCategoryBadge } from '@/utils/category-badge'
 
 definePage({
@@ -36,6 +37,7 @@ const cartId = ref('')
 const cart = ref<SharedCart | null>(null)
 const cartLoaded = ref(false)
 const { t } = useI18n()
+const statusTipStore = useStatusTipStore()
 /** 清单已有明细数：进入时拉一次，加购后自增，底部条用它回答「清单总共多少」 */
 const cartItemCount = ref(0)
 /** 本页已加入的 SPU：卡片角标 + 底部「已选 N 种」，避免长列表里同款重复加 */
@@ -187,7 +189,7 @@ function goSharedCartDetail() {
 
 <template>
   <view class="picker-page" :class="{ 'picker-page--sheet-open': sheetVisible }">
-    <hr-navbar :title="t('sharedCart.category.navTitle')" :bordered="!sheetVisible" />
+    <hr-navbar :title="t('sharedCart.category.navTitle')" />
 
     <!-- 共享车上下文：随时确认在给哪条船选货，避免选完才发现投错车 -->
     <view class="picker-context">
@@ -303,7 +305,7 @@ function goSharedCartDetail() {
         <!-- 共享车加载失败：此时加购没有明确目的地，先给出重试而不是放行 -->
         <view v-else-if="!cart" class="picker-goods-empty">
           <wd-status-tip
-            image="network"
+            :image="statusTipStore.imageFor('network')"
             image-size="176rpx"
             :tip="t('sharedCart.category.loadFailed')"
           />

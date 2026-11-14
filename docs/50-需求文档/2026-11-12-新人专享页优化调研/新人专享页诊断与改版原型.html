@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新人专享页诊断与改版原型 · 悦航购 ARYN</title>
+<style>
+  :root{
+    --brand:#ff2237;
+    --brand-2:#ff7a45;
+    --brand-soft:#fff1ee;
+    --ink:#14161a;
+    --ink-2:#3d4450;
+    --ink-3:#6b7280;
+    --ink-4:#9aa1ac;
+    --line:#e8eaee;
+    --bg:#f5f6f8;
+    --card:#ffffff;
+    --ok:#067647;
+    --ok-bg:#ecfdf3;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.7;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:56px 32px 96px;}
+
+  /* ---------- header ---------- */
+  .kicker{
+    display:inline-flex;align-items:center;gap:10px;
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--brand);font-weight:600;
+  }
+  .kicker::before{content:"";width:22px;height:2px;background:var(--brand);display:block;}
+  h1{
+    margin:18px 0 14px;font-size:44px;line-height:1.25;letter-spacing:-.6px;font-weight:700;
+  }
+  h1 span{color:var(--brand);}
+  .lead{max-width:820px;margin:0;color:var(--ink-2);font-size:17px;}
+  .meta{margin-top:22px;display:flex;flex-wrap:wrap;gap:18px;color:var(--ink-3);font-size:13px;}
+  .meta b{color:var(--ink);font-weight:600;}
+
+  /* ---------- verdict ---------- */
+  .verdict{
+    margin-top:44px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;
+  }
+  .vcard{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 22px 20px;
+    position:relative;overflow:hidden;
+  }
+  .vcard::after{
+    content:"";position:absolute;right:-30px;top:-30px;width:90px;height:90px;border-radius:50%;
+    background:radial-gradient(circle,var(--brand) 0%,rgba(255,255,255,0) 70%);opacity:.10;
+  }
+  .vcard em{font-style:normal;font-size:12px;color:var(--brand);font-weight:700;letter-spacing:.06em;}
+  .vcard h3{margin:8px 0 6px;font-size:19px;letter-spacing:-.2px;}
+  .vcard p{margin:0;color:var(--ink-3);font-size:13.5px;line-height:1.65;}
+
+  /* ---------- section ---------- */
+  section{margin-top:76px;}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:8px;}
+  .sec-no{font-size:13px;font-weight:700;color:var(--brand);letter-spacing:.12em;}
+  h2{margin:0;font-size:29px;letter-spacing:-.6px;font-weight:700;}
+  .sec-desc{margin:6px 0 30px;color:var(--ink-3);font-size:14.5px;max-width:860px;}
+
+  /* ---------- devices ---------- */
+  .devices{
+    display:grid;grid-template-columns:1fr 1fr;gap:64px;justify-items:center;align-items:start;
+  }
+  .device{margin:0;display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .device-cap{font-size:12.5px;color:var(--ink-3);letter-spacing:.02em;}
+  .device-cap b{color:var(--ink);font-weight:600;}
+
+  .phone{
+    width:430px;height:932px;border-radius:46px;background:#0b0b0d;
+    padding:0;box-shadow:0 40px 80px -30px rgba(16,18,22,.45),0 0 0 1px rgba(0,0,0,.06);
+    position:relative;overflow:hidden;
+  }
+  .phone.shot{background:#fff;height:auto;}
+  .phone.shot img{display:block;width:430px;height:auto;border-radius:46px;}
+  .pin{
+    position:absolute;width:26px;height:26px;border-radius:50%;
+    background:#fff;color:var(--brand);border:2px solid var(--brand);
+    font-size:12.5px;font-weight:800;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px rgba(255,34,55,.28);
+    transform:translate(-50%,-50%);
+  }
+  .pin::after{
+    content:"";position:absolute;inset:-7px;border-radius:50%;border:1px solid rgba(255,34,55,.25);
+  }
+
+  /* ---------- legend ---------- */
+  .legend{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:44px;}
+  .lg{
+    background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;
+  }
+  .lg .n{
+    display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--brand-soft);
+    color:var(--brand);font-size:11.5px;font-weight:800;align-items:center;justify-content:center;
+    margin-bottom:8px;
+  }
+  .lg h4{margin:0 0 4px;font-size:14px;letter-spacing:-.1px;}
+  .lg p{margin:0;font-size:12.5px;color:var(--ink-3);line-height:1.6;}
+
+  /* ---------- mock ---------- */
+  .m-status{
+    height:54px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 28px 0 30px;font-size:13px;font-weight:600;color:#fff;
+    background:linear-gradient(135deg,#ff4d4f,#ff7a45);
+  }
+  .m-status i{font-style:normal;font-size:11px;letter-spacing:2px;opacity:.85;}
+  .m-nav{
+    height:44px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;background:linear-gradient(135deg,#ff4d4f,#ff7a45);color:#fff;
+  }
+  .m-nav .b{font-size:17px;opacity:.9;}
+  .m-nav .t{font-size:16px;font-weight:600;letter-spacing:.5px;}
+  .m-nav .c{
+    display:flex;align-items:center;gap:7px;font-size:9px;padding:5px 9px;
+    border:1px solid rgba(255,255,255,.5);border-radius:20px;background:rgba(255,255,255,.14);
+  }
+  .m-nav .c em{font-style:normal;letter-spacing:1px;}
+  .m-nav .c i{font-style:normal;font-size:8px;opacity:.9;}
+  .m-scroll{
+    height:calc(100% - 54px - 44px);overflow-y:auto;background:#f6f6f8;padding-bottom:104px;
+  }
+  .m-scroll::-webkit-scrollbar{display:none;}
+
+  .m-hero{
+    position:relative;margin:11px 12px 9px;padding:14px 16px 12px;border-radius:16px;overflow:hidden;
+    background:linear-gradient(135deg,#ff4d4f 0%,#ff7a45 100%);color:#fff;
+  }
+  .m-hero::after{
+    content:"";position:absolute;right:-40px;top:-50px;width:150px;height:150px;border-radius:50%;
+    background:rgba(255,255,255,.18);
+  }
+  .m-hero-top{position:relative;display:flex;justify-content:space-between;gap:10px;}
+  .m-hero h3{margin:0;font-size:21px;letter-spacing:-.3px;font-weight:700;}
+  .m-hero p{margin:3px 0 0;font-size:11.5px;opacity:.88;}
+  .m-cd{text-align:right;flex:0 0 auto;}
+  .m-cd em{display:block;font-style:normal;font-size:10px;opacity:.8;}
+  .m-cd b{
+    display:inline-block;margin-top:2px;font-size:13px;letter-spacing:.4px;
+    background:rgba(0,0,0,.20);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums;
+  }
+  .m-perks{position:relative;display:flex;gap:7px;margin-top:9px;}
+  .m-perks span{
+    font-size:10.5px;padding:3px 9px;border-radius:20px;
+    background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.35);
+  }
+  .m-hero-elig{
+    position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;
+    margin-top:11px;padding-top:9px;border-top:1px solid rgba(255,255,255,.26);
+    font-size:10px;opacity:.94;
+  }
+  .m-coupon{
+    margin:0 12px 10px;padding:10px 12px;border-radius:14px;background:#fff2ef;border:1px solid #ffd9d1;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .m-coupon-l{display:flex;align-items:center;gap:9px;min-width:0;}
+  .m-coupon-l strong{font-size:22px;color:#e02424;letter-spacing:-.6px;line-height:1;}
+  .m-coupon-l b{display:block;font-size:11.5px;color:#b3141f;}
+  .m-coupon-l small{display:block;font-size:9.5px;color:#9b5a52;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px;}
+  .m-coupon button{
+    flex:0 0 auto;border:0;border-radius:20px;background:linear-gradient(135deg,#ff4d4f,#ff7a45);color:#fff;
+    font-size:11px;font-weight:600;padding:6px 13px;
+  }
+  .m-tabs{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 12px 10px;
+  }
+  .m-chips{display:flex;gap:6px;overflow:hidden;}
+  .m-chips span{
+    flex:0 0 auto;font-size:11px;padding:4px 10px;border-radius:20px;background:#fff;color:var(--ink-2);
+  }
+  .m-chips span.on{background:#ffe4dd;color:#d81e2a;font-weight:600;}
+  .m-sort{flex:0 0 auto;font-size:10.5px;color:var(--ink-3);}
+  .m-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 12px;}
+  .m-card{background:#fff;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}
+  .m-media{position:relative;aspect-ratio:1/0.78;background:#faf8f5;display:flex;align-items:center;justify-content:center;}
+  .m-media .badge{
+    position:absolute;left:0;top:0;font-size:9px;font-weight:700;color:#fff;padding:3px 7px;
+    background:linear-gradient(135deg,#ff4d4f,#ff7a45);border-radius:12px 0 8px;
+  }
+  .m-media svg{width:86%;height:86%;}
+  .m-body{padding:7px 9px 9px;}
+  .m-name{font-size:12px;font-weight:600;line-height:1.35;max-height:33px;overflow:hidden;}
+  .m-spec{font-size:10px;color:var(--ink-4);margin-top:1px;}
+  .m-price{display:flex;align-items:baseline;gap:5px;margin-top:5px;}
+  .m-price b{color:#e02424;font-size:15px;letter-spacing:-.4px;line-height:1;}
+  .m-price b i{font-style:normal;font-size:10px;font-weight:600;margin-right:1px;}
+  .m-price s{color:var(--ink-4);font-size:10px;}
+  .m-extra{display:flex;align-items:center;justify-content:space-between;margin-top:2px;}
+  .m-extra em{font-style:normal;font-size:9.5px;color:#d81e2a;}
+  .m-add{
+    width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#ff4d4f,#ff7a45);
+    color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;font-weight:600;
+    box-shadow:0 4px 10px rgba(255,77,79,.28);
+  }
+  .m-rules{
+    margin:12px;padding:10px 12px;background:#fff;border-radius:12px;display:flex;
+    align-items:center;justify-content:space-between;font-size:11px;color:var(--ink-3);
+  }
+  .m-bar{
+    position:absolute;left:0;right:0;bottom:0;padding:8px 12px 22px;background:rgba(255,255,255,.96);
+    border-top:1px solid #ececef;backdrop-filter:blur(12px);
+  }
+  .m-prog{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--ink-3);margin-bottom:7px;}
+  .m-prog .track{flex:1;height:5px;border-radius:6px;background:#f0e4e1;overflow:hidden;}
+  .m-prog .track i{display:block;height:100%;width:70%;border-radius:6px;background:linear-gradient(90deg,#ff7a45,#ff2237);}
+  .m-prog b{color:#d81e2a;font-weight:700;}
+  .m-bar-main{display:flex;align-items:center;gap:10px;}
+  .m-cart{position:relative;width:36px;height:36px;border-radius:50%;background:#f4f4f6;display:flex;align-items:center;justify-content:center;}
+  .m-cart svg{width:19px;height:19px;}
+  .m-cart u{
+    position:absolute;right:-3px;top:-3px;text-decoration:none;background:#e02424;color:#fff;
+    font-size:9px;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;
+  }
+  .m-total{flex:1;}
+  .m-total em{font-style:normal;font-size:10px;color:var(--ink-3);margin-right:4px;}
+  .m-total b{font-size:19px;color:#e02424;letter-spacing:-.4px;}
+  .m-total small{display:block;font-size:9.5px;color:var(--ink-4);}
+  .m-cta{
+    flex:0 0 auto;padding:0 22px;height:40px;border-radius:22px;border:0;color:#fff;font-size:13px;font-weight:600;
+    background:linear-gradient(135deg,#ff4d4f,#ff7a45);box-shadow:0 8px 18px rgba(255,77,79,.30);
+  }
+
+  /* ---------- issue list ---------- */
+  .group{margin-top:34px;}
+  .group-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+  .group-head h3{margin:0;font-size:17px;letter-spacing:-.2px;}
+  .group-head span{
+    font-size:10.5px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:6px;
+    background:var(--brand-soft);color:var(--brand);
+  }
+  .group-head span.p1{background:#fff7e8;color:#b54708;}
+  .group-head span.p2{background:#f2f4f7;color:#475467;}
+  .items{display:grid;gap:10px;}
+  .item{
+    background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    display:grid;grid-template-columns:30px 1fr;gap:12px;
+  }
+  .item .idx{
+    width:26px;height:26px;border-radius:50%;background:#f6f7f9;color:var(--ink-3);
+    font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;
+  }
+  .item h4{margin:0 0 3px;font-size:14.5px;letter-spacing:-.1px;}
+  .item p{margin:0;font-size:13px;color:var(--ink-3);line-height:1.65;}
+  .item p + p{margin-top:3px;}
+  .item p b{color:var(--ink-2);font-weight:600;}
+  .item code{
+    background:#f6f7f9;border:1px solid #edeff2;border-radius:4px;padding:0 4px;
+    font-size:11.5px;color:#8a4b12;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+
+  /* ---------- table ---------- */
+  .tbl-wrap{background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;}
+  table{border-collapse:collapse;width:100%;font-size:13px;}
+  th{
+    text-align:left;background:#fafbfc;color:var(--ink-3);font-size:11.5px;font-weight:700;
+    letter-spacing:.04em;padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  td{padding:14px 16px;border-bottom:1px solid #f1f2f4;vertical-align:top;line-height:1.6;color:var(--ink-2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+  td code{
+    background:#f6f7f9;border:1px solid #edeff2;border-radius:4px;padding:0 4px;
+    font-size:11px;color:#8a4b12;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .tag{
+    display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;
+  }
+  .tag.p0{background:#ffe9e9;color:#b3141f;}
+  .tag.p1{background:#fff3e0;color:#b54708;}
+  .tag.p2{background:#f2f4f7;color:#475467;}
+
+  /* ---------- takeaways ---------- */
+  .takeaways{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px;}
+  .tk{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
+  .tk h4{margin:0 0 6px;font-size:14.5px;}
+  .tk p{margin:0;font-size:12.5px;color:var(--ink-3);}
+
+  /* ---------- metrics ---------- */
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
+  .m-card-kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;}
+  .m-card-kpi em{font-style:normal;font-size:11px;color:var(--ink-3);}
+  .m-card-kpi b{display:block;margin-top:6px;font-size:21px;color:var(--brand);letter-spacing:-.5px;}
+  .m-card-kpi small{font-size:10.5px;color:var(--ink-4);}
+
+  /* ---------- roadmap ---------- */
+  .road{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .rd{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;position:relative;}
+  .rd .w{font-size:10.5px;font-weight:700;color:var(--brand);letter-spacing:.08em;}
+  .rd h4{margin:6px 0 6px;font-size:14px;}
+  .rd p{margin:0;font-size:12px;color:var(--ink-3);}
+
+  /* ---------- refs ---------- */
+  .refs{background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px 22px;}
+  .refs ol{margin:0;padding:14px 0 14px 18px;}
+  .refs li{margin:6px 0;font-size:12.5px;color:var(--ink-3);line-height:1.7;}
+  .refs a{color:#1f4fbf;text-decoration:none;border-bottom:1px solid #d5dff5;}
+  .refs a:hover{color:var(--brand);}
+
+  .note{
+    margin-top:18px;padding:14px 18px;border-left:3px solid var(--brand);background:#fff8f6;
+    border-radius:0 10px 10px 0;font-size:13px;color:var(--ink-2);
+  }
+
+  @media (max-width:1080px){
+    .devices{gap:36px;}
+    .legend,.metrics,.road{grid-template-columns:repeat(2,1fr);}
+    .takeaways{grid-template-columns:1fr;}
+  }
+  @media (max-width:820px){
+    .wrap{padding:36px 18px 64px;}
+    h1{font-size:31px;}
+    .verdict,.devices{grid-template-columns:1fr;}
+    .phone{width:390px;height:845px;border-radius:42px;}
+    .phone.shot img{width:390px;border-radius:42px;}
+    .legend,.metrics,.road{grid-template-columns:1fr;}
+    .tbl-wrap{overflow-x:auto;}
+    table{min-width:720px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">悦航购 ARYN · 新人专享页专项调研</div>
+  <h1>新人专享页，还差<br><span>“最后一公里”</span></h1>
+  <p class="lead">
+    这页现在“能用、价格也对”，但它更像一个<b>新人价商品列表</b>，还不是一个<b>新客首单转化页</b>。
+    差距集中在三件事：规则说不清、加购后没有下一步、选品撑不起“专享”的价值感。
+  </p>
+  <div class="meta">
+    <span>调研日期：<b>2026-11-12</b></span>
+    <span>现状基线：<b>aryn-mall-uniapp / newbie-zone</b></span>
+    <span>对标平台：<b>小象超市 · 盒马 · 朴朴 · 叮咚 · 七鲜/多多买菜</b></span>
+  </div>
+
+  <div class="verdict">
+    <div class="vcard">
+      <em>判断一</em>
+      <h3>规则口径有三处打架</h3>
+      <p>“首单专享价”“首件享新人价”“每人每款限购”指向三种不同规则；限购提示还缺数字、被省略号截断。</p>
+    </div>
+    <div class="vcard">
+      <em>判断二</em>
+      <h3>加购之后没有下一步</h3>
+      <p>“抢”等于直接加购，但页面没有购物车角标、合计和去结算，也没有凑单/免运钩子。新客第一单通常不止一件。</p>
+    </div>
+    <div class="vcard">
+      <em>判断三</em>
+      <h3>选品撑不起“专享”</h3>
+      <p>8 个 SKU 以 1 元级小件为主，缺鸡蛋、牛奶、肉、水果这类“硬通货”，省额 0.5–3 元，感知像“便宜一点”而非“占到便宜”。</p>
+    </div>
+  </div>
+
+  <!-- ================= 01 ================= -->
+  <section id="compare">
+    <div class="sec-head"><span class="sec-no">01</span><h2>现状 vs 改版</h2></div>
+    <p class="sec-desc">左侧是你给的线上截图（430px 宽度等比还原），编号对应下方 8 个问题；右侧是按同一品牌色重排的改版原型，新增模块用灰底说明标出。原型可直接滚动查看。</p>
+
+    <div class="devices">
+      <figure class="device">
+        <div class="phone shot">
+          <img src="./现状截图.png" alt="新人专享页现状截图">
+          <div class="pin" style="left:36%;top:17.6%">1</div>
+          <div class="pin" style="left:5.4%;top:21.2%">2</div>
+          <div class="pin" style="left:93%;top:25.7%">3</div>
+          <div class="pin" style="left:95.4%;top:17.0%">4</div>
+          <div class="pin" style="left:3.2%;top:29.3%">5</div>
+          <div class="pin" style="left:3.6%;top:59.7%">6</div>
+          <div class="pin" style="left:50%;top:94.5%">7</div>
+          <div class="pin" style="left:73%;top:34.5%">8</div>
+        </div>
+        <figcaption class="device-cap"><b>现状</b> · 666×1410 线上截图</figcaption>
+      </figure>
+
+      <figure class="device">
+        <div class="phone">
+          <div class="m-status"><span>20:33</span><i>5G&nbsp;&nbsp;▰</i></div>
+          <div class="m-nav"><span class="b">‹</span><span class="t">新人专享</span><span class="c"><em>•••</em><i>◉</i></span></div>
+          <div class="m-scroll">
+
+            <div class="m-hero">
+              <div class="m-hero-top">
+                <div>
+                  <h3>新人专享 · 每款立省</h3>
+                  <p>注册 30 天内可享 · 每款首件新人价</p>
+                </div>
+                <div class="m-cd"><em>距结束</em><b>02:14:36</b></div>
+              </div>
+              <div class="m-perks"><span>1 元起</span><span>¥58 券包</span><span>满 39 免运</span></div>
+              <div class="m-hero-elig"><span>✓ 你已符合新人资格 · 剩余 18 天</span><span>规则 ›</span></div>
+            </div>
+
+            <div class="m-coupon">
+              <div class="m-coupon-l">
+                <strong>¥58</strong>
+                <div><b>新人券包 · 3 张</b><small>5 元无门槛 · 满 39 减 15 · 满 99 减 38</small></div>
+              </div>
+              <button>一键领取</button>
+            </div>
+
+            <div class="m-tabs">
+              <div class="m-chips">
+                <span class="on">全部</span><span>蔬果</span><span>肉蛋</span><span>乳品</span><span>粮油</span>
+              </div>
+              <span class="m-sort">省最多 ⌄</span>
+            </div>
+
+            <div class="m-grid">
+
+              <div class="m-card">
+                <div class="m-media">
+                  <span class="badge">新人价</span>
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <ellipse cx="50" cy="78" rx="25" ry="4.5" fill="#efe7db" opacity=".75"/>
+                    <ellipse cx="50" cy="55" rx="26" ry="31" fill="#fff7e9" stroke="#d9b184" stroke-width="2.2"/>
+                    <ellipse cx="42" cy="44" rx="7" ry="10" fill="#fffdf6" opacity=".95"/>
+                    <ellipse cx="58" cy="66" rx="4" ry="6" fill="#f6e8d4" opacity=".8"/>
+                  </svg>
+                </div>
+                <div class="m-body">
+                  <div class="m-name">可生食鲜鸡蛋 30 枚</div>
+                  <div class="m-spec">约 1.5kg / 箱</div>
+                  <div class="m-price"><b><i>¥</i>19.9</b><s>¥29.9</s></div>
+                  <div class="m-extra"><em>已省 ¥10 · 限 1 件</em><span class="m-add">+</span></div>
+                </div>
+              </div>
+
+              <div class="m-card">
+                <div class="m-media">
+                  <span class="badge">新人价</span>
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <ellipse cx="50" cy="82" rx="22" ry="4" fill="#e8eef7"/>
+                    <rect x="36" y="30" width="28" height="49" rx="5" fill="#f2f7ff" stroke="#aec2dc" stroke-width="2.2"/>
+                    <rect x="41" y="21" width="18" height="10" rx="3" fill="#cfe0f5" stroke="#aec2dc" stroke-width="2"/>
+                    <rect x="34" y="47" width="32" height="14" fill="#e2edfb"/>
+                    <path d="M42 54h16" stroke="#ff8f7a" stroke-width="3.2" stroke-linecap="round"/>
+                    <path d="M44 68h12" stroke="#cbd9ea" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </div>
+                <div class="m-body">
+                  <div class="m-name">全脂鲜牛奶 950ml</div>
+                  <div class="m-spec">巴氏杀菌 / 冷藏</div>
+                  <div class="m-price"><b><i>¥</i>9.9</b><s>¥15.9</s></div>
+                  <div class="m-extra"><em>已省 ¥6 · 限 1 件</em><span class="m-add">+</span></div>
+                </div>
+              </div>
+
+              <div class="m-card">
+                <div class="m-media">
+                  <span class="badge">新人价</span>
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <ellipse cx="50" cy="80" rx="24" ry="4.5" fill="#f0e4e2"/>
+                    <path d="M22 50c0-15 13-24 28-24s28 9 28 24c0 17-11 28-28 28S22 67 22 50z" fill="#fbe0dc" stroke="#d9a39d" stroke-width="2.2"/>
+                    <path d="M33 45c5-7 12-10 19-9" stroke="#fff" stroke-width="3" opacity=".9"/>
+                    <path d="M38 62c6 3 13 4 19 2" stroke="#d9a39d" stroke-width="2"/>
+                  </svg>
+                </div>
+                <div class="m-body">
+                  <div class="m-name">精品五花肉 500g</div>
+                  <div class="m-spec">冷鲜 / 当日分割</div>
+                  <div class="m-price"><b><i>¥</i>12.9</b><s>¥22.9</s></div>
+                  <div class="m-extra"><em>已省 ¥10 · 限 1 件</em><span class="m-add">+</span></div>
+                </div>
+              </div>
+
+              <div class="m-card">
+                <div class="m-media">
+                  <span class="badge">新人价</span>
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <ellipse cx="50" cy="82" rx="24" ry="4.5" fill="#f3e7d4"/>
+                    <circle cx="50" cy="57" r="25" fill="#ffd28f" stroke="#dfa24c" stroke-width="2.2"/>
+                    <circle cx="42" cy="50" r="4.5" fill="#ffeccd" opacity=".95"/>
+                    <path d="M50 33c3-8 10-11 16-9-3 7-9 10-16 9z" fill="#a8d3a8" stroke="#87bb87" stroke-width="1.6"/>
+                  </svg>
+                </div>
+                <div class="m-body">
+                  <div class="m-name">赣南脐橙 5 斤装</div>
+                  <div class="m-spec">果径 75mm+ / 甜橙</div>
+                  <div class="m-price"><b><i>¥</i>9.9</b><s>¥19.9</s></div>
+                  <div class="m-extra"><em>已省 ¥10 · 限 1 件</em><span class="m-add">+</span></div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="m-rules">活动规则：资格 / 每款限购 1 件 / 超出按原价 <span>›</span></div>
+          </div>
+
+          <div class="m-bar">
+            <div class="m-prog">
+              <span>再买 <b>¥11.3</b> 免运费</span>
+              <span class="track"><i></i></span>
+              <span>70%</span>
+            </div>
+            <div class="m-bar-main">
+              <div class="m-cart">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 5h2l2 11h10l2-8H7" fill="none" stroke="#3d4450" stroke-width="1.8" stroke-linecap="round"/>
+                  <circle cx="9.5" cy="19.5" r="1.6" fill="#3d4450"/>
+                  <circle cx="17" cy="19.5" r="1.6" fill="#3d4450"/>
+                </svg>
+                <u>3</u>
+              </div>
+              <div class="m-total"><em>合计</em><b>¥27.7</b><small>已享新人价，省 ¥26.3</small></div>
+              <button class="m-cta">去结算</button>
+            </div>
+          </div>
+        </div>
+        <figcaption class="device-cap"><b>改版原型</b> · 430×932（iPhone 15 Pro Max）</figcaption>
+      </figure>
+    </div>
+
+    <div class="legend">
+      <div class="lg"><span class="n">1</span><h4>“首单”还是“首件”</h4><p>副标题写“首单专享价”，正文写“首件享新人价”，实际规则是每款首件。三种说法，用户只记住最严格的那种。</p></div>
+      <div class="lg"><span class="n">2</span><h4>规则字号 10px</h4><p>资格、限购、超件计价挤在一行 20rpx 小字里，低于小程序舒适阅读下限，等于没写。</p></div>
+      <div class="lg"><span class="n">3</span><h4>限购提示缺数字</h4><p>文案写死“新人价每人每款限购”，没有“1 件”，且被 nowrap 省略号截断——截图里就是半句话。</p></div>
+      <div class="lg"><span class="n">4</span><h4>双 11 配“长期有效”</h4><p>活动名打节点，右侧却标长期有效、无倒计时，紧迫感被自己抵消。</p></div>
+      <div class="lg"><span class="n">5</span><h4>角标压图且偏小</h4><p>“新人首单价”压在主图左上，20rpx 白字在浅色商品图上对比不足，重复两次后变成噪音。</p></div>
+      <div class="lg"><span class="n">6</span><h4>省额与划线价重复</h4><p>同一信息说两遍，还各占一行；卡片被迫 5 层信息，一屏只露 3.5 个商品。</p></div>
+      <div class="lg"><span class="n">7</span><h4>没有结算出口</h4><p>加购后页面无购物车角标、无合计、无去结算，用户只能退回首页自己找——首单链路在这里断掉。</p></div>
+      <div class="lg"><span class="n">8</span><h4>主图风格不统一</h4><p>包装图、散装实物图、留白图混排，豆芽这类图主体只占三成，视觉上不像同一个“专享区”。</p></div>
+    </div>
+  </section>
+
+  <!-- ================= 02 ================= -->
+  <section id="issues">
+    <div class="sec-head"><span class="sec-no">02</span><h2>逐条诊断</h2></div>
+    <p class="sec-desc">按四层拆：文案与规则、转化链路、选品与商品卡、结构与长期能力。编号 P0 为“影响首单转化或信任”的问题。</p>
+
+    <div class="group">
+      <div class="group-head"><span>P0</span><h3>文案与规则：三处自相矛盾，一处明确缺陷</h3></div>
+      <div class="items">
+        <div class="item"><div class="idx">1</div><div>
+          <h4>“首单专享价”与“首件享新人价”不是一回事</h4>
+          <p><b>现象：</b>副标题 <code>diy.newbieFloor.subtitle</code> 是“首单专享价”，权益行是“首件享新人价，超出按销售价”，英文版还把后者漏了半句。</p>
+          <p><b>影响：</b>用户会以为“只有第一单能用”，下完一单就走；实际上每款首件都有新人价，白白浪费复购机会。</p>
+          <p><b>改法：</b>统一为“<b>每款首件新人价，第 2 件起按原价</b>”，中文/英文同步，副标题改为“每款首件专享”。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">2</div><div>
+          <h4>限购提示没有数字，还被省略号截断</h4>
+          <p><b>现象：</b><code>promotion.newbie.ruleHint</code> 写死为“新人价每人每款限购”，不含 <code>{limit}</code>；<code>.hero-hint</code> 又是 <code>white-space:nowrap + ellipsis</code>，截图里尾部直接消失。</p>
+          <p><b>影响：</b>最关键的限制条件不可读；用户到结算才发现超件按原价，产生“被套路”感。</p>
+          <p><b>改法：</b>改为“每人每款限购 {limit} 件”，允许两行；卡面同步“限 1 件”小标，把规则前置。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">3</div><div>
+          <h4>“双 11”与“长期有效”同时存在</h4>
+          <p><b>现象：</b>活动名带双 11，右侧标“长期有效”，<code>longTerm=true</code> 时前端不做倒计时。</p>
+          <p><b>影响：</b>既没有节点的紧迫感，也没有长期权益的稳定感，两头不占。</p>
+          <p><b>改法：</b>节点活动给真实倒计时；长期活动去掉节点字样，改“新人常驻权益”，并把“剩余 X 天资格”做成个人化信息。</p>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head"><span>P0</span><h3>转化链路：加购即终点，这是最大的漏损</h3></div>
+      <div class="items">
+        <div class="item"><div class="idx">4</div><div>
+          <h4>页面没有购物车入口、合计和去结算</h4>
+          <p><b>现象：</b>这是 <code>navigationStyle:custom</code> 的三级页，没有 tabbar；“抢”走 <code>useQuickCart → submitCartAdd</code>，成功后就停住了。</p>
+          <p><b>影响：</b>生鲜新客第一单平均 2–4 件，加一件就断，等于把“逛”变成“只买一件 1 元商品”，履约成本直接倒挂。</p>
+          <p><b>改法：</b>底部固定玻璃条：购物车角标 + 合计 + 已省 + 去结算；复用 <code>glass-tabbar</code> 材质与 <code>--page-glass-bar-clearance</code> 让位，不新造一套视觉。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">5</div><div>
+          <h4>没有券包、没有免运门槛，缺“第二钩子”</h4>
+          <p><b>现象：</b>对标平台普遍是“新人价 + 券包 + 免运”三件套；我们只有单品价。项目其实已有 <code>diy-coupon-receive</code> 可复用。</p>
+          <p><b>影响：</b>1 元商品无法被拉到 39 元单；新客首单客单低，后续复购也没有承接。</p>
+          <p><b>改法：</b>券包横条（无门槛 + 满 39 + 满 99 三张，门槛券负责拉客单）；底部条做“再买 ¥X 免运费”进度。满额免运需后端订单级运费规则，短期先做提示。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">6</div><div>
+          <h4>加购后没有连续动作</h4>
+          <p><b>现象：</b>加购成功只有一次确认弹层/提示，卡片不变化，没有“已加购 1 件 · 去看看”。</p>
+          <p><b>影响：</b>用户不知道是否成功，也不知道下一步去哪。</p>
+          <p><b>改法：</b>卡片局部状态（已加购/数量±）+ 底部条实时更新；加购成功后 1.5s 内高亮购物车角标。</p>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head"><span>P1</span><h3>选品与商品卡：价值感不足，屏效偏低</h3></div>
+      <div class="items">
+        <div class="item"><div class="idx">7</div><div>
+          <h4>8 个 SKU 全是低价小件，缺“硬通货”</h4>
+          <p><b>现象：</b>奶茶 22g、豆芽 500g、内酯豆腐 400g、银耳羹 15g；省额 0.5–3 元，折后 1–3.9 元。</p>
+          <p><b>影响：</b>用户感知是“便宜一点”，不是“新人占到大便宜”；也没有一个能撑起“这平台菜新鲜”的品类。</p>
+          <p><b>改法：</b>按 3+3+2 配比：3 个硬通货（鸡蛋/牛奶/猪肉/水果）+ 3 个高频蔬果 + 2 个 1 元引流；每件省额 ≥ 30% 或 ≥ ¥5。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">8</div><div>
+          <h4>卡片 5 层信息，省额与划线价重复</h4>
+          <p><b>现象：</b>商品名 2 行 + 子标题 + 价格 + 划线价 + 省额 chip + 按钮，一屏只看到 3.5 个商品。</p>
+          <p><b>影响：</b>屏效低，浏览成本高，凑单更慢。</p>
+          <p><b>改法：</b>省额与划线价合并为一行“<b>¥19.9 ¥29.9 · 省 ¥10</b>”；子标题与商品名同义时已有 <code>shouldShowSubtitle</code> 拦截，继续保留；卡高压缩 12–16rpx。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">9</div><div>
+          <h4>没有排序和品类筛选</h4>
+          <p><b>现象：</b>8 件平铺，用户只能从头翻。</p>
+          <p><b>影响：</b>找不到“最划算”，决策时间被拉长。</p>
+          <p><b>改法：</b>顶部品类 chips（全部/蔬果/肉蛋/乳品/粮油）+ 排序（省最多/好评/新品）；SKU 扩到 30+ 时再考虑分组与虚拟列表。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">10</div><div>
+          <h4>无稀缺感：无限量、无已抢进度</h4>
+          <p><b>现象：</b>只有“共 8 件”，没有剩余名额、已抢百分比、售罄态。</p>
+          <p><b>影响：</b>“等等再买”没有成本，首单决策被无限推后。</p>
+          <p><b>改法：</b>活动加总量/剩余字段，卡面显示“已抢 62%”或“仅剩 23 份”；售罄置灰并给替代推荐。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">11</div><div>
+          <h4>主图规范缺失</h4>
+          <p><b>现象：</b>包装图、散装实物图混排，豆芽主体占比小、留白大。</p>
+          <p><b>影响：</b>专享区看起来像“清仓区”，品质感打折。</p>
+          <p><b>改法：</b>出专区主图规范：1:1、白/浅灰底、主体占 70%、不加文字水印；运营上架前校验。</p>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head"><span class="p2">P2</span><h3>结构与长期能力：资格不透明、数据不可验证</h3></div>
+      <div class="items">
+        <div class="item"><div class="idx">12</div><div>
+          <h4>资格状态不透明，阻断态一刀切</h4>
+          <p><b>现象：</b><code>eligible</code> 三态已有，<code>ineligibleReason</code>（ALREADY_PAID / REGISTER_TIMEOUT）却没用于展示；未登录按潜在新人展示，也不提示“登录验证资格”。</p>
+          <p><b>影响：</b>老客只看到“暂不符合新人资格”，没有替代出路；新客不确定自己能不能享。</p>
+          <p><b>改法：</b>顶部资格条（已符合/待登录验证/已下过单）；阻断态分流：已下过单 → 会员/常购，注册超期 → 回归券包。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">13</div><div>
+          <h4>底部是免责话术，不是规则</h4>
+          <p><b>现象：</b>页脚“新人价资格与限购以结算页为准”。</p>
+          <p><b>影响：</b>把不确定性写在第最后一行，反而放大不信任。</p>
+          <p><b>改法：</b>折叠“活动规则”：资格、限购、超件计价、退款后名额是否返还（这也是防羊毛的必填项）。</p>
+        </div></div>
+
+        <div class="item"><div class="idx">14</div><div>
+          <h4>没有页面级漏斗埋点</h4>
+          <p><b>现象：</b>活动 ID 有，但曝光/点击/加购/支付没有串起来。</p>
+          <p><b>影响：</b>改完无法证明有效，只能靠感觉。</p>
+          <p><b>改法：</b>至少补 4 个事件：页面曝光、商品点击、加购成功、支付成功，带 activityId / spuId / 位置。</p>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>项目特有的一条：</b>这是船供/海员场景。船员靠港时间窗短、常整船或代购批量采买，“每人每款限 1 件”可能与真实采购方式冲突；
+      倒计时也绑自然日，而不是靠港/开航。建议把新人资格与限购维度做成可按“船舶/代理”判定，至少给 B 端采购一条独立规则。
+    </div>
+  </section>
+
+  <!-- ================= 03 ================= -->
+  <section id="bench">
+    <div class="sec-head"><span class="sec-no">03</span><h2>主流生鲜怎么玩“新人专享”</h2></div>
+    <p class="sec-desc">五家平台的公开资料与产品分析里，新人权益几乎都不是“一堆特价商品”，而是“<b>价格 + 券 + 免运</b>”的组合，并且一定会把用户推到结算。</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:110px">平台</th><th>新人权益组合</th><th>首屏怎么排</th><th>结算与凑单</th><th style="width:190px">可借鉴</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>小象超市</b></td>
+            <td>“新人四重礼”：三单免运费、专享券、部分商品 0.99 元起、满减/大牌折扣；新店期做到“150+ 款 1 分钱任选一件”。</td>
+            <td>权益打包成“礼”，逐条展开，而不是单个价格。</td>
+            <td>免运是权益的一部分，直接降低首单门槛。</td>
+            <td>把“免运”当权益卖，比补贴单品更省。</td>
+          </tr>
+          <tr>
+            <td><b>盒马</b></td>
+            <td>首页大尺寸“新朋友专享福利”banner → 新人页：新人特价商品 + 新人券。</td>
+            <td>强红色、大字号，先建立“有便宜可占”的预期。</td>
+            <td>券与商品同页，领完即可用。</td>
+            <td>入口和落地页口径必须一致。</td>
+          </tr>
+          <tr>
+            <td><b>朴朴</b></td>
+            <td>新人专享 0.01 元专区（展示面积大于 188 元红包）+ 红包券包。</td>
+            <td>0.01 元区占首屏最大面积，先让用户“先买一单”。</td>
+            <td>购物车有免配送差额提示；部分平台在列表底部直接给结算入口。</td>
+            <td>差额提示是成本最低的客单工具。</td>
+          </tr>
+          <tr>
+            <td><b>叮咚买菜</b></td>
+            <td>108 元新人红包（多张门槛券，如“满 39 减 15”）+ 本月新人好物推荐。</td>
+            <td>“本月好物”按需求选品，不是清库存。</td>
+            <td>门槛券天然驱动凑单。</td>
+            <td>券是“把 1 元单拉到 39 元单”的杠杆。</td>
+          </tr>
+          <tr>
+            <td><b>七鲜 / 多多买菜</b></td>
+            <td>免运门槛下调到 39 元（七鲜 5 公里内 39 元免运，未达收 3 元）；多多买菜小时达 4kg 内满 39 元免运。</td>
+            <td>把“满 39 免运”写在最显眼的位置。</td>
+            <td>行业门槛集中在 35–39 元，盒马约 49 元。</td>
+            <td>门槛要可配置，按租户/区域定。</td>
+          </tr>
+          <tr>
+            <td><b>我们（现状）</b></td>
+            <td>新人价单品 + 每款首件限购；无券包、无免运钩子。</td>
+            <td>头部说明卡 + 8 件双列商品，第三行开始被截断。</td>
+            <td>无购物车入口、无合计、无结算。</td>
+            <td>差距不在“价”，在“组合”和“出口”。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="takeaways">
+      <div class="tk"><h4>① 首单权益要“打包”</h4><p>单点低价只能拉一次点击；价格 + 券 + 免运的组合，才能把“试试”变成“下单”。</p></div>
+      <div class="tk"><h4>② 稀缺必须真实</h4><p>限时、限量、门槛三件套缺一不可；没有稀缺，“等等再买”就没有成本。规则还要能防羊毛（退款后名额是否返还）。</p></div>
+      <div class="tk"><h4>③ 结算入口是转化的一半</h4><p>新客第一单几乎不可能只买一件。页面内不给出口，等于把已经到手的意向交回去。</p></div>
+    </div>
+  </section>
+
+  <!-- ================= 04 ================= -->
+  <section id="plan">
+    <div class="sec-head"><span class="sec-no">04</span><h2>优化清单与代码落点</h2></div>
+    <p class="sec-desc">按“改动成本 / 收益”排序。P0 只动前端文案与布局，当天可上；P1 需要运营配合选品、或复用已有券组件；P2 涉及后端字段与埋点。</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:62px">优先级</th><th style="width:190px">改什么</th><th>具体做法</th><th style="width:280px">落点（文件 / 组件）</th><th style="width:150px">预期影响</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="tag p0">P0</span></td>
+            <td><b>统一规则口径</b></td>
+            <td>副标题改“每款首件专享”；perks 明确“第 2 件起按原价”；中英文同步补齐。</td>
+            <td><code>locales/modules/diy.zh-CN.ts</code> <code>diy.en-US.ts</code></td>
+            <td>降低结算预期落差、减少客诉</td>
+          </tr>
+          <tr>
+            <td><span class="tag p0">P0</span></td>
+            <td><b>限购提示补数字</b></td>
+            <td><code>ruleHint</code> 改为“每人每款限购 {limit} 件”，去掉 nowrap 截断，必要时换行两排。</td>
+            <td><code>promotion.zh-CN.ts</code> <code>newbie/index.vue</code> (<code>.hero-hint</code>)</td>
+            <td>规则可读，减少“超件按原价”争议</td>
+          </tr>
+          <tr>
+            <td><span class="tag p0">P0</span></td>
+            <td><b>补底部结算条</b></td>
+            <td>购物车角标 + 合计 + 已省 + 去结算；加购成功实时刷新；用玻璃材质与页面让位变量。</td>
+            <td><code>sub-pages/promotion/newbie/index.vue</code>；复用 <code>glass-tabbar</code> 视觉与 <code>useQuickCart</code> 返回</td>
+            <td>加购→支付率（预计 +5–8pt）</td>
+          </tr>
+          <tr>
+            <td><span class="tag p0">P0</span></td>
+            <td><b>卡面加“限 1 件”</b></td>
+            <td>价格行下补“已省 ¥X · 限 1 件”，与 <code>limitPerUser</code> 同源，不写死。</td>
+            <td><code>useNewbieGoodsActions.ts</code> 暴露 limit；卡片模板</td>
+            <td>减少结算页流失</td>
+          </tr>
+          <tr>
+            <td><span class="tag p1">P1</span></td>
+            <td><b>券包横条</b></td>
+            <td>领券区放在头卡下方；门槛券（满 39/99）负责拉客单，无门槛券负责首单。</td>
+            <td>复用 <code>components/diy/diy-coupon-receive</code> 与领券接口</td>
+            <td>首单客单价（8 元 → 25 元+）</td>
+          </tr>
+          <tr>
+            <td><span class="tag p1">P1</span></td>
+            <td><b>选品结构换血</b></td>
+            <td>3 硬通货 + 3 高频蔬果 + 2 个 1 元引流；每件省额 ≥ 30% 或 ≥ ¥5；SKU 扩到 24–40 个。</td>
+            <td>运营后台活动 SKU 配置（<code>NewbieActivityServiceImpl</code> 规则 JSON）</td>
+            <td>“占到便宜”的感知、转化率</td>
+          </tr>
+          <tr>
+            <td><span class="tag p1">P1</span></td>
+            <td><b>品类筛选 + 省最多排序</b></td>
+            <td>顶部 chips + 排序；<code>goodsList</code> 前端分组，SKU 多了再上虚拟列表。</td>
+            <td><code>newbie/index.vue</code>（数据已在页面全量，200 上限）</td>
+            <td>决策时间、加购件数</td>
+          </tr>
+          <tr>
+            <td><span class="tag p1">P1</span></td>
+            <td><b>卡片信息压缩</b></td>
+            <td>省额与划线价合并一行；子标题仅在差异时展示；卡高降 12–16rpx，一屏多露半张卡。</td>
+            <td><code>newbie/index.vue</code> <code>.goods-body/.goods-price-row</code></td>
+            <td>浏览深度、曝光商品数</td>
+          </tr>
+          <tr>
+            <td><span class="tag p1">P1</span></td>
+            <td><b>资格条</b></td>
+            <td>已符合 / 待登录验证 / 已下过单三态；用 <code>ineligibleReason</code> 做差异化出口。</td>
+            <td>接口已返回 <code>eligible</code> + <code>ineligibleReason</code>，前端补展示</td>
+            <td>信任感、阻断页转化</td>
+          </tr>
+          <tr>
+            <td><span class="tag p2">P2</span></td>
+            <td><b>限量与已抢进度</b></td>
+            <td>活动规则 JSON 增 <code>totalStock</code>/<code>soldCount</code>，卡面显示“已抢 62%”、售罄置灰。</td>
+            <td><code>AppNewbieFloorVO</code> + 活动规则解析（需增量 SQL 双模式各一份）</td>
+            <td>稀缺感、当日转化</td>
+          </tr>
+          <tr>
+            <td><span class="tag p2">P2</span></td>
+            <td><b>满额免运 / 凑单</b></td>
+            <td>订单级运费规则（租户可配门槛），页面底部做进度条；现有运费是 SPU 级固定运费，需新增订单级规则。</td>
+            <td><code>OrderPriceComputeService</code>（运费口径）+ 配置表</td>
+            <td>客单价、履约成本比</td>
+          </tr>
+          <tr>
+            <td><span class="tag p2">P2</span></td>
+            <td><b>四段漏斗埋点</b></td>
+            <td>页面曝光 / 商品点击 / 加购成功 / 支付成功，带 activityId、spuId、坑位。</td>
+            <td>参考 <code>useDecorationPage</code> 的埋点方式统一接入</td>
+            <td>让优化可验证</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 05 ================= -->
+  <section id="measure">
+    <div class="sec-head"><span class="sec-no">05</span><h2>怎么验证，以及先做哪一步</h2></div>
+    <p class="sec-desc">不要一次性全上：先用“零后端改动”的三件事拿到一条干净的基线，再叠加券包与选品。</p>
+
+    <div class="metrics">
+      <div class="m-card-kpi"><em>页面 UV → 加购率（目标）</em><b>+8~15pt</b><small>主要来自结算条与卡面限购前置</small></div>
+      <div class="m-card-kpi"><em>加购 → 支付率（目标）</em><b>+5pt</b><small>来自购物车角标与连续加购</small></div>
+      <div class="m-card-kpi"><em>首单客单价（目标）</em><b>8 → 25 元+</b><small>券包门槛 + 凑单进度</small></div>
+      <div class="m-card-kpi"><em>履约成本 / 单（监控）</em><b>监控项</b><small>1 元单必须被门槛拉住</small></div>
+    </div>
+
+    <div class="road">
+      <div class="rd"><div class="w">第 1 周</div><h4>零后端三件事</h4><p>文案口径统一、限购补数字、底部结算条。先上，拿基线。</p></div>
+      <div class="rd"><div class="w">第 2 周</div><h4>选品与卡片</h4><p>3+3+2 选品换血、卡片压缩、品类与排序。运营主导。</p></div>
+      <div class="rd"><div class="w">第 3–4 周</div><h4>券包与资格条</h4><p>复用领券组件；用 ineligibleReason 做分层出口；补埋点。</p></div>
+      <div class="rd"><div class="w">下一阶段</div><h4>门槛与裂变</h4><p>订单级满额免运、限量库存、船队邀请；需后端与运营规则。</p></div>
+    </div>
+
+    <div class="note">
+      <b>灰度方式：</b>按 tenant 或用户 hash 分流，样本限定“新注册且未下单”用户；观察期至少 7 天，同时看 7 日复购，避免只优化了首单、把留存做差。
+    </div>
+  </section>
+
+  <!-- ================= 06 ================= -->
+  <section id="refs">
+    <div class="sec-head"><span class="sec-no">06</span><h2>参考来源</h2></div>
+    <p class="sec-desc">公开产品分析与平台规则，仅用于对标做法，不代表对方当前线上形态。</p>
+    <div class="refs">
+      <ol>
+        <li>小象超市“新人四重礼”（三单免运、专享券、0.99 元起、满减）：<a href="http://m.toutiao.com/group/7623359492584522267/">中国经济时报四川报道</a></li>
+        <li>小象超市“150+ 款商品新客 1 分钱任选一件”：<a href="http://m.toutiao.com/group/7624449894652199439/">成华融媒</a></li>
+        <li>朴朴新人专享 0.01 元区、188 元红包、免配送差额提示：<a href="https://www.woshipm.com/evaluating/4401780.html">人人都是产品经理《朴朴产品分析报告》</a></li>
+        <li>盒马“新朋友专享福利”banner 与新人特价/券：<a href="https://www.woshipm.com/evaluating/5145170.html">人人都是产品经理《盒马：生鲜电商破局者？》</a></li>
+        <li>首单玩法与“限时/限量/门槛/漏洞排查”六项注意：<a href="https://www.yunyingpai.com/product-operation/626047.html">运营派《首单转化提升 50%》</a></li>
+        <li>首单免费对新客首单转化的操盘数据（60%+ vs 常规 15–30%）：<a href="https://m.36kr.com/p/1724819832833">36 氪《首单免费，怎么操作？》</a></li>
+        <li>小象超市多数城市免运门槛 35–39 元：<a href="https://www.jiemian.com/article/14330495.html">界面新闻</a></li>
+        <li>七鲜 5 公里内 39 元免运、未达收 3 元：<a href="https://m.itouchtv.cn/article/5f3485ec119303bc8171e412f94eda30">触电新闻</a></li>
+        <li>多多买菜小时达满 39 元免运：<a href="https://column.iresearch.cn/b/202508/1008266.shtml">艾瑞网</a></li>
+        <li>生鲜包邮与客单价的结构性矛盾（盒马单均毛利 27–28%、配送成本约 5.7 元）：<a href="https://www.yunyingpai.com/apptg/957115.html">运营派《电商包邮背后隐藏的小心思》</a></li>
+      </ol>
+    </div>
+  </section>
+
+  <div style="margin-top:64px;color:#9aa1ac;font-size:12px;text-align:center;">悦航购 ARYN · 2026-11-12 · 基于 aryn-mall-uniapp 现状代码与公开资料整理</div>
+</div>
+</body>
+</html>

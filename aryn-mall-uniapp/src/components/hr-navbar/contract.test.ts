@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -53,13 +53,38 @@ describe('hr-navbar rendering contract', () => {
     expect(navbar).toMatch(/rightInset/)
   })
 
-  it('does not draw a hairline under the tinted diy navbar', () => {
-    const diy = source('src/components/diy/index.vue')
-    // wd-navbar 默认 bordered 会在导航底部画 1px #e8e8e8 底线：放在白底上
-    // 是分割线，压到装修页的彩色背景上就是一条扎眼的「白杠」，且编辑器
-    // 画布与预览都没有这条线。装修页导航底色由运营配置，必须关掉描边。
-    const tag = diy.match(/<hr-navbar[\s\S]*?>/)?.[0] ?? ''
-    expect(tag).toContain(':bordered="false"')
+  it('never draws a bottom divider (static or frosted)', () => {
+    const navbar = source(NAVBAR)
+    // wot 的 wd-navbar 默认 bordered=true 会在导航底部画 1px #e8e8e8 底线：
+    // 白底页上是分割线，彩色/磨砂头部上就是一条割裂感很强的杠。顶栏一律不画，
+    // 也不允许再暴露 bordered/hairline 开关把这条线接回来。
+    expect(navbar).toContain(':bordered="false"')
+    expect(navbar).not.toContain('hairline')
+    expect(navbar).not.toMatch(/\bbordered\?:\s*boolean/)
+  })
+
+  it('keeps every caller from re-enabling the divider', () => {
+    // 调用方一旦传 :bordered / :hairline，说明有人想把线接回来；
+    // 组件已不再声明这两个 prop，传了也只会静默落空，这里直接拦在源码层。
+    const offenders: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = resolve(dir, entry)
+        if (statSync(full).isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!entry.endsWith('.vue'))
+          continue
+        const code = readFileSync(full, 'utf8')
+        if (/<hr-(?:search-)?navbar[\s\S]*?:bordered=/.test(code))
+          offenders.push(full)
+        if (/<hr-(?:search-)?navbar[\s\S]*?:hairline=/.test(code))
+          offenders.push(full)
+      }
+    }
+    walk(resolve(projectRoot, 'src'))
+    expect(offenders).toEqual([])
   })
 })
 

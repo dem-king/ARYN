@@ -53,8 +53,6 @@ export interface NavigationScrollAppearance {
   textColor: string
   /** 状态栏前景色（微信仅支持这两个值） */
   statusBarFrontColor: '#000000' | '#ffffff'
-  /** 浅色目标底色的底部细线不透明度 */
-  hairlineOpacity: number
 }
 
 function isScrollRecord(value: unknown): value is Record<string, unknown> {
@@ -102,12 +100,6 @@ function mixScrollColor(from: string, to: string, progress: number): string {
     Math.round(channel + ((end[index] ?? channel) - channel) * progress),
   )
   return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`
-}
-
-function scrollLuminance(color: string): number {
-  const rgb = parseScrollColor(color)
-  if (!rgb) return 1
-  return (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255
 }
 
 /** 可读文字色 → 状态栏合法值（#222222 视为黑，其余非白也按黑） */
@@ -209,7 +201,7 @@ export function resolveNavigationScrollSurface(
  * 动态部分：滚动状态 → 导航外观（纯函数，三端共用）。
  *
  * 目标态是**一步切换**：页面在顶部（scrollTop<=0）保持起始外观，任意正滚动
- * 距离立即变成完整目标态（目标底色 + 毛玻璃 + 底边细线 + 反色文字），回到
+ * 距离立即变成完整目标态（目标底色 + 毛玻璃 + 反色文字），回到
  * 顶部立即还原——不再按 distance 插值，也就没有「透明 → 模糊」的过渡过程
  * （用户明确要求去掉）。distance 因此只作为旧文档的遗留字段保留。
  *
@@ -235,7 +227,6 @@ export function resolveNavigationScrollAppearance(
       statusBarFrontColor: toStatusBarFrontColor(
         pickReadableNavigationTextColor(base.backgroundColor, base.textColor),
       ),
-      hairlineOpacity: 0,
     }
   }
   // 一步切换：任意正滚动距离即目标态，负值（iOS 回弹）按顶部处理
@@ -255,7 +246,6 @@ export function resolveNavigationScrollAppearance(
   const textColor = progress === 0
     ? base.textColor
     : pickReadableNavigationTextColor(composite, base.textColor)
-  const lightSurface = scrollLuminance(surface.color) > 0.75
   return {
     progress,
     baseOpacity: 1 - progress,
@@ -265,7 +255,6 @@ export function resolveNavigationScrollAppearance(
     blur: surface.blur,
     textColor,
     statusBarFrontColor: toStatusBarFrontColor(textColor),
-    hairlineOpacity: lightSurface ? progress : 0,
   }
 }
 /* NAVIGATION-SCROLL-END */
@@ -298,8 +287,8 @@ export const FROSTED_SCROLL_SURFACE: NavigationSurfaceAppearance = {
  *
  * 材质与 glass-tabbar / GoodsNavbar 的深色玻璃同源（86% 暗底）；textColor
  * 必须是纯白，toStatusBarFrontColor 只认 '#ffffff' 才翻白色状态栏前景。
- * 滚动后的文字色/底边细线由 resolveNavigationScrollAppearance 按合成底色
- * 亮度自动推导（深色面 → 白字、无细线），无需在此重复配置。
+ * 滚动后的文字色由 resolveNavigationScrollAppearance 按合成底色亮度自动
+ * 推导（深色面 → 白字），无需在此重复配置。
  */
 export const FROSTED_SCROLL_SURFACE_DARK: NavigationSurfaceAppearance = {
   color: '#1A1A1A',

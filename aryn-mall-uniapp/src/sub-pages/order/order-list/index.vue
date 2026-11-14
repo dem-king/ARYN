@@ -4,6 +4,7 @@ import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/order/orderInfo'
 import PriceText from '@/components/price-text/index.vue'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { useDict } from '@/sub-pages/utils/dict'
@@ -45,6 +46,7 @@ const router = useRouter()
 const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 const toast = useGlobalToast()
+const statusTipStore = useStatusTipStore()
 // 倒计时每秒 tick：仅待付款单有可见文案，其余状态不参与渲染
 const { now: tickNow } = useCountdownTicker()
 // 滑动相关变量
@@ -322,7 +324,7 @@ onUnload(() => {
   >
     <template #empty>
       <view class="ol-empty">
-        <image class="ol-empty__img" src="/static/promotion/empty/empty-order.png" mode="aspectFit" />
+        <image class="ol-empty__img" :src="statusTipStore.imageFor('empty-order')" mode="aspectFit" />
         <text class="ol-empty__title">
           {{ t('order.list.empty') }}
         </text>

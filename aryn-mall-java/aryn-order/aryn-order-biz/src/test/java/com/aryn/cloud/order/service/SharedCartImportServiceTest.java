@@ -115,7 +115,9 @@ class SharedCartImportServiceTest {
 				SharedCartImportRow.class);
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), chainAiAssistant, mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
+				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class),
+				mock(com.aryn.cloud.order.service.IBuyerOrgService.class),
+				chainAiAssistant, mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
 		// 姓名闸门默认放行：confirmImport 落库前会查操作者成员行的 display_name，
 		// 夹具统一模拟「发起人已填姓名」，未填姓名的拦截由专项用例显式覆盖
 		when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(namedOwnerMember());

@@ -82,7 +82,6 @@ function toSegments(item: string) {
 
 <template>
   <view class="rule-page">
-    <hr-navbar :title="t('promotion.seckillRule.title')" :bordered="false" />
 
     <scroll-view scroll-y class="rule-scroll">
       <view class="rule-body">

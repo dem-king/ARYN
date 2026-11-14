@@ -40,6 +40,12 @@ interface Order {
   orderItemList: OrderItem[]
   totalPrice: number
   freightPrice: number
+  /** 免邮原因：THRESHOLD-满额包邮；MEMBER-会员免邮；PICKUP-自提；INTERNAL-到船配送；NONE-未减免 */
+  freightFreeReason?: string | null
+  /** 包邮门槛（元，结算接口回填，非表字段） */
+  freightThreshold?: number | null
+  /** 距包邮门槛差额（元，结算接口回填，非表字段） */
+  freightGap?: number | null
   couponPrice: number
   paymentPrice: number
   deliveryWay: string
@@ -81,6 +87,8 @@ interface Props {
   addressPending?: boolean
   /** 导入直下单交接：配送方式已在向导锁定（船供/岸上），行转静态说明、不可切换 */
   deliveryWayLocked?: boolean
+  /** 是否开放「去凑单」入口：只有购物车下单（createWay=1）能安全并入同一单 */
+  fillGapEnabled?: boolean
 }
 
 const props = defineProps<Props>()
@@ -91,6 +99,8 @@ const emit = defineEmits<{
   (e: 'remarkChange', order: Order): void
   (e: 'showCoupon', order: Order): void
   (e: 'pointsToggle', enabled: boolean): void
+  /** 点击「还差 X 元」：由宿主跳凑单页（组件不持有路由与商品池） */
+  (e: 'fillGap'): void
 }>()
 
 const { t } = useI18n()
@@ -115,6 +125,50 @@ const paymentWayDraft = ref(paymentWay.value)
 const localOrder = ref<Order>({ ...props.order })
 
 const hasSelectedCoupon = computed(() => !!localOrder.value.couponUserId)
+
+/**
+ * 运费副文案：解释「为什么是 0 / 还要买多少」。
+ *
+ * 只做展示，不参与任何金额计算：门槛与差额全部由服务端下发
+ * （freightThreshold / freightGap / freightFreeReason），前端不复算，
+ * 避免结算页与下单口径漂移。
+ */
+const freightHint = computed(() => {
+  const reason = localOrder.value.freightFreeReason
+  const threshold = Number(localOrder.value.freightThreshold)
+  if (reason === 'MEMBER') {
+    return t('checkout.goods.freightFreeMember')
+  }
+  if (reason === 'THRESHOLD' && Number.isFinite(threshold) && threshold > 0) {
+    return t('checkout.goods.freightFreeThreshold', {
+      amount: threshold.toFixed(2),
+    })
+  }
+  const gap = Number(localOrder.value.freightGap)
+  if (Number.isFinite(gap) && gap > 0 && Number.isFinite(threshold) && threshold > 0) {
+    return t('checkout.goods.freightGap', {
+      amount: threshold.toFixed(2),
+      amount2: gap.toFixed(2),
+    })
+  }
+  return ''
+})
+
+/**
+ * 是否允许点进凑单页：只有「还差 X 元」这一种状态可点。
+ * 已达门槛/会员免邮/自提到船都没有可凑的差额，点击会是无意义跳转。
+ */
+const canFillGap = computed(() => {
+  if (!props.fillGapEnabled || props.addressPending)
+    return false
+  const gap = Number(localOrder.value.freightGap)
+  return Number.isFinite(gap) && gap > 0
+})
+
+function onFillGapTap() {
+  if (canFillGap.value)
+    emit('fillGap')
+}
 
 /**
  * 全部明细都不允许叠券（纯秒杀/纯新人价单）：券行置灰给原因，不弹选择器。
@@ -432,11 +486,26 @@ function saveRemark() {
       <!--
         运费：普通快递（1）与商城配送（3）都由后端 orderFreightHandler 计费；
         岸上企业导入走 way=3，之前只判 way=1 会让用户只看到合计增加、看不到运费来源。
+        门槛与差额由服务端下发（freightThreshold / freightGap / freightFreeReason），
+        前端只展示不复算，避免与下单口径漂移。
       -->
       <view v-if="localOrder.deliveryWay === '1' || localOrder.deliveryWay === '3'" class="fee-row">
-        <text class="fee-row__label">
-          {{ t('checkout.goods.shipping') }}
-        </text>
+        <view class="fee-row__stack">
+          <text class="fee-row__label">
+            {{ t('checkout.goods.shipping') }}
+          </text>
+          <view
+            v-if="!addressPending && freightHint"
+            class="fee-row__sub"
+            :class="{ 'fee-row__sub--link': canFillGap }"
+            @tap.stop="onFillGapTap"
+          >
+            <text>{{ freightHint }}</text>
+            <text v-if="canFillGap" class="fee-row__go">
+              {{ t('checkout.fillGap.go') }} ›
+            </text>
+          </view>
+        </view>
         <!-- 无地址时结算跳过运费计算（运费为 0 占位），明示「待计算」避免误解为免运费 -->
         <wd-text
           v-if="addressPending"
@@ -840,6 +909,18 @@ function saveRemark() {
   font-size: 22rpx;
   color: var(--app-text-3);
   line-height: 30rpx;
+}
+
+/* 可点击的「还差 X 元」：与普通说明文案区分，给出明确的进入凑单页入口 */
+.fee-row__sub--link {
+  display: inline-flex;
+  gap: 8rpx;
+  align-items: center;
+}
+
+.fee-row__go {
+  font-weight: 500;
+  color: var(--wot-color-theme-primary, #ff2e4d);
 }
 
 .fee-row__hint {

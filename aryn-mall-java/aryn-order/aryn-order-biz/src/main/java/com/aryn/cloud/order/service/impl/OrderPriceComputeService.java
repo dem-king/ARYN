@@ -6,8 +6,10 @@ import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.constant.FreightConstants;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
+import com.aryn.cloud.order.api.entity.FreightRule;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
@@ -497,31 +499,167 @@ public class OrderPriceComputeService {
 
 	}
 
+	/**
+	 * 订单运费计算（兼容旧签名：无规则时只按商品级固定运费计费）。
+	 */
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			List<GoodsSku> goodsSkuList, boolean freeShipping) {
-		Map<String, GoodsSku> skuMap = goodsSkuList.stream().collect(Collectors.toMap(GoodsSku::getId, v -> v));
+		orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList, freeShipping, null);
+	}
 
-		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
-			GoodsSku goodsSku = skuMap.get(orderItemEntity.getSkuId());
-			if (goodsSku == null) {
+	/**
+	 * 订单运费计算（结算页与下单共用同一入口，口径必须一致）。
+	 *
+	 * <p>三层叠加，顺序固定：<b>基础运费 → 门槛减免 → 权益免邮</b>：
+	 * <ol>
+	 *   <li>独立计费商品（{@code freight_type='1'}，大件/冷链/危险品）：每个 SPU 每单只收一次固定运费，
+	 *       不再按购买件数线性叠加（买 10 箱不再收 10 次，历史实现是 ×数量）；</li>
+	 *   <li>随订单规则商品（{@code freight_type='2'}）：成交金额计入包邮门槛基数，达门槛免收，
+	 *       未达门槛按命中的规则收一次基础运费；</li>
+	 *   <li>{@code freight_type='0'} 商品恒包邮，既不收费也不计入门槛（保证存量商品零行为变更）；</li>
+	 *   <li>会员免邮权益命中时整单运费清零，优先级高于门槛；</li>
+	 *   <li>上门自提 / 公司配送（到船）不进入计费，运费恒为 0（仅回填免邮原因）。</li>
+	 * </ol>
+	 *
+	 * <p>门槛基数取明细 {@code totalPrice}（活动价后、券与积分前）：用券后金额会导致
+	 * 「凑单用券反而不包邮」，且券选择会改变运费，使确认页与提交下单金额漂移。
+	 *
+	 * <p>订单级运费会分摊回明细（独立运费落对应 SPU 的第一行、门槛运费落金额最大的参与行），
+	 * 保证「订单实付 = 明细实付之和」守恒；减免金额另存订单级，用于免邮成本核算。
+	 *
+	 * @param freightRule 命中的运费规则；null 表示未配置规则（= 不向 type=2 商品收费）
+	 */
+	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			List<GoodsSku> goodsSkuList, boolean freeShipping, FreightRule freightRule) {
+		Map<String, GoodsSku> skuMap = goodsSkuList == null ? Map.of()
+				: goodsSkuList.stream()
+					.filter(sku -> sku.getId() != null)
+					.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (first, second) -> first));
+
+		// 自提 / 到船：不进计费。必须显式清零，否则 freight_type='1' 商品会在自提单上冒出运费
+		String deliveryWay = orderInfo.getDeliveryWay();
+		if (MallOrderConstants.DELIVERY_WAY_2.equals(deliveryWay)
+				|| MallOrderConstants.DELIVERY_WAY_4.equals(deliveryWay)) {
+			orderItemEntityList.forEach(item -> {
+				item.setFreightPrice(BigDecimal.ZERO);
+				computeItemPayPrice(item);
+			});
+			orderInfo.setFreightPrice(BigDecimal.ZERO)
+				.setFreightBasePrice(BigDecimal.ZERO)
+				.setFreightDiscountPrice(BigDecimal.ZERO)
+				.setFreightRuleId(null)
+				.setFreightFreeReason(MallOrderConstants.DELIVERY_WAY_2.equals(deliveryWay)
+						? FreightConstants.REASON_PICKUP : FreightConstants.REASON_INTERNAL)
+				.setFreightThreshold(null)
+				.setFreightGap(null)
+				.setFreightEligibleAmount(BigDecimal.ZERO);
+			computeOrderPrice(orderInfo, orderItemEntityList);
+			return;
+		}
+
+		orderItemEntityList.forEach(item -> item.setFreightPrice(BigDecimal.ZERO));
+
+		// 独立计费：每个 SPU 每单一次，运费落到该 SPU 的第一条明细
+		Map<String, BigDecimal> independentBySpu = new LinkedHashMap<>();
+		Map<String, OrderItemEntity> firstItemBySpu = new LinkedHashMap<>();
+		for (OrderItemEntity item : orderItemEntityList) {
+			GoodsSku goodsSku = skuMap.get(item.getSkuId());
+			if (goodsSku == null || goodsSku.getGoodsSpu() == null) {
 				// 游离明细（如已被移除的赠品）无对应 SKU，跳过运费即可，避免空指针中断下单
 				continue;
 			}
 			GoodsSpu goodsSpu = goodsSku.getGoodsSpu();
-			BigDecimal freightPrice = BigDecimal.ZERO;
-
-			if (goodsSpu != null && ProductConstants.FREIGHT_TYPE_1.equals(goodsSpu.getFreightType())) {
-				freightPrice = goodsSpu.getFixedFreightPrice()
-					.multiply(BigDecimal.valueOf(orderItemEntity.getBuyQuantity()));
-				orderItemEntity.setFreightPrice(freightPrice);
+			if (!ProductConstants.FREIGHT_TYPE_1.equals(goodsSpu.getFreightType())) {
+				continue;
 			}
-			if (freeShipping) {
-				orderItemEntity.setFreightPrice(BigDecimal.ZERO);
-			}
-			computeItemPayPrice(orderItemEntity);
-
+			String spuId = goodsSpu.getId() != null ? goodsSpu.getId() : goodsSku.getSpuId();
+			firstItemBySpu.putIfAbsent(spuId, item);
+			BigDecimal fixedFreight = goodsSpu.getFixedFreightPrice() == null ? BigDecimal.ZERO
+					: goodsSpu.getFixedFreightPrice().max(BigDecimal.ZERO);
+			// 同一 SPU 多规格/多行只收一次；重复出现时保留首行金额（运营按商品配的是一次性运费）
+			independentBySpu.putIfAbsent(spuId, fixedFreight);
 		}
+
+		// 门槛基数：只统计「随订单规则」商品，商品级包邮与独立计费商品都不计入
+		BigDecimal eligibleAmount = BigDecimal.ZERO;
+		List<OrderItemEntity> eligibleItems = new ArrayList<>();
+		for (OrderItemEntity item : orderItemEntityList) {
+			GoodsSku goodsSku = skuMap.get(item.getSkuId());
+			if (goodsSku == null || goodsSku.getGoodsSpu() == null) {
+				continue;
+			}
+			if (ProductConstants.FREIGHT_TYPE_2.equals(goodsSku.getGoodsSpu().getFreightType())) {
+				eligibleAmount = eligibleAmount
+					.add(item.getTotalPrice() == null ? BigDecimal.ZERO : item.getTotalPrice());
+				eligibleItems.add(item);
+			}
+		}
+
+		BigDecimal independentTotal = independentBySpu.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+		BigDecimal ruleFee = BigDecimal.ZERO;
+		// 规则基础运费（减免前口径）：达门槛时实收为 0，但「减免前运费」仍要按它记账，
+		// 否则免邮成本报表会把「已免的 6 元」记成 0，运营看不到免邮花了多少钱
+		BigDecimal ruleBaseAmount = BigDecimal.ZERO;
+		BigDecimal threshold = null;
+		BigDecimal discount = BigDecimal.ZERO;
+		String freeReason = FreightConstants.REASON_NONE;
+
+		if (freightRule != null && !eligibleItems.isEmpty()) {
+			threshold = freightRule.getThresholdAmount() == null ? BigDecimal.ZERO
+					: freightRule.getThresholdAmount();
+			BigDecimal baseFreight = freightRule.getBaseFreight() == null ? BigDecimal.ZERO
+					: freightRule.getBaseFreight().max(BigDecimal.ZERO);
+			ruleBaseAmount = baseFreight;
+			// 封顶只作用于规则计费部分：独立计费商品按实际收取，不参与封顶
+			if (freightRule.getMaxFreight() != null && ruleBaseAmount.compareTo(freightRule.getMaxFreight()) > 0) {
+				ruleBaseAmount = freightRule.getMaxFreight();
+			}
+			if (threshold.compareTo(BigDecimal.ZERO) > 0 && eligibleAmount.compareTo(threshold) >= 0) {
+				// 达门槛：规则运费全免，减免额按封顶后的基础运费记账
+				freeReason = FreightConstants.REASON_THRESHOLD;
+				discount = ruleBaseAmount;
+			}
+			else {
+				ruleFee = ruleBaseAmount;
+			}
+		}
+
+		// 会员免邮：整单清零，优先级高于门槛（避免「门槛已免 + 会员再免」重复记账）
+		BigDecimal baseTotal = independentTotal.add(ruleBaseAmount);
+		if (freeShipping) {
+			discount = baseTotal;
+			independentBySpu.clear();
+			firstItemBySpu.clear();
+			ruleFee = BigDecimal.ZERO;
+			freeReason = FreightConstants.REASON_MEMBER;
+		}
+
+		// 分摊回明细：独立运费 → 对应 SPU 首行；门槛运费 → 金额最大的参与行
+		firstItemBySpu.forEach((spuId, item) -> item.setFreightPrice(independentBySpu.get(spuId)));
+		if (ruleFee.compareTo(BigDecimal.ZERO) > 0 && !eligibleItems.isEmpty()) {
+			OrderItemEntity target = eligibleItems.stream()
+				.max(Comparator.comparing((OrderItemEntity item) -> item.getTotalPrice() == null ? BigDecimal.ZERO
+						: item.getTotalPrice()))
+				.orElse(eligibleItems.get(0));
+			target.setFreightPrice(target.getFreightPrice().add(ruleFee));
+		}
+
+		orderItemEntityList.forEach(this::computeItemPayPrice);
 		computeOrderPrice(orderInfo, orderItemEntityList);
+
+		BigDecimal gap = null;
+		boolean thresholdHit = FreightConstants.REASON_THRESHOLD.equals(freeReason);
+		if (threshold != null && threshold.compareTo(BigDecimal.ZERO) > 0 && !thresholdHit
+				&& !FreightConstants.REASON_MEMBER.equals(freeReason)) {
+			gap = threshold.subtract(eligibleAmount).max(BigDecimal.ZERO);
+		}
+		orderInfo.setFreightBasePrice(baseTotal.setScale(2, RoundingMode.HALF_UP))
+			.setFreightDiscountPrice(discount.setScale(2, RoundingMode.HALF_UP))
+			.setFreightRuleId(freightRule == null ? null : freightRule.getId())
+			.setFreightFreeReason(freeReason)
+			.setFreightThreshold(threshold)
+			.setFreightGap(gap)
+			.setFreightEligibleAmount(eligibleAmount);
 	}
 
 	/**
@@ -1705,6 +1843,7 @@ public class OrderPriceComputeService {
 		context.setOrderId(orderInfo.getId());
 		context.setOrderNo(orderInfo.getOrderNo());
 		context.setPurchaseScene(orderInfo.getPurchaseScene());
+		context.setBuyerOrgId(orderInfo.getBuyerOrgId());
 		context.setVesselId(orderInfo.getVesselId());
 		context.setVesselCallId(orderInfo.getVesselCallId());
 		context.setPortCode(orderInfo.getPortCode());

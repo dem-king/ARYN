@@ -45,10 +45,9 @@ import ZoneSkuEditor from '#/views/product/zone-batch/components/ZoneSkuEditor.v
 
 import {
   buildAttrTagFromTemplate,
-  filterAttrSuggestions,
   getAttrLabelPreset,
-  getAttrValuePresets,
-  GOODS_ATTR_TAG_LABEL_PRESETS,
+  getAttrLabelSuggestions,
+  getAttrValueSuggestions,
   GOODS_ATTR_TAG_TEMPLATES,
   isAttrValueUsed,
 } from './goods-attr-tag-presets';
@@ -289,41 +288,28 @@ const attrLinkTypeOptions = [
   { label: '弹窗说明', value: 'popup' },
   { label: '页面跳转', value: 'page' },
 ];
-/** 属性名候选：预设词表 + 已用词条，用于输入框自动补全 */
-const attrLabelCandidates = GOODS_ATTR_TAG_LABEL_PRESETS.map(
-  (item) => item.label,
-);
-/** 属性值候选池：所有预设值的并集，未选属性名时也能给运营一点参照 */
-const attrValueCandidatePool = GOODS_ATTR_TAG_LABEL_PRESETS.flatMap(
-  (item) => item.values,
-);
-
 /**
  * 属性名自动补全：包含匹配，输入为空时展示全部预设。
- * 已用过的词条置后但仍可选（同一属性名允许多行）。
+ * 候选带一句说明（「系列」→ 商品归属的系列或产地标识），下拉按两行排版，
+ * 避免属性名与说明连成一长句让人读不出哪部分是可选词条。
  */
 const queryAttrLabelSuggestions = (
   keyword: string,
-  callback: (items: Array<{ value: string }>) => void,
+  callback: (items: ReturnType<typeof getAttrLabelSuggestions>) => void,
 ) => {
-  callback(
-    filterAttrSuggestions(attrLabelCandidates, keyword).map((value) => ({
-      value,
-    })),
-  );
+  callback(getAttrLabelSuggestions(keyword));
 };
 
 /**
- * 属性值自动补全：选了属性名就收敛到该属性的预设值，否则给全局候选池。
+ * 属性值自动补全：选了属性名就收敛到该属性的预设值，
+ * 否则给全局候选池并在每条上标注「所属属性名」。
  */
 const queryAttrValueSuggestions = (
   tag: GoodsAttrTagFormRow,
   keyword: string,
-  callback: (items: Array<{ value: string }>) => void,
+  callback: (items: ReturnType<typeof getAttrValueSuggestions>) => void,
 ) => {
-  const scoped = getAttrValuePresets(tag.label);
-  const pool = scoped.length > 0 ? scoped : attrValueCandidatePool;
-  callback(filterAttrSuggestions(pool, keyword).map((value) => ({ value })));
+  callback(getAttrValueSuggestions(tag.label, keyword));
 };
 
 /**
@@ -339,6 +325,27 @@ const handleAttrLabelInput = (index: number, label: number | string) => {
   if (!preset) return;
   if (!tag.icon || tag.icon === 'none') tag.icon = preset.icon;
   if (!tag.tone || tag.tone === 'gray') tag.tone = preset.tone;
+};
+
+/**
+ * 属性值下拉的头部说明：告诉运营「现在给的是哪一档候选」。
+ * 选了属性名时收敛到该属性；没选时给全局候选池并提示先填属性名。
+ */
+const attrValueScopeHint = (tag: GoodsAttrTagFormRow) => {
+  const label = tag.label.trim();
+  const preset = getAttrLabelPreset(label);
+  if (preset) {
+    return {
+      hint: `共 ${preset.values.length} 个，也可直接输入其它值`,
+      title: `「${preset.label}」的常用值`,
+    };
+  }
+  return {
+    hint: label
+      ? '自建属性名无专属预设，可直接输入或借用下方常用值'
+      : '先填属性名可缩小范围',
+    title: '全部常用值',
+  };
 };
 
 /** 该行属性值是否已在同属性名下出现过（仅用于下拉标「已添加」，不阻断提交） */
@@ -755,7 +762,11 @@ initForm();
                   </div>
                   <div class="attr-tag-editor__presets">
                     <span class="attr-tag-editor__presets-label">常用预设</span>
-                    <ElDropdown trigger="click" @command="applyAttrTagTemplate">
+                    <ElDropdown
+                      trigger="click"
+                      popper-class="attr-tag-popper attr-tag-popper--presets"
+                      @command="applyAttrTagTemplate"
+                    >
                       <ElButton
                         class="attr-tag-editor__presets-trigger"
                         :disabled="state.form.attrTags.length >= MAX_ATTR_TAGS"
@@ -771,12 +782,20 @@ initForm();
                             :key="`${item.label}-${item.value}`"
                             :command="templateIndex"
                           >
-                            <span class="attr-tag-presets-menu__item">
-                              <span class="attr-tag-presets-menu__value">
-                                {{ item.value }}
+                            <span class="attr-tag-option">
+                              <span class="attr-tag-option__main">
+                                <span class="attr-tag-option__title">
+                                  {{ item.value }}
+                                </span>
+                                <span class="attr-tag-option__owner">
+                                  {{ item.label }}
+                                </span>
                               </span>
-                              <span class="attr-tag-presets-menu__label">
-                                {{ item.label }}
+                              <span
+                                v-if="item.popupContent.trim().length > 0"
+                                class="attr-tag-option__badge"
+                              >
+                                含说明
                               </span>
                             </span>
                           </ElDropdownItem>
@@ -799,22 +818,41 @@ initForm();
                           class="attr-tag-row__value"
                           maxlength="24"
                           placeholder="属性值，如 地标"
+                          popper-class="attr-tag-popper attr-tag-popper--value"
                           show-word-limit
                           :fetch-suggestions="
                             (keyword, callback) =>
                               queryAttrValueSuggestions(tag, keyword, callback)
                           "
                         >
+                          <template #header>
+                            <span class="attr-tag-popper__header">
+                              <span class="attr-tag-popper__header-title">
+                                {{ attrValueScopeHint(tag).title }}
+                              </span>
+                              <span class="attr-tag-popper__header-hint">
+                                {{ attrValueScopeHint(tag).hint }}
+                              </span>
+                            </span>
+                          </template>
                           <template #default="{ item }">
-                            <span class="attr-tag-suggestion">
-                              <span class="attr-tag-suggestion__text">
-                                {{ item.value }}
+                            <span class="attr-tag-option">
+                              <span class="attr-tag-option__main">
+                                <span class="attr-tag-option__title">
+                                  {{ item.value }}
+                                </span>
+                                <span
+                                  v-if="!item.scoped"
+                                  class="attr-tag-option__owner"
+                                >
+                                  {{ item.label }}
+                                </span>
                               </span>
                               <span
                                 v-if="
                                   isValueUsedInForm(index, String(item.value))
                                 "
-                                class="attr-tag-suggestion__used"
+                                class="attr-tag-option__used"
                               >
                                 已添加
                               </span>
@@ -826,24 +864,25 @@ initForm();
                           class="attr-tag-row__label"
                           maxlength="12"
                           placeholder="属性名，如 系列"
+                          popper-class="attr-tag-popper attr-tag-popper--label"
                           show-word-limit
                           :fetch-suggestions="queryAttrLabelSuggestions"
                           @input="(label) => handleAttrLabelInput(index, label)"
                         >
                           <template #default="{ item }">
-                            <span class="attr-tag-suggestion">
-                              <span class="attr-tag-suggestion__text">
-                                {{ item.value }}
+                            <span
+                              class="attr-tag-option attr-tag-option--stack"
+                            >
+                              <span class="attr-tag-option__main">
+                                <span class="attr-tag-option__title">
+                                  {{ item.value }}
+                                </span>
+                                <span class="attr-tag-option__count">
+                                  {{ item.valueCount }} 个常用值
+                                </span>
                               </span>
-                              <span
-                                v-if="
-                                  getAttrLabelPreset(String(item.value))?.hint
-                                "
-                                class="attr-tag-suggestion__hint"
-                              >
-                                {{
-                                  getAttrLabelPreset(String(item.value))?.hint
-                                }}
+                              <span class="attr-tag-option__desc">
+                                {{ item.hint }}
                               </span>
                             </span>
                           </template>
@@ -1184,50 +1223,7 @@ initForm();
       }
     }
 
-    // 下拉项：主文案 + 右侧说明，宽度与输入框对齐
-    .attr-tag-suggestion {
-      display: flex;
-      gap: 8px;
-      align-items: baseline;
-      justify-content: space-between;
-      min-width: 0;
-
-      &__text {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      &__hint,
-      &__used {
-        flex: 0 0 auto;
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-      }
-
-      &__used {
-        color: var(--el-color-warning);
-      }
-    }
-
-    .attr-tag-presets-menu {
-      &__item {
-        display: inline-flex;
-        gap: 8px;
-        align-items: baseline;
-      }
-
-      &__value {
-        font-weight: 600;
-        color: var(--el-text-color-primary);
-      }
-
-      &__label {
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-
+    // 下拉面板的排版在非 scoped 块里（面板 teleport 到 body，祖先链失效）
     .intro-editor {
       width: 100%;
 
@@ -1330,6 +1326,129 @@ initForm();
         width: 100px;
       }
     }
+  }
+}
+</style>
+
+<style lang="scss">
+/* 属性名/值下拉与「一键添加常用标签」面板都由 Element Plus teleport 到 body，
+   scoped 样式的祖先链（.goods-container .goods-info）在面板上断掉、整段失效，
+   曾导致「属性名 + 说明」挤成一长句。这里用 popper-class 精确挂钩，避免影响其它页面。 */
+.attr-tag-popper {
+  // 候选行是两行信息（主文案 + 说明），固定行高会裁切，改成内容自撑
+  .el-autocomplete-suggestion li,
+  .el-dropdown-menu__item {
+    height: auto;
+    padding: 8px 16px;
+    line-height: 1.4;
+    white-space: normal;
+  }
+
+  .el-autocomplete-suggestion li {
+    padding: 8px 20px;
+  }
+
+  // 头部与候选行左对齐（EP 默认 10px，会比 li 的 20px 缩进少 10px）
+  .el-autocomplete-suggestion__header {
+    padding: 10px 20px 8px;
+  }
+
+  // 属性名候选更长，面板稍微放宽；值候选沿用输入框宽度即可
+  &.attr-tag-popper--label {
+    .el-autocomplete-suggestion {
+      min-width: 300px !important;
+    }
+  }
+
+  // 「一键添加」模板只有 6 条，给个舒服的固定宽度避免文字换行
+  &.attr-tag-popper--presets {
+    .el-dropdown-menu__item {
+      min-width: 168px;
+    }
+  }
+
+  &__header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__header-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--el-text-color-regular);
+  }
+
+  &__header-hint {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.attr-tag-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+
+  // 属性名候选是上下两行，主行仍要能左右分栏（名称 + 常用值条数）
+  &--stack {
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+  }
+
+  &__main {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  &__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    white-space: nowrap;
+  }
+
+  // 「所属属性名」用低调的小标签，避免和主文案连读成一句话
+  &__owner {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--el-text-color-secondary);
+    background-color: var(--el-fill-color-light);
+    border-radius: 4px;
+  }
+
+  &__count,
+  &__desc {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  &__desc {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+
+  &__used,
+  &__badge {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--el-color-warning);
+  }
+
+  &__badge {
+    color: var(--el-color-primary);
   }
 }
 </style>

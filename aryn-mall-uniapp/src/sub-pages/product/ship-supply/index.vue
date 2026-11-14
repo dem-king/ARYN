@@ -34,6 +34,7 @@ import PriceText from '@/components/price-text/index.vue'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { useStatusTipStore } from '@/store/statusTipStore'
 import {
   defaultQuantityOf,
   isRowAddable,
@@ -55,6 +56,7 @@ definePage({
 })
 
 const shipContextStore = useShipContextStore()
+const statusTipStore = useStatusTipStore()
 const { t } = useI18n()
 
 const pagingRef = ref()
@@ -501,7 +503,7 @@ onShow(() => {
       <template #empty>
         <view class="empty">
           <wd-status-tip
-            :image="loadFailed ? 'network' : activeKeyword ? 'search' : 'content'"
+            :image="statusTipStore.imageFor(loadFailed ? 'network' : activeKeyword ? 'search' : 'content')"
             image-size="176rpx"
             :tip="loadFailed
               ? t('catalog.loadFailedRetry')

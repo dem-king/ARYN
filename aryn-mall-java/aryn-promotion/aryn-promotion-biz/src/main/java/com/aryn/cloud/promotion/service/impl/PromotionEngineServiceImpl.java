@@ -5,6 +5,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
+import com.aryn.cloud.promotion.api.vo.FirstOrderEligibilityVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.PromotionEngineService;
@@ -93,12 +94,17 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		// 会员等级快照按本次 preview 缓存：额度重算会多次调用 calculate，缓存须跨轮复用，
 		// 避免同一请求对同一用户/等级重复打 Dubbo。
 		Map<String, MemberLevelSnapshotVO> memberLevelCache = new HashMap<>();
+		// 首单资格与月度额度在一次 preview 内缓存，额度剔除会多次重算，避免重复打远程/库
+		Map<String, Boolean> firstOrderCache = new HashMap<>();
+		Map<String, BigDecimal> monthlyUsageCache = new HashMap<>();
 		while (true) {
 			List<PromotionActivity> candidates = activities.stream()
 				.filter(activity -> !excluded.contains(activity.getId()))
 				.toList();
-			PromotionCalculationVO result = calculate(context, candidates, memberLevelCache);
-			PromotionActivity exhausted = firstExhausted(context, result, activityById, userUsage, giftUsage);
+			PromotionCalculationVO result = calculate(context, candidates, memberLevelCache, firstOrderCache,
+					monthlyUsageCache);
+			PromotionActivity exhausted = firstExhausted(context, result, activityById, userUsage, giftUsage,
+					monthlyUsageCache);
 			if (exhausted == null || !excluded.add(exhausted.getId())) {
 				return result;
 			}
@@ -117,7 +123,8 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	private PromotionCalculationVO calculate(PromotionContextDTO context, List<PromotionActivity> activities,
-			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
+			Map<String, MemberLevelSnapshotVO> memberLevelCache, Map<String, Boolean> firstOrderCache,
+			Map<String, BigDecimal> monthlyUsageCache) {
 		PromotionCalculationVO result = emptyResult();
 		List<PromotionActivity> ladderHits = new ArrayList<>();
 		List<PromotionActivity> wholeHits = new ArrayList<>();
@@ -158,19 +165,23 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价/出清价）的 SKU
 		// （新人价部分覆盖只排除首件让利部分，超出件按原价计入门槛）
 		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedPrices);
-		applyBestWholeDiscount(context, wholeHits, result);
+		applyBestWholeDiscount(context, wholeHits, result, firstOrderCache);
 		applyBestGift(context, giftHits, result);
 		return result;
 	}
 
 	private PromotionActivity firstExhausted(PromotionContextDTO context, PromotionCalculationVO result,
-			Map<String, PromotionActivity> activityById, Map<String, Long> userUsage, Map<String, Integer> giftUsage) {
+			Map<String, PromotionActivity> activityById, Map<String, Long> userUsage, Map<String, Integer> giftUsage,
+			Map<String, BigDecimal> monthlyUsageCache) {
 		for (PromotionCalculationVO.ActivityDetail detail : result.getDetails()) {
 			PromotionActivity activity = activityById.get(detail.getActivityId());
 			if (activity == null) {
 				continue;
 			}
 			if (budgetExhausted(activity, detail.getDiscountAmount())) {
+				return activity;
+			}
+			if (monthlyBudgetExhausted(context, activity, detail.getDiscountAmount(), monthlyUsageCache)) {
 				return activity;
 			}
 			if (perUserExhausted(context, activity, userUsage)) {
@@ -194,6 +205,41 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		}
 		BigDecimal consumed = activity.getConsumedBudget() == null ? BigDecimal.ZERO : activity.getConsumedBudget();
 		return consumed.add(current).compareTo(activity.getTotalBudget()) > 0;
+	}
+
+	/**
+	 * 月度预算上限：规则 {@code rules.monthlyBudget}（元），0/空不限。
+	 *
+	 * <p>与活动总预算互补：总预算管整个活动周期，月度预算防止单月被一次性打穿。
+	 * 统计口径只含 LOCKED/CONFIRMED；取消释放后不占月度额度。
+	 */
+	private boolean monthlyBudgetExhausted(PromotionContextDTO context, PromotionActivity activity,
+			BigDecimal currentDiscount, Map<String, BigDecimal> monthlyUsageCache) {
+		BigDecimal current = currentDiscount == null ? BigDecimal.ZERO : currentDiscount;
+		if (current.compareTo(BigDecimal.ZERO) <= 0) {
+			return false;
+		}
+		BigDecimal monthlyBudget;
+		try {
+			monthlyBudget = JSONUtil.parseObj(activity.getRules()).getBigDecimal("monthlyBudget");
+		}
+		catch (Exception ex) {
+			return false;
+		}
+		if (monthlyBudget == null || monthlyBudget.compareTo(BigDecimal.ZERO) <= 0) {
+			return false;
+		}
+		BigDecimal used = monthlyUsageCache.computeIfAbsent(activity.getId(),
+				id -> promotionLockUsage.sumDiscountSince(context.getTenantId(), id,
+					LocalDateTime.now().withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)));
+		boolean exhausted = used.add(current).compareTo(monthlyBudget) > 0;
+		if (exhausted) {
+			log.warn("活动[{}]月度预算已用尽 used={} budget={}", activity.getId(), used, monthlyBudget);
+		}
+		else if (used.add(current).compareTo(monthlyBudget.multiply(new BigDecimal("0.8"))) >= 0) {
+			log.warn("活动[{}]月度预算已使用80% used={} budget={}", activity.getId(), used, monthlyBudget);
+		}
+		return exhausted;
 	}
 
 	private boolean perUserExhausted(PromotionContextDTO context, PromotionActivity activity,
@@ -325,7 +371,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * 避免「小计够门槛却因新人价商品在场而被排除」；与订单侧超出行成交价同口径。
 	 */
 	private void applyBestWholeDiscount(PromotionContextDTO context, List<PromotionActivity> activities,
-			PromotionCalculationVO result) {
+			PromotionCalculationVO result, Map<String, Boolean> firstOrderCache) {
 		Set<String> activityPricedSkuIds = context.getSkuItems().stream()
 			.filter(item -> Boolean.TRUE.equals(item.getActivityPriced()))
 			.map(PromotionContextDTO.SkuItem::getSkuId)
@@ -357,6 +403,9 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		JSONObject bestRules = null;
 		for (PromotionActivity activity : activities) {
 			try {
+				if (!firstOrderEligible(activity, context, firstOrderCache)) {
+					continue;
+				}
 				JSONObject rules = JSONUtil.parseObj(activity.getRules());
 				JSONArray tiers = rules.getJSONArray("tiers");
 				if (tiers == null || tiers.isEmpty()) {
@@ -373,6 +422,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 					if (baseAmount.compareTo(minAmount) >= 0 && discountAmount.compareTo(discount) > 0) {
 						discount = discountAmount;
 					}
+				}
+				// 主体首单单笔封顶：避免大额整船采购一单打穿活动预算
+				BigDecimal maxDiscount = rules.getBigDecimal("maxDiscountAmount");
+				if (maxDiscount != null && maxDiscount.compareTo(BigDecimal.ZERO) > 0
+						&& discount.compareTo(maxDiscount) > 0) {
+					discount = maxDiscount;
 				}
 				if (discount.compareTo(bestDiscount) > 0) {
 					bestDiscount = discount;
@@ -404,9 +459,49 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
-	 * 批量取候选买赠活动全部赠品的售价（价值比较用）；
-	 * RPC 失败返回空映射，调用方降级为按赠品总数量取最优。
+	 * 首单活动资格：只有规则 {@code firstOrderOnly=true} 才校验；
+	 * subjectType=1 按船、2 按采购主体。远程异常/缺主体一律不命中（fail-closed）。
 	 */
+	private boolean firstOrderEligible(PromotionActivity activity, PromotionContextDTO context,
+			Map<String, Boolean> cache) {
+		JSONObject rules;
+		try {
+			rules = JSONUtil.parseObj(activity.getRules());
+		}
+		catch (Exception ex) {
+			return false;
+		}
+		if (!Boolean.TRUE.equals(rules.getBool("firstOrderOnly", false))) {
+			return true;
+		}
+		String subjectType = rules.getStr("subjectType");
+		if (!FirstOrderEligibilityVO.SUBJECT_SHIP.equals(subjectType)
+				&& !FirstOrderEligibilityVO.SUBJECT_BUYER_ORG.equals(subjectType)) {
+			log.warn("首单活动[{}]未配置合法 subjectType，按不命中处理", activity.getId());
+			return false;
+		}
+		String subjectId = FirstOrderEligibilityVO.SUBJECT_SHIP.equals(subjectType)
+				? context.getVesselId() : context.getBuyerOrgId();
+		if (!StringUtils.hasText(subjectId)) {
+			return false;
+		}
+		String cacheKey = activity.getId() + ":" + subjectType + ":" + subjectId;
+		return cache.computeIfAbsent(cacheKey, key -> {
+			try {
+				FirstOrderEligibilityVO eligibility = FirstOrderEligibilityVO.SUBJECT_SHIP.equals(subjectType)
+						? remoteBuyerProfileService.checkShipFirstOrderEligibility(context.getTenantId(), subjectId)
+						: remoteBuyerProfileService.checkBuyerOrgFirstOrderEligibility(context.getTenantId(), subjectId);
+				return eligibility != null && Boolean.TRUE.equals(eligibility.getEligible());
+			}
+			catch (Exception ex) {
+				log.warn("首单资格查询失败，活动[{}]按不命中处理 subject={}:{}", activity.getId(), subjectType,
+						subjectId, ex);
+				return false;
+			}
+		});
+	}
+
+
 	private Map<String, BigDecimal> giftPrices(List<PromotionActivity> activities) {
 		List<String> skuIds = new ArrayList<>();
 		for (PromotionActivity activity : activities) {

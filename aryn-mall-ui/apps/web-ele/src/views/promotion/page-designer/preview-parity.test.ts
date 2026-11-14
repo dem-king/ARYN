@@ -407,6 +407,41 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(admin).toContain('search-bar-bell');
   });
 
+  it('搜索栏：「搜索」按钮两端同尺寸，背景取主题主色 token 自适应换肤', () => {
+    // 背景色必须走 var(--wot-color-theme-primary)（DiyPage / 画布根节点下放），
+    // 写死品牌色会让换肤后按钮与全站主色按钮脱节。
+    const admin = readAdmin('search-bar');
+    const mobile = readMobile('diy-search-bar');
+    const adminAction = declarations(styleBlock(admin), '.search-bar-action');
+    const mobileAction = declarations(styleBlock(mobile), '.search-bar-action');
+
+    for (const [label, block] of [
+      ['管理端', adminAction],
+      ['C 端', mobileAction],
+    ] as const) {
+      expect(block, `${label} 必须渲染搜索按钮`).not.toBe('');
+      expect(
+        value(block, 'background'),
+        `${label} 背景须走主题 token`,
+      ).toContain('var(--wot-color-theme-primary');
+      expect(value(block, 'color')).toBe('#fff');
+    }
+
+    // 尺寸两端逐值一致（1rpx = 0.5px，这里两端直接都写 px）
+    for (const property of [
+      'height',
+      'padding',
+      'border-radius',
+      'font-size',
+      'margin-left',
+    ]) {
+      expect(value(adminAction, property), `两端 ${property} 须一致`).toBe(
+        value(mobileAction, property),
+      );
+    }
+    expect(mobile).toContain("t('search.searchButton')");
+  });
+
   it('搜索栏：铃铛/扫码图标按环境底色自动取可读色，渲染面统一下发区块底色', () => {
     // 深色头部背景（主题色渐变/深色区块）上铃铛恒用深色会被误读为不可点击：
     // 两端都按 ambientBackground 亮度取图标色（pickReadableIconColor 在

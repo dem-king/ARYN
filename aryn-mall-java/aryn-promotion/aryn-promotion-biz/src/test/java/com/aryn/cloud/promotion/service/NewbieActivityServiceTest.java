@@ -8,6 +8,7 @@ import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService;
 import com.aryn.cloud.promotion.api.vo.AppNewbieFloorVO;
 import com.aryn.cloud.promotion.api.vo.AppNewbiePriceVO;
+import com.aryn.cloud.promotion.api.vo.AppNewbieSceneVO;
 import com.aryn.cloud.promotion.api.vo.NewbieEligibilityVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.impl.NewbieActivityServiceImpl;
@@ -369,6 +370,31 @@ class NewbieActivityServiceTest {
 		AppNewbieFloorVO normal = service.getCurrentFloor(null);
 		assertNotNull(normal);
 		assertFalse(Boolean.TRUE.equals(normal.getLongTerm()));
+	}
+
+	@Test
+	@DisplayName("三场景接口的个人场景同样下发 longTerm，专享页据此不渲染结束倒计时")
+	void personalSceneExposesLongTermFlag() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-long", "{\"registerWithinDays\":30,\"limitPerUser\":1,\"longTerm\":true,"
+						+ "\"skus\":[{\"skuId\":\"sku-1\",\"price\":9.9}]}")));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(sku("sku-1", "spu-1", "29.9")));
+
+		AppNewbieSceneVO longTerm = personalScene(service.getScenes(200, null, null, null));
+		assertTrue(Boolean.TRUE.equals(longTerm.getLongTerm()));
+		assertEquals(1, longTerm.getGoodsList().size());
+
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-normal", newbieRules(30, 1, "sku-1", "9.9"))));
+		AppNewbieSceneVO normal = personalScene(service.getScenes(200, null, null, null));
+		assertFalse(Boolean.TRUE.equals(normal.getLongTerm()));
+	}
+
+	private AppNewbieSceneVO personalScene(List<AppNewbieSceneVO> scenes) {
+		return scenes.stream()
+			.filter(scene -> "1".equals(scene.getScene()))
+			.findFirst()
+			.orElseThrow();
 	}
 
 	// ==== 用例 14：商品子标题 ====

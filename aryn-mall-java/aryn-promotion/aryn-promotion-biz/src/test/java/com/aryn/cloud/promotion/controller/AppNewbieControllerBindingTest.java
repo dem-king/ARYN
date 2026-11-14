@@ -3,6 +3,7 @@ package com.aryn.cloud.promotion.controller;
 import cn.dev33.satoken.context.mock.SaTokenContextMockUtil;
 import com.aryn.cloud.promotion.api.vo.AppNewbieFloorVO;
 import com.aryn.cloud.promotion.api.vo.AppNewbiePriceVO;
+import com.aryn.cloud.promotion.api.vo.AppNewbieSceneVO;
 import com.aryn.cloud.promotion.controller.app.AppNewbieController;
 import com.aryn.cloud.promotion.service.INewbieActivityService;
 import org.junit.jupiter.api.AfterEach;
@@ -133,6 +134,24 @@ class AppNewbieControllerBindingTest {
 			.andExpect(jsonPath("$.data.activityId").value("act-1"));
 
 		verify(newbieActivityService).getCurrentFloor(200, null);
+	}
+
+	@Test
+	@DisplayName("三场景接口免登可访问，主船/主体参数透传")
+	void scenesDelegatesWithSubjectIds() throws Exception {
+		AppNewbieSceneVO scene = new AppNewbieSceneVO();
+		scene.setScene("2");
+		when(newbieActivityService.getScenes(200, null, "vessel-1", "org-1"))
+			.thenReturn(List.of(scene));
+
+		mockMvc.perform(get("/app/newbie/scenes")
+				.param("limit", "200")
+				.param("vesselId", "vessel-1")
+				.param("buyerOrgId", "org-1"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[0].scene").value("2"));
+
+		verify(newbieActivityService).getScenes(200, null, "vessel-1", "org-1");
 	}
 
 }

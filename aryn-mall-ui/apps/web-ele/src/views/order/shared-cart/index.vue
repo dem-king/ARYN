@@ -61,7 +61,7 @@ interface StatusMeta {
 
 const state = reactive({
   page: { total: 0, currentPage: 1, pageSize: 10 },
-  query: { cartNo: '', status: '' },
+  query: { cartNo: '', status: '', buyerOrgName: '' },
   tableData: [] as any[],
 });
 const loading = ref(false);
@@ -130,7 +130,7 @@ const approvedTotal = computed(() =>
 const detailVessel = computed(() => splitVesselCall(detail.value.cart ?? {}));
 
 const hasQuery = computed(() =>
-  Boolean(state.query.cartNo || state.query.status),
+  Boolean(state.query.cartNo || state.query.status || state.query.buyerOrgName),
 );
 
 const { toClipboard } = useClipboard();
@@ -201,6 +201,7 @@ const initPage = async () => {
       size: state.page.pageSize,
       cartNo: state.query.cartNo,
       status: state.query.status,
+      buyerOrgName: state.query.buyerOrgName,
     });
     state.tableData = response.records;
     state.page.total = response.total;
@@ -215,7 +216,7 @@ const handleSearch = () => {
 };
 
 const resetQuery = () => {
-  state.query = { cartNo: '', status: '' };
+  state.query = { cartNo: '', status: '', buyerOrgName: '' };
   handleSearch();
 };
 
@@ -362,6 +363,15 @@ useKeepAliveRefresh(handleSearch);
             @keyup.enter="handleSearch"
           />
         </ElFormItem>
+        <ElFormItem label="采购主体">
+          <ElInput
+            v-model="state.query.buyerOrgName"
+            clearable
+            placeholder="搜索主体名称"
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </ElFormItem>
         <ElFormItem label="状态">
           <ElSelect
             v-model="state.query.status"
@@ -424,6 +434,14 @@ useKeepAliveRefresh(handleSearch);
                   {{ splitVesselCall(scope.row).sub }}
                 </span>
               </div>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="采购主体" min-width="160">
+            <template #default="scope">
+              <div v-if="scope.row.buyerOrgName" class="sc-vessel-main">
+                {{ scope.row.buyerOrgName }}
+              </div>
+              <span v-else class="sc-muted">—</span>
             </template>
           </ElTableColumn>
           <ElTableColumn label="发起人" min-width="150">

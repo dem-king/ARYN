@@ -18,6 +18,12 @@ import { onPageScroll, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createSharedCart, getMySharedCarts, SHARED_CART_TYPE_SHIP, SHARED_CART_TYPE_SHORE } from '@/api/order/sharedCart'
+import {
+  BUYER_ORG_AUDIT_APPROVED,
+  BUYER_ORG_AUDIT_PENDING,
+  getMyBuyerOrgs,
+} from '@/api/order/buyerOrg'
+import type { BuyerOrg } from '@/api/order/buyerOrg'
 import { getPage as getAddressPage } from '@/api/user/address'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
@@ -123,6 +129,11 @@ const createState = reactive({
   /** 岸上车：地址簿候选 */
   addresses: [] as ShoreAddress[],
   addressLoading: false,
+  /** 岸上车：我绑定的采购主体候选（船供车不展示） */
+  buyerOrgs: [] as BuyerOrg[],
+  /** 岸上车：已选采购主体ID */
+  buyerOrgId: '',
+  buyerOrgLoading: false,
 })
 
 /**
@@ -208,6 +219,39 @@ function loadShoreAddresses() {
     })
 }
 
+/** 可用于建车的采购主体：正常 + 待审核/已通过；驳回/停用不展示，避免选中后服务端报错 */
+const usableBuyerOrgs = computed(() =>
+  createState.buyerOrgs.filter(org =>
+    org.status === '1'
+    && (org.auditStatus === BUYER_ORG_AUDIT_PENDING || org.auditStatus === BUYER_ORG_AUDIT_APPROVED)
+    && org.viewerCanEdit !== false,
+  ),
+)
+
+/** 拉采购主体候选并预选第一个可用主体（岸上发起弹层打开时调用） */
+function loadBuyerOrgs() {
+  createState.buyerOrgLoading = true
+  getMyBuyerOrgs()
+    .then((res) => {
+      createState.buyerOrgs = res ?? []
+      const usable = (res ?? []).filter(org =>
+        org.status === '1'
+        && (org.auditStatus === BUYER_ORG_AUDIT_PENDING || org.auditStatus === BUYER_ORG_AUDIT_APPROVED)
+        && org.viewerCanEdit !== false,
+      )
+      const stillValid = usable.some(org => org.id === createState.buyerOrgId)
+      if (!stillValid) {
+        createState.buyerOrgId = usable[0]?.id ?? ''
+      }
+    })
+    .catch(() => {
+      // 拉失败不清空已有候选（重开弹层时还能用上一次的），只保留当前选择
+    })
+    .finally(() => {
+      createState.buyerOrgLoading = false
+    })
+}
+
 function openCreate() {
   if (!authStore.isLoggedIn) {
     goLogin()
@@ -217,13 +261,15 @@ function openCreate() {
   createState.cartType = shipTypeReady.value ? SHARED_CART_TYPE_SHIP : SHARED_CART_TYPE_SHORE
   createState.remark = ''
   createState.addressId = ''
+  createState.buyerOrgId = ''
   createState.visible = true
   if (createState.cartType === SHARED_CART_TYPE_SHORE) {
     loadShoreAddresses()
+    loadBuyerOrgs()
   }
 }
 
-/** 弹层内切换车类型：切到岸上时按需拉地址，切到船供时缺上下文先弹选择器 */
+/** 弹层内切换车类型：切到岸上时按需拉地址与主体，切到船供时缺上下文先弹选择器 */
 function switchCartType(type: string) {
   if (type === createState.cartType)
     return
@@ -232,8 +278,13 @@ function switchCartType(type: string) {
     return
   }
   createState.cartType = type
-  if (type === SHARED_CART_TYPE_SHORE && createState.addresses.length === 0) {
-    loadShoreAddresses()
+  if (type === SHARED_CART_TYPE_SHORE) {
+    if (createState.addresses.length === 0) {
+      loadShoreAddresses()
+    }
+    if (createState.buyerOrgs.length === 0) {
+      loadBuyerOrgs()
+    }
   }
 }
 
@@ -241,10 +292,18 @@ function toAddressForm() {
   uni.navigateTo({ url: '/sub-pages/user/address/form' })
 }
 
+function toBuyerOrg() {
+  uni.navigateTo({ url: '/sub-pages/order/buyer-org/index' })
+}
+
 function submitCreate() {
   if (createState.submitting)
     return
   const isShore = createState.cartType === SHARED_CART_TYPE_SHORE
+  if (isShore && !createState.buyerOrgId) {
+    uni.showToast({ title: t('sharedCart.list.buyerOrgRequired'), icon: 'none' })
+    return
+  }
   if (isShore && !createState.addressId) {
     uni.showToast({ title: t('sharedCart.list.addressRequired'), icon: 'none' })
     return
@@ -259,6 +318,7 @@ function submitCreate() {
     vesselId: isShore ? undefined : shipContextStore.vesselId,
     vesselCallId: isShore ? undefined : shipContextStore.vesselCallId,
     userAddressId: isShore ? createState.addressId : undefined,
+    buyerOrgId: isShore ? createState.buyerOrgId : undefined,
     remark: createState.remark || undefined,
   }
   createSharedCart(payload)
@@ -392,6 +452,15 @@ onPageScroll(handlePageScroll)
           <text>{{ sharedCartLocationLabel(cart) || t('sharedCart.common.portPending') }}</text>
         </view>
 
+        <!-- 岸上企业单必须能看出「这是哪家工厂的单」，否则同址多工厂没法核对 -->
+        <view v-if="isShoreCart(cart)" class="card__location">
+          <text class="i-carbon:industry card__icon" />
+          <text>{{ cart.buyerOrgName || t('sharedCart.common.orgPending') }}</text>
+          <text v-if="cart.buyerOrgAuditStatus === '0'" class="card__org-tag">
+            {{ t('sharedCart.common.orgAuditPending') }}
+          </text>
+        </view>
+
         <!--
           收集截止：倒计时回答「还有多久」，绝对时刻用于核对「几点」。
           不足 1 小时转警示色，与详情页同一分档。
@@ -519,6 +588,47 @@ onPageScroll(handlePageScroll)
 
         <!-- 岸上：收货地址单选列表（配送终点与范围校验都以所选地址为准） -->
         <template v-else>
+          <!-- 采购主体：首单权益按主体算，同一发起人可在不同工厂各开一张车 -->
+          <view class="sheet__label">
+            {{ t('sharedCart.list.buyerOrgLabel') }}
+          </view>
+          <view v-if="createState.buyerOrgLoading && createState.buyerOrgs.length === 0" class="sheet__addr-state">
+            {{ t('sharedCart.list.buyerOrgLoading') }}
+          </view>
+          <view v-else-if="usableBuyerOrgs.length === 0" class="sheet__addr-state">
+            <text>{{ t('sharedCart.list.buyerOrgEmpty') }}</text>
+            <view class="sheet__addr-add" @tap="toBuyerOrg">
+              {{ t('buyerOrg.create') }}
+            </view>
+          </view>
+          <scroll-view v-else scroll-y class="sheet__addr-list sheet__org-list">
+            <view
+              v-for="org in usableBuyerOrgs"
+              :key="org.id"
+              class="sheet__addr"
+              :class="{ 'sheet__addr--on': org.id === createState.buyerOrgId }"
+              @tap="createState.buyerOrgId = org.id"
+            >
+              <view class="min-w-0 flex-1">
+                <view class="sheet__addr-line">
+                  <text class="sheet__addr-name">
+                    {{ org.orgName }}
+                  </text>
+                  <text v-if="org.auditStatus === '0'" class="sheet__addr-default">
+                    {{ t('sharedCart.common.orgAuditPending') }}
+                  </text>
+                </view>
+                <view class="sheet__addr-detail">
+                  {{ org.creditCodeMasked || '' }} {{ org.city || '' }}{{ org.district || '' }}
+                </view>
+              </view>
+              <text
+                class="i-carbon:checkmark-filled sheet__addr-check"
+                :class="{ 'sheet__addr-check--on': org.id === createState.buyerOrgId }"
+              />
+            </view>
+          </scroll-view>
+
           <view class="sheet__label">
             {{ t('sharedCart.list.shippingAddress') }}
           </view>
@@ -774,6 +884,15 @@ onPageScroll(handlePageScroll)
   color: var(--app-text-3);
 }
 
+.card__org-tag {
+  margin-left: 10rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: #a66300;
+  background: #fff4e0;
+}
+
 .card__deadline {
   display: flex;
   align-items: center;
@@ -973,6 +1092,10 @@ onPageScroll(handlePageScroll)
 .sheet__addr-list {
   max-height: 400rpx;
   margin-top: 12rpx;
+}
+
+.sheet__org-list {
+  max-height: 280rpx;
 }
 
 .sheet__addr {

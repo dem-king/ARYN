@@ -8,6 +8,7 @@ import accountMember from './modules/accountMember.zh-CN'
 import accountSettings from './modules/accountSettings.zh-CN'
 import afterSales from './modules/afterSales.zh-CN'
 import app from './modules/app.zh-CN'
+import buyerOrg from './modules/buyerOrg.zh-CN'
 import cart from './modules/cart.zh-CN'
 import catalog from './modules/catalog.zh-CN'
 import checkout from './modules/checkout.zh-CN'
@@ -159,6 +160,7 @@ export default {
   ...sessionInvalid,
   ...loginDevices,
   ...cart,
+  ...buyerOrg,
   ...checkout,
   ...order,
   ...sharedCart,

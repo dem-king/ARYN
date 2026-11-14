@@ -68,6 +68,18 @@ describe('导航组件：磨砂材质自动套用', () => {
     expect(code).toContain('blur(18px) saturate(160%)')
   })
 
+  it('宿主玻璃托管时滚动路径不自绘磨砂，浮层展开的 forceFrosted 仍自绘', () => {
+    const code = source(SEARCH_NAVBAR)
+    expect(code).toContain('glassHosted')
+    expect(code).toContain('paintsOwnFrosted')
+    // 滚动路径托管（glassHosted 且非 forceFrosted）：底色/blur 由宿主统一玻璃层画
+    expect(code).toContain('frosted.value && (!props.glassHosted || props.forceFrosted)')
+    // forceFrosted 永远自绘：浮层展开（页面可能在顶部）时宿主玻璃还没铺出来
+    expect(code).toContain('\'hr-search-navbar--frosted\': paintsOwnFrosted')
+    // 分类页侧下发托管开关
+    expect(source(CATEGORY)).toContain(':glass-hosted="true"')
+  })
+
   it('搜索输入框默认保持浅灰实心胶囊，滚动磨砂后融进整条顶栏', () => {
     const code = source(SEARCH_NAVBAR)
     expect(code).toContain('search-navbar-field')
@@ -93,11 +105,22 @@ describe('导航组件：磨砂材质自动套用', () => {
 describe('分类页头部覆盖层：搜索栏 + 图标条压在商品流之上', () => {
   const code = source(CATEGORY)
 
-  it('头部固定定位在搜索栏下沿，滚动一步切磨砂', () => {
+  it('头部固定定位在搜索栏下沿，滚动一步切磨砂（整条头部一块玻璃）', () => {
     expect(code).toContain('--category-nav-height')
     expect(code).toContain('--category-strip-height')
     expect(code).toContain('category-header--frosted')
     expect(code).toContain('useFrostedNavbar()')
+    // 统一玻璃层：导航栏 + 图标条只画一块毛玻璃（盖满 header 高度，下沿 =
+    // 排序条吸顶线），商品滑过不再出现「玻璃/裸带/玻璃」分层
+    expect(code).toContain('category-header-glass--on')
+    expect(code).toMatch(/category-header-glass--on\s*\{[\s\S]*?blur\(18px\) saturate\(160%\)/)
+    // 磨砂态的图标条覆盖层只撤底色，不再自绘第二块玻璃
+    const frostedStart = code.indexOf('.category-header--frosted')
+    const frostedRule = code.slice(frostedStart, code.indexOf('}', frostedStart))
+    expect(frostedRule).toContain('background: transparent')
+    expect(frostedRule).not.toContain('backdrop-filter')
+    // 「全部分类」浮层展开时统一玻璃让位，避免顶栏双层白
+    expect(code).toContain('\'category-header-glass--on\': scrolled && !sheetVisible')
   })
 
   it('右栏商品流上探到页面顶部，滚动占位用头部真实高度', () => {

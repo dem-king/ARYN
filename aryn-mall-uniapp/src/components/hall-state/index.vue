@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import type { StatusTipIllustration } from '@/utils/status-tip'
+
 import { computed } from 'vue'
+import { useStatusTipStore } from '@/store/statusTipStore'
 /**
  * 营销会场三态（空 / 错误 / 无数据）统一组件。
  *
  * 形态固定为「图形位 + 主标题 + 说明 + 主按钮（+ 文字链）」：
- * 图形位用品牌渐变圆 + 白色线性图标（`static/promotion/*.svg`），
+ * 购物车/订单/秒杀三张会场插画优先取租户空态配置，未配置回落随包 PNG；
+ * 其余图形位用品牌渐变圆 + 白色线性图标（`static/promotion/*.svg`）。
  * 不用 emoji、不用中文单字方块 —— 后者在多租户主题下既非图标也不成体系。
  * 图标是白色实心，落在品牌渐变底上，因此任何租户主题都成立。
  */
@@ -27,20 +31,25 @@ const emit = defineEmits<{
   (e: 'link'): void
 }>()
 
+const statusTipStore = useStatusTipStore()
+
 const ART_ICON: Record<string, string> = {
   discount: '/static/promotion/icon-discount.svg',
   error: '/static/promotion/icon-flash.svg',
   group: '/static/promotion/icon-group.svg',
 }
 
-/** 插画位：空态使用交付的扁平插画（280rpx），比渐变圆 + 矢量图标更有质感 */
-const ART_ILLUSTRATION: Record<string, string> = {
-  'empty-cart': '/static/promotion/empty/empty-cart.png',
-  'empty-order': '/static/promotion/empty/empty-order.png',
-  'seckill': '/static/promotion/empty/empty-seckill.png',
+/** 插画位与空态配置图片位的映射；未配置时 store 回落随包 PNG */
+const ILLUSTRATION_KEY: Record<string, StatusTipIllustration | undefined> = {
+  'empty-cart': 'empty-cart',
+  'empty-order': 'empty-order',
+  'seckill': 'empty-seckill',
 }
 
-const illustration = computed(() => ART_ILLUSTRATION[props.art] ?? '')
+const illustration = computed(() => {
+  const key = ILLUSTRATION_KEY[props.art]
+  return key ? statusTipStore.imageFor(key) : ''
+})
 const icon = computed(() => ART_ICON[props.art] ?? ART_ICON.group)
 </script>
 

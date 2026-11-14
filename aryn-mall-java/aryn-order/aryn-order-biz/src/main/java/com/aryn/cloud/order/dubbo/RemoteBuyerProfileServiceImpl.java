@@ -2,11 +2,14 @@ package com.aryn.cloud.order.dubbo;
 
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.order.api.entity.BuyerOrg;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.vo.FrequentPurchaseVO;
+import com.aryn.cloud.order.mapper.BuyerOrgMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
 import com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService;
+import com.aryn.cloud.promotion.api.vo.FirstOrderEligibilityVO;
 import com.aryn.cloud.promotion.api.vo.NewbieEligibilityVO;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -33,6 +36,8 @@ public class RemoteBuyerProfileServiceImpl implements RemoteBuyerProfileService 
 
 	private final OrderInfoMapper orderInfoMapper;
 
+	private final BuyerOrgMapper buyerOrgMapper;
+
 	@DubboReference
 	private final RemoteMallUserService remoteMallUserService;
 
@@ -56,6 +61,12 @@ public class RemoteBuyerProfileServiceImpl implements RemoteBuyerProfileService 
 	 */
 	@Override
 	public NewbieEligibilityVO checkNewbieEligibility(String tenantId, String userId, Integer registerWithinDays) {
+		return checkPersonalNewbieEligibility(tenantId, userId, registerWithinDays);
+	}
+
+	@Override
+	public NewbieEligibilityVO checkPersonalNewbieEligibility(String tenantId, String userId,
+			Integer registerWithinDays) {
 		NewbieEligibilityVO result = new NewbieEligibilityVO();
 		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(userId)) {
 			return reject(result, "PARAM_INVALID");
@@ -63,10 +74,12 @@ public class RemoteBuyerProfileServiceImpl implements RemoteBuyerProfileService 
 		String snapshot = ArynTenantContextHolder.getTenantId();
 		try {
 			ArynTenantContextHolder.setTenantId(tenantId);
-			// 口径：付过款即消耗资格（含退款），pay_status 为单向状态由支付回调/确认收款推进
+			// 口径：付过款即消耗资格（含退款），pay_status 为单向状态由支付回调/确认收款推进。
+			// 只算个人单（scene=1 或历史空场景），船供/企业单不消耗个人新人资格。
 			Long paidOrders = orderInfoMapper.selectCount(Wrappers.<OrderInfo>lambdaQuery()
 				.eq(OrderInfo::getUserId, userId)
-				.eq(OrderInfo::getPayStatus, CommonConstants.YES));
+				.eq(OrderInfo::getPayStatus, CommonConstants.YES)
+				.and(w -> w.eq(OrderInfo::getPurchaseScene, "1").or().isNull(OrderInfo::getPurchaseScene)));
 			if (paidOrders != null && paidOrders > 0) {
 				return reject(result, "ALREADY_PAID");
 			}
@@ -86,6 +99,100 @@ public class RemoteBuyerProfileServiceImpl implements RemoteBuyerProfileService 
 		catch (Exception ex) {
 			log.warn("新人资格判定异常，按非新人处理 tenant={} user={}", tenantId, userId, ex);
 			return reject(result, "ERROR");
+		}
+		finally {
+			if (snapshot == null) {
+				ArynTenantContextHolder.removeTenantId();
+			}
+			else {
+				ArynTenantContextHolder.setTenantId(snapshot);
+			}
+		}
+	}
+
+	@Override
+	public FirstOrderEligibilityVO checkShipFirstOrderEligibility(String tenantId, String vesselId) {
+		FirstOrderEligibilityVO result = firstOrderResult(FirstOrderEligibilityVO.SUBJECT_SHIP, vesselId);
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(vesselId)) {
+			result.setReason("PARAM_INVALID");
+			return result;
+		}
+		return withTenant(tenantId, () -> {
+			Long paidOrders = orderInfoMapper.selectCount(Wrappers.<OrderInfo>lambdaQuery()
+				.eq(OrderInfo::getVesselId, vesselId)
+				.eq(OrderInfo::getPurchaseScene, "2")
+				.eq(OrderInfo::getPayStatus, CommonConstants.YES));
+			result.setEligible(paidOrders == null || paidOrders == 0);
+			if (!Boolean.TRUE.equals(result.getEligible())) {
+				result.setReason("ALREADY_PAID");
+			}
+			return result;
+		}, result, "ERROR");
+	}
+
+	@Override
+	public FirstOrderEligibilityVO checkBuyerOrgFirstOrderEligibility(String tenantId, String buyerOrgId) {
+		FirstOrderEligibilityVO result = firstOrderResult(FirstOrderEligibilityVO.SUBJECT_BUYER_ORG, buyerOrgId);
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(buyerOrgId)) {
+			result.setReason("PARAM_INVALID");
+			return result;
+		}
+		return withTenant(tenantId, () -> {
+			BuyerOrg org = buyerOrgMapper.selectOne(Wrappers.<BuyerOrg>lambdaQuery()
+				.eq(BuyerOrg::getTenantId, tenantId)
+				.eq(BuyerOrg::getId, buyerOrgId)
+				.last("LIMIT 1"));
+			if (org == null) {
+				result.setEligible(Boolean.FALSE);
+				result.setReason("ORG_NOT_FOUND");
+				return result;
+			}
+			if (!"1".equals(org.getAuditStatus())) {
+				result.setEligible(Boolean.FALSE);
+				result.setReason("ORG_NOT_APPROVED");
+				return result;
+			}
+			if (!"1".equals(org.getStatus())) {
+				result.setEligible(Boolean.FALSE);
+				result.setReason("ORG_DISABLED");
+				return result;
+			}
+			// 只统计「下单时主体已审核通过」的已支付单：待审核期间下的单不享首单，
+			// 支付后也不消耗首单，否则工厂审核通过反而失去首单资格。
+			Long paidOrders = orderInfoMapper.selectCount(Wrappers.<OrderInfo>lambdaQuery()
+				.eq(OrderInfo::getBuyerOrgId, buyerOrgId)
+				.eq(OrderInfo::getPurchaseScene, "3")
+				.eq(OrderInfo::getPayStatus, CommonConstants.YES)
+				.eq(OrderInfo::getBuyerOrgAuditStatus, "1"));
+			result.setEligible(paidOrders == null || paidOrders == 0);
+			if (!Boolean.TRUE.equals(result.getEligible())) {
+				result.setReason("ALREADY_PAID");
+			}
+			return result;
+		}, result, "ERROR");
+	}
+
+	private FirstOrderEligibilityVO firstOrderResult(String subjectType, String subjectId) {
+		FirstOrderEligibilityVO result = new FirstOrderEligibilityVO();
+		result.setSubjectType(subjectType);
+		result.setSubjectId(subjectId);
+		result.setEligible(Boolean.FALSE);
+		return result;
+	}
+
+	private <T> T withTenant(String tenantId, java.util.function.Supplier<T> supplier, T fallback, String reason) {
+		String snapshot = ArynTenantContextHolder.getTenantId();
+		try {
+			ArynTenantContextHolder.setTenantId(tenantId);
+			return supplier.get();
+		}
+		catch (Exception ex) {
+			log.warn("首单资格判定异常，按不合格处理 tenant={}: {}", tenantId, ex.getMessage());
+			if (fallback instanceof FirstOrderEligibilityVO firstOrder) {
+				firstOrder.setEligible(Boolean.FALSE);
+				firstOrder.setReason(reason);
+			}
+			return fallback;
 		}
 		finally {
 			if (snapshot == null) {

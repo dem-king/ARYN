@@ -231,7 +231,7 @@ public class VesselServiceImpl implements VesselService {
 		}
 		// 走统一入口：被移出过的用户重新绑定会复用历史行（唯一键不含 del_flag，直接 insert 必撞键 1062）
 		memberRegistrar.ensureOnboard(tenantId, member.getVesselId(), member.getUserId(), role, "1",
-				VesselMemberRole.CONFIRMER.equals(role) ? "1" : "0", member.getRemark(), bindSource);
+				VesselMemberRole.defaultCanConfirm(role), member.getRemark(), bindSource);
 		return vesselMemberMapper.selectOne(Wrappers.lambdaQuery(VesselMember.class)
 				.eq(VesselMember::getTenantId, tenantId)
 				.eq(VesselMember::getVesselId, member.getVesselId())
@@ -463,7 +463,7 @@ public class VesselServiceImpl implements VesselService {
 	}
 
 	@Override
-	public List<VesselInfo> myVessels(String tenantId, String userId) {
+	public List<com.aryn.cloud.vessel.api.vo.VesselMembershipVO> myVessels(String tenantId, String userId) {
 		List<VesselMember> memberships = vesselMemberMapper.selectList(Wrappers.lambdaQuery(VesselMember.class)
 				.eq(VesselMember::getTenantId, tenantId)
 				.eq(VesselMember::getUserId, userId)
@@ -472,11 +472,32 @@ public class VesselServiceImpl implements VesselService {
 			return List.of();
 		}
 		List<String> vesselIds = memberships.stream().map(VesselMember::getVesselId).distinct().toList();
+		java.util.Map<String, VesselMember> memberByVessel = new java.util.HashMap<>();
+		for (VesselMember membership : memberships) {
+			// 历史/脏数据的 member_role 可能为空，Collectors.toMap 会直接 NPE；
+			// 这里显式容忍空角色，按「成员」处理，保证 my-vessels 不因一条脏数据整体失败。
+			memberByVessel.putIfAbsent(membership.getVesselId(), membership);
+		}
 		return vesselInfoMapper.selectList(Wrappers.lambdaQuery(VesselInfo.class)
 				.eq(VesselInfo::getTenantId, tenantId)
 				.in(VesselInfo::getId, vesselIds)
 				.eq(VesselInfo::getStatus, VESSEL_STATUS_ACTIVE)
-				.orderByDesc(VesselInfo::getCreateTime));
+				.orderByDesc(VesselInfo::getCreateTime))
+			.stream()
+			.map(vessel -> {
+				com.aryn.cloud.vessel.api.vo.VesselMembershipVO vo =
+					new com.aryn.cloud.vessel.api.vo.VesselMembershipVO();
+				org.springframework.beans.BeanUtils.copyProperties(vessel, vo);
+				VesselMember member = memberByVessel.get(vessel.getId());
+				String role = member != null ? member.getMemberRole() : null;
+				vo.setMemberRole(role);
+				vo.setCanEdit(VesselMember.ROLE_OWNER.equals(role) || VesselMember.ROLE_CONFIRMER.equals(role));
+				// 确认权以 can_confirm 列为准（发起人/确认人/业务员默认为 1），
+				// 与共享车提交权限、DeliveryContextValidator 同一口径，不按角色推导。
+				vo.setCanConfirm(member != null && "1".equals(member.getCanConfirm()));
+				return vo;
+			})
+			.toList();
 	}
 
 	@Override
@@ -541,6 +562,20 @@ public class VesselServiceImpl implements VesselService {
 				.eq(VesselMember::getStatus, MEMBER_STATUS_ONBOARD)
 				.last("LIMIT 1"));
 		return member != null ? member.getMemberRole() : null;
+	}
+
+	@Override
+	public boolean canConfirmSupply(String tenantId, String vesselId, String userId) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(vesselId) || !StringUtils.hasText(userId)) {
+			return false;
+		}
+		VesselMember member = vesselMemberMapper.selectOne(Wrappers.lambdaQuery(VesselMember.class)
+				.eq(VesselMember::getTenantId, tenantId)
+				.eq(VesselMember::getVesselId, vesselId)
+				.eq(VesselMember::getUserId, userId)
+				.eq(VesselMember::getStatus, MEMBER_STATUS_ONBOARD)
+				.last("LIMIT 1"));
+		return member != null && "1".equals(member.getCanConfirm());
 	}
 
 	@Override

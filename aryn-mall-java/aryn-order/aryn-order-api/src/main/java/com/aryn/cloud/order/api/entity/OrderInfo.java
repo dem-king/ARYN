@@ -72,6 +72,30 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "运费（元）")
 	private BigDecimal freightPrice;
 
+	@Schema(description = "运费原价（减免前，元）")
+	private BigDecimal freightBasePrice;
+
+	@Schema(description = "运费减免金额（元，免邮成本口径）")
+	private BigDecimal freightDiscountPrice;
+
+	@Schema(description = "命中的运费规则ID")
+	private String freightRuleId;
+
+	@Schema(description = "免邮原因：THRESHOLD-满额包邮；MEMBER-会员免邮；PICKUP-自提；INTERNAL-到船配送；NONE-未减免")
+	private String freightFreeReason;
+
+	@Schema(description = "包邮门槛（元，结算页提示用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal freightThreshold;
+
+	@Schema(description = "距包邮门槛差额（元，结算页提示用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal freightGap;
+
+	@Schema(description = "参与包邮门槛的商品成交金额（元，结算页/排查用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal freightEligibleAmount;
+
 	@Schema(description = "优惠券优惠金额（元）")
 	private BigDecimal couponPrice;
 
@@ -205,8 +229,20 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "详细地址")
 	private String recipientAddress;
 
-	@Schema(description = "购买场景：1海员个人购买 2船供采购")
+	@Schema(description = "购买场景：1海员个人购买 2船供采购 3企业采购")
 	private String purchaseScene;
+
+	@Schema(description = "采购主体ID（企业采购快照，历史单为空）")
+	private String buyerOrgId;
+
+	@Schema(description = "采购主体名称快照")
+	private String buyerOrgName;
+
+	@Schema(description = "采购主体统一社会信用代码快照")
+	private String buyerOrgCreditCode;
+
+	@Schema(description = "下单时采购主体审核状态快照：0待审核 1已通过 2已驳回 3已停用；首单消耗只统计已通过")
+	private String buyerOrgAuditStatus;
 
 	@Schema(description = "配送船舶ID快照")
 	private String vesselId;

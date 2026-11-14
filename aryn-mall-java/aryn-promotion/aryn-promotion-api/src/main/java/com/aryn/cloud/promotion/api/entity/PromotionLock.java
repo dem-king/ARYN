@@ -52,6 +52,12 @@ public class PromotionLock extends Model<PromotionLock> {
 	/** 锁定优惠金额 */
 	private BigDecimal discountAmount;
 
+	/** 首单主体类型：1船 2采购主体；普通活动为空 */
+	private String subjectType;
+
+	/** 首单主体ID（船ID/采购主体ID）；普通活动为空 */
+	private String subjectId;
+
 	/** 规则快照（受控JSON） */
 	private String ruleSnapshot;
 

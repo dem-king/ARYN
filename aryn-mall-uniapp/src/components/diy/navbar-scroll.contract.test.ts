@@ -171,27 +171,83 @@ describe('内嵌装修不渲染导航', () => {
 })
 
 describe('吸顶 Tab 栏与顶栏共用磨砂材质', () => {
-  it('DiyPage 把沉浸式导航的目标底色材质下发给吸顶 Tab 栏', () => {
+  it('diyPage 把沉浸式导航的目标底色材质下发给吸顶 Tab 栏', () => {
     const diy = source(DIY_RENDERER)
     // 只在整页 DIY + 导航可见 + 开了滚动渐显时生效
     expect(diy).toContain('immersiveNavEnabled')
-    expect(diy).toContain("navigation.scrollEffect?.mode === 'fade'")
+    expect(diy).toContain('navigation.scrollEffect?.mode === \'fade\'')
     expect(diy).toContain(':immersive-nav="immersiveNavEnabled"')
-    // 材质令牌：目标底色（含 alpha）、模糊值、细线色，与 hr-navbar 同口径
-    expect(diy).toContain("'--diy-nav-surface-bg'")
-    expect(diy).toContain("'--diy-nav-surface-blur'")
-    expect(diy).toContain("'--diy-nav-hairline'")
+    // 材质令牌：目标底色（含 alpha）、模糊值，与 hr-navbar 同口径
+    expect(diy).toContain('\'--diy-nav-surface-bg\'')
+    expect(diy).toContain('\'--diy-nav-surface-blur\'')
     expect(diy).toContain('toSurfaceCssColor')
   })
 
   it('吸顶 Tab 栏消费材质令牌；未下发时回落原白底（内嵌页不受影响）', () => {
     const tabs = source(GOODS_TABS)
     // 仅吸顶模式 + 沉浸式导航同时成立才加 class，普通 Tab 栏保持原样式
-    expect(tabs).toContain("'goods-tabs__bar--immersive': immersiveNav && showData.stickyTabs")
+    expect(tabs).toContain('\'goods-tabs__bar--immersive\': immersiveNav && showData.stickyTabs')
     expect(tabs).toContain('var(--diy-nav-surface-bg, #fff)')
     expect(tabs).toContain('var(--diy-nav-surface-blur, none)')
-    expect(tabs).toContain('var(--diy-nav-hairline, #f2f3f5)')
+    // 顶栏下沿的细线令牌已整体移除，Tab 栏不能再依赖它
+    expect(source(DIY_RENDERER)).not.toContain('\'--diy-nav-hairline\'')
+    expect(tabs).not.toContain('--diy-nav-hairline')
     // 与顶栏一致的 iOS 前缀兜底
     expect(tabs).toContain('-WEBKIT-backdrop-filter')
+  })
+
+  it('tab 吸顶后撤自身磨砂、透明骑在延伸玻璃上（z-index 抬到玻璃之上）', () => {
+    const tabs = source(GOODS_TABS)
+    // 两块玻璃各自 backdrop-filter 时拼接处必有接缝与裸带：吸顶后整条 Tab 带
+    // 由 DiyPage 延伸下来的统一玻璃负责，本栏只保留文字与底边细线
+    expect(tabs).toMatch(/'goods-tabs__bar--stuck':[\t\v\f\r \xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]*\n\s*barStuck && glassCoversBar && immersiveNav && showData\.stickyTabs/)
+    // 撤自身磨砂必须以「宿主玻璃真的盖住本条带」为前提：栏高量不到（微信小
+    // 程序的页面级查询查不到组件内部节点）时若照样撤，Tab 栏纯透明、文字直接
+    // 压在商品卡上——真机踩过。宁可留两块玻璃的接缝，也不能出现无背景文字。
+    expect(tabs).toContain('glassCoversBar')
+    expect(tabs).toMatch(/--stuck\s*\{[\s\S]*?background: transparent/)
+    expect(tabs).toMatch(/--stuck\s*\{[\s\S]*?backdrop-filter: none/)
+    expect(tabs).toMatch(/--stuck\s*\{[\s\S]*?z-index: 501/)
+    // 吸顶判定走页面滚动广播 + 栏顶实测：不用 IntersectionObserver
+    // （H5 端 uni.createIntersectionObserver 在本项目滚动容器下实测完全不回调，
+    // 拿它判定会永远停在「未吸顶」，玻璃高度就永远不跟着吸顶走）
+    expect(tabs).not.toContain('createIntersectionObserver')
+    expect(tabs).toContain('DIY_REACH_BOTTOM_CHECK_EVENT')
+    expect(tabs).toContain('syncStuckFromLayout')
+    // 装修数据是异步到达的（tabs 先空后满）：监听必须随条件变化补挂，
+    // 只在 onMounted 挂一次的话数据晚到后永远收不到滚动广播
+    expect(tabs).toMatch(/watch\(stuckWatching/)
+    // DiyPage 下发吸顶线（楼层自身 sticky 时不下发：Tab 栏被楼层的层叠上下文
+    // 困住，骑不到页面玻璃上）
+    const renderer = source(DIY_RENDERER)
+    expect(renderer).toContain(
+      ':sticky-line="section.style.sticky ? 0 : stickyOffsetTop"',
+    )
+    // 玻璃延伸高度只在 Tab 栏**真的吸顶**后才计入栏高：未吸顶时 Tab 栏可能还在
+    // 页面中段（离吸顶线差一整屏），提前铺出栏高会在顶部凭空多一条磨砂白，
+    // 商品从下面滑过被这块「不存在的栏」盖住。吸顶态由子组件 emit 上报。
+    expect(renderer).toContain('anyTabsStuck')
+    expect(renderer).toContain('@stuck-change=')
+    expect(renderer).toMatch(
+      /anyTabsStuck\.value \? stuckTabsBarHeight\.value : 0/,
+    )
+    // **栏高必须由子组件上报**：微信小程序的页面级 createSelectorQuery 查不到
+    // 自定义组件内部节点，DiyPage 自己量 `.goods-tabs__bar` 恒为 null，真机就会
+    // 「Tab 吸顶变透明、背后没玻璃，文字压在商品卡上」
+    expect(renderer).not.toContain('measureTabsBarHeight')
+    expect(renderer).not.toContain('.select(\'.goods-tabs__bar\')')
+    expect(tabs).toContain('barHeight')
+    expect(tabs).toMatch(/\.in\(instance/)
+    // 栏高与吸顶态同一次测量、同一条 emit 上报，避免两者不同步；
+    // 第一参数是楼层 key（父组件用方法引用监听，不靠模板内联闭包）
+    expect(tabs).toMatch(/emit\('stuck-change', props\.tabKey, stuck, nextHeight\)/)
+    expect(renderer).toContain(':tab-key="item.id"')
+    expect(renderer).toContain('@stuck-change="onTabsStuckChange"')
+    // 玻璃是否真的盖住本栏由宿主判定：已吸顶且栏高 > 0
+    expect(renderer).toContain('tabGlassCoversBar')
+    expect(renderer).toContain(':glass-covers-bar=')
+    // 卸载/配置变更时必须把吸顶态收回，否则玻璃停在已吸顶的高度上
+    expect(tabs).toContain('\'stuck-change\': [tabKey: string, stuck: boolean, height: number]')
+    expect(tabs).toMatch(/onUnmounted\([\s\S]{0,240}emit\('stuck-change', props\.tabKey, false, 0\)/)
   })
 })

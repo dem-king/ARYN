@@ -80,6 +80,7 @@ const state = reactive({
     paymentType: '',
     paymentQueryTimes: '',
     orderNo: '',
+    buyerOrgName: '',
     purchaseScene: '',
     recipientName: '',
     recipientPhone: '',
@@ -527,6 +528,14 @@ watch(
             />
           </ElSelect>
         </ElFormItem>
+        <ElFormItem label="采购主体" prop="buyerOrgName">
+          <ElInput
+            v-model="state.queryParams.buyerOrgName"
+            clearable
+            placeholder="请输入主体名称"
+            @keyup.enter="initPage"
+          />
+        </ElFormItem>
         <ElFormItem label="订单号" prop="orderNo">
           <ElInput
             v-model="state.queryParams.orderNo"
@@ -632,6 +641,11 @@ watch(
                 {{ vesselText(scope.row) }}
               </span>
             </div>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="采购主体" width="150">
+          <template #default="scope">
+            {{ scope.row.buyerOrgName || '—' }}
           </template>
         </ElTableColumn>
         <ElTableColumn label="订单信息" min-width="364">
@@ -805,7 +819,11 @@ watch(
                     {{
                       Number(scope.row.freightPrice) > 0
                         ? `+¥${formatMoney(scope.row.freightPrice)}`
-                        : '包邮'
+                        : scope.row.freightFreeReason === 'THRESHOLD'
+                          ? '满额包邮'
+                          : scope.row.freightFreeReason === 'MEMBER'
+                            ? '会员免邮'
+                            : '包邮'
                     }}
                   </span>
                 </div>

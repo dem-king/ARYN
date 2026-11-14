@@ -39,6 +39,9 @@ export interface QuickCartResult {
   needChoose: boolean
   /** 后端返回的加购信息（needChoose 时携带 goodsSkus） */
   info: QuickCartInfo | null
+  /** 直加成功的 SKU 与数量（凑单等需要把本次加购回写结算快照的调用方使用） */
+  skuId?: string
+  quantity?: number
 }
 
 export interface QuickAddOptions {
@@ -155,7 +158,13 @@ export function useQuickCart() {
         // 用户关闭了确认弹层，本次不加
         return { added: false, needChoose: false, info }
       }
-      return { added: true, needChoose: false, info }
+      return {
+        added: true,
+        needChoose: false,
+        info,
+        skuId: String(info.skuId),
+        quantity: finalQuantity,
+      }
     }
     catch {
       // 请求异常已由统一拦截器提示，这里只保证不误报「已加入购物车」

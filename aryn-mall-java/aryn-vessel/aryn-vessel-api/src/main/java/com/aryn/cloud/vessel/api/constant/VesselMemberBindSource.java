@@ -28,6 +28,9 @@ public final class VesselMemberBindSource {
 	/** 绑定申请审核通过，但申请船与目标船不一致（运营已确认 + 填写理由） */
 	public static final String APPLY_AUDIT_MISMATCH = "APPLY_AUDIT_MISMATCH";
 
+	/** 自助绑定自动通过：提交时 IMO/呼号或船名唯一命中在营船，不经平台审核 */
+	public static final String APPLY_AUTO = "APPLY_AUTO";
+
 	/** 邀请码加入 */
 	public static final String INVITE_CODE = "INVITE_CODE";
 
@@ -41,12 +44,13 @@ public final class VesselMemberBindSource {
 	public static final String SHARE_CART = "SHARE_CART";
 
 	/** 全部合法取值，按展示顺序 */
-	public static final List<String> ALL = List.of(APPLY_AUDIT, APPLY_AUDIT_MISMATCH, INVITE_CODE, MEMBER_ADD,
-			ADMIN_ADD, SHARE_CART, MANUAL);
+	public static final List<String> ALL = List.of(APPLY_AUDIT, APPLY_AUDIT_MISMATCH, APPLY_AUTO, INVITE_CODE,
+			MEMBER_ADD, ADMIN_ADD, SHARE_CART, MANUAL);
 
 	/** 取值 -> 中文名 */
 	public static final List<Option> OPTIONS = List.of(new Option(APPLY_AUDIT, "申请审核"),
-			new Option(APPLY_AUDIT_MISMATCH, "申请审核（船名不一致）"), new Option(INVITE_CODE, "邀请码"),
+			new Option(APPLY_AUDIT_MISMATCH, "申请审核（船名不一致）"), new Option(APPLY_AUTO, "自助绑定自动通过"),
+			new Option(INVITE_CODE, "邀请码"),
 			new Option(MEMBER_ADD, "船内成员添加"), new Option(ADMIN_ADD, "管理端绑定"),
 			new Option(SHARE_CART, "分享购物车自动加入"), new Option(MANUAL, "手工/历史"));
 

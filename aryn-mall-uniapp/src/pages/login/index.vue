@@ -169,7 +169,6 @@ onPageScroll(handlePageScroll)
   <view class="login-page" :style="themeStyle">
     <hr-navbar
       :title="''"
-      :bordered="false"
       :background-color="BRAND_COLOR"
       text-color="#ffffff"
     >

@@ -290,11 +290,54 @@ export function getCurrentNewbieFloor(limit?: number) {
 }
 
 /**
- * C 端指定 SKU 的新人价商品项（只包含请求且被活动覆盖的 SKU）。
+ * 新人专享三场景卡片（个人新人价 / 船供首单 / 企业首单）。
  *
- * 与楼层商品项的口径差异：楼层项带名称/图片（楼层要自己渲染卡片），
- * 商详/购物车已经掌握了商品信息，这里只补价格与活动元数据。
+ * - scene=1 时 goodsList 为新人价商品；
+ * - scene=2/3 时 tiers 为整船优惠门槛，不返回商品列表；
+ * - eligible 三态：true/false/null（未登录或缺主船/主体）。
  */
+export interface AppNewbieSceneVO {
+  scene: '1' | '2' | '3'
+  activityId?: null | string
+  activityName?: null | string
+  activityType?: '7' | '9' | string
+  endTime?: null | string
+  /** 个人新人楼层沿用字段：注册时效（天），null 表示不限 */
+  registerWithinDays?: null | number
+  /** 个人新人楼层沿用字段：每人每 SKU 限购件数 */
+  limitPerUser?: null | number
+  /** 个人新人楼层沿用字段：长期有效 */
+  longTerm?: boolean
+  eligible?: boolean | null
+  ineligibleReason?: null | string
+  subjectType?: '1' | '2' | string
+  maxDiscountAmount?: null | number
+  tiers?: Array<{ discountAmount: number; minAmount: number }>
+  goodsList?: AppNewbieGoodsVO[]
+}
+
+/**
+ * 获取新人专享三场景聚合数据
+ * GET /promotion/app/newbie/scenes
+ */
+export function getNewbieScenes(params?: {
+  buyerOrgId?: string
+  limit?: number
+  vesselId?: string
+}) {
+  return alovaInstance.Get<AppNewbieSceneVO[]>(
+    '/promotion/app/newbie/scenes',
+    {
+      params: {
+        ...(params?.limit ? { limit: params.limit } : {}),
+        ...(params?.vesselId ? { vesselId: params.vesselId } : {}),
+        ...(params?.buyerOrgId ? { buyerOrgId: params.buyerOrgId } : {}),
+      },
+    },
+  )
+}
+
+
 export interface AppNewbieSkuPriceVO {
   skuId: string
   spuId: string

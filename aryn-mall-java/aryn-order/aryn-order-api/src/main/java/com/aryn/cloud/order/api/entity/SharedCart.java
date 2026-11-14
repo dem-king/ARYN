@@ -70,6 +70,12 @@ public class SharedCart extends Model<SharedCart> {
 	 */
 	private String addressSnapshot;
 
+	/** 采购主体ID（岸上车必填；船供车为空）。历史岸上车为空，允许继续提交。 */
+	private String buyerOrgId;
+
+	/** 采购主体名称快照（创建时写入，后续主体改名不回写历史车）。 */
+	private String buyerOrgName;
+
 	/** 发起人用户ID */
 	private String ownerUserId;
 

@@ -476,7 +476,6 @@ onPageScroll(handlePageScroll)
   <hr-navbar
     :left-arrow="false"
     :title="t('userCenter.title')"
-    :bordered="false"
     :background-color="BRAND_COLOR"
     text-color="#ffffff"
   />

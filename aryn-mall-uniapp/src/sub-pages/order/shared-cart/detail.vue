@@ -1385,6 +1385,15 @@ onShow(() => {
           </text>
         </view>
 
+        <!-- 岸上企业单：主体是首单权益与对账的归属，详情页必须显示 -->
+        <view v-if="isShoreCart(cart)" class="hero__addr">
+          <text class="i-carbon:industry hero__addr-icon" />
+          <text class="hero__addr-text">
+            {{ cart.buyerOrgName || t('sharedCart.common.orgPending') }}
+            <text v-if="cart.buyerOrgAuditStatus === '0'"> · {{ t('sharedCart.common.orgAuditPending') }}</text>
+          </text>
+        </view>
+
         <view v-if="cart.remark" class="hero__remark">
           {{ t('sharedCart.common.remarkPrefix') }}{{ cart.remark }}
         </view>
@@ -2502,6 +2511,12 @@ onShow(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #4e5969;
+}
+
+.hero__addr-icon {
+  flex: none;
+  font-size: 24rpx;
+  color: #9aa4b2;
 }
 
 .hero__remark {
