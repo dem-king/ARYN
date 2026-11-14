@@ -356,6 +356,16 @@ hx:
       - promotion_lock
       - clearance_rule
       - mall_zone_setting
+      - price_policy
+      - price_policy_item
+      - promo_calendar
+      - enterprise_level
+      - enterprise_benefit
+      - enterprise_benefit_level_rel
+      - enterprise_level_record
+      - enterprise_growth
+      - enterprise_credit_account
+      - enterprise_statement
 
   swagger:
     enabled: true

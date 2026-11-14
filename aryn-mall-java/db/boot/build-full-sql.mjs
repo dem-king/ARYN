@@ -197,6 +197,10 @@ const sections = [
   ['空态插画配置菜单与按钮权限', '231status_tip_config_menu.sql'],
   ['购物车/订单/秒杀空态插画字段', '232status_tip_config_empty_illustrations.sql'],
   ['首单口径一致性修复（成员确认权回填 + 订单主体审核快照）', '233first_order_consistency_fix_incremental.sql'],
+  ['P0 存量营销活动收口：数据与菜单（秒杀/折扣/拼团/优惠券/分销停运，专区保留）', '234p0_marketing_retire_data.sql'],
+  ['P0 存量营销活动收口：调度停用（排期生成/状态流转）', '235p0_marketing_retire_jobs.sql'],
+  ['B2B 价格与会员体系基础层（协议价/档期/企业等级/账期预留 + 引擎增强）', '236b2b_price_member_schema_incremental.sql'],
+  ['B2B 价格与会员体系菜单与按钮权限', '237b2b_price_member_menu.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -313,6 +317,17 @@ DROP TABLE IF EXISTS \`buyer_org_apply\`;
 DROP TABLE IF EXISTS \`buyer_org_invite_code\`;
 -- 空态插画配置（230status_tip_config_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS \`sys_status_tip_config\`;
+-- B2B 价格与会员体系基础层（236b2b_price_member_schema_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`price_policy\`;
+DROP TABLE IF EXISTS \`price_policy_item\`;
+DROP TABLE IF EXISTS \`promo_calendar\`;
+DROP TABLE IF EXISTS \`enterprise_level\`;
+DROP TABLE IF EXISTS \`enterprise_benefit\`;
+DROP TABLE IF EXISTS \`enterprise_benefit_level_rel\`;
+DROP TABLE IF EXISTS \`enterprise_level_record\`;
+DROP TABLE IF EXISTS \`enterprise_growth\`;
+DROP TABLE IF EXISTS \`enterprise_credit_account\`;
+DROP TABLE IF EXISTS \`enterprise_statement\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

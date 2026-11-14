@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-13
+-- 生成日期: 2026-11-14
 
 -- ============================================================================
 -- 创建数据库
@@ -111,6 +111,17 @@ DROP TABLE IF EXISTS `buyer_org_apply`;
 DROP TABLE IF EXISTS `buyer_org_invite_code`;
 -- 空态插画配置（230status_tip_config_incremental.sql 新建表；全量脚本重建时先删再建）
 DROP TABLE IF EXISTS `sys_status_tip_config`;
+-- B2B 价格与会员体系基础层（236b2b_price_member_schema_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `price_policy`;
+DROP TABLE IF EXISTS `price_policy_item`;
+DROP TABLE IF EXISTS `promo_calendar`;
+DROP TABLE IF EXISTS `enterprise_level`;
+DROP TABLE IF EXISTS `enterprise_benefit`;
+DROP TABLE IF EXISTS `enterprise_benefit_level_rel`;
+DROP TABLE IF EXISTS `enterprise_level_record`;
+DROP TABLE IF EXISTS `enterprise_growth`;
+DROP TABLE IF EXISTS `enterprise_credit_account`;
+DROP TABLE IF EXISTS `enterprise_statement`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -33296,5 +33307,576 @@ PREPARE stmt FROM @add_order_org_audit_status; EXECUTE stmt; DEALLOCATE PREPARE 
 -- 自检：order_info 存在快照列
 SELECT COLUMN_NAME FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'buyer_org_audit_status';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- P0 存量营销活动收口：数据与菜单（秒杀/折扣/拼团/优惠券/分销停运，专区保留）
+-- Source: db/boot/234p0_marketing_retire_data.sql
+-- ============================================================================
+-- P0 存量营销活动收口（Boot 单体模式 · 数据与菜单）
+-- 目标库：aryn_boot
+-- 背景（2026-11-14 船供 B2B 活动与会员体系重构 · P0 停量）：
+--   平台客群转为船供采购/海员个人/工厂餐厅采购，零售限时玩法（秒杀/折扣/拼团/
+--   优惠券/新人价）整体停止运营，待新价格体系（协议价/档期特供/阶梯价/满量优惠）
+--   上线后统一清理。按既定决策「仅结束存量数据」：不删代码、不删表，只结束在跑
+--   活动数据、停用运营入口菜单；代码与表结构保留以便回溯。
+-- 语义：
+--   1) 秒杀：活动全部置已结束（end_time 收口到当下，C 端按时间实时推导展示态）；
+--      排期模板全部停用——不停模板则 seckillScheduleJobHandler 每 60 秒会继续
+--      生成新场次；已生成未开始的场次一并置已结束。
+--   2) 限时折扣：未开始/进行中 → 已暂停（3），保留可恢复语义，discountStatusJobHandler
+--      对状态 3 不做流转。
+--   3) 拼团：草稿/进行中 → 已结束；在途拼团记录由 groupBuyExpireJobHandler 自然
+--      超时收敛，调度不停。
+--   4) 优惠券：模板全部禁用（停发），存量未领/未用券自然过期，不强制作废。
+--   5) 统一引擎手工活动（4 阶梯价/5 买赠/7 整船满减/9 新人价）：草稿/已发布 → 已暂停；
+--      系统托管专区活动（10 会员价 SYS_MEMBER_ZONE、11 出清价 SYS_CLEARANCE_ZONE）
+--      保留不动——专区治理体系在新方案中继续沿用。
+--   6) 管理端运营入口菜单逻辑删除（del_flag 0→1）：秒杀管理/折扣管理/拼团管理/
+--      优惠券/分销管理（含各自子页面与按钮）；sys_role_menu / sys_tenant_menu
+--      授权行保留，恢复显示只需把对应行 del_flag 改回 '0'。
+--      新人专享菜单已于 143hide_newbie_activity_menu.sql 收敛隐藏，此处不重复处理。
+-- 特性：可重复执行；不 DROP/TRUNCATE；不物理删除任何数据。
+-- 注意：
+--   · 配套调度停用见 235p0_marketing_retire_jobs.sql（boot）/ 251（cloud），
+--     必须与本脚本一起执行，防止 Job 把已收口数据改回；
+--   · 菜单在登录时快照，执行后需重新登录管理端才生效；
+--   · 在途营销锁（promotion_lock LOCKED）不触碰，由补偿 Job 与订单闭环自然收敛。
+-- 关联：cloud 模式对应 249p0_marketing_retire_promotion.sql + 250p0_marketing_retire_menu.sql，
+--       数据语义一致；菜单部分单独拆分（cloud 菜单库为 aryn_upms）。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1. 秒杀活动全部结束（未开始/进行中 → 已结束，end_time 收口）
+UPDATE `seckill_activity`
+SET `status` = 2, `end_time` = NOW(), `update_by` = 'system', `update_time` = NOW()
+WHERE `status` IN (0, 1) AND `del_flag` = '0';
+
+-- 2. 秒杀排期模板全部停用（关键：不停模板则调度 Job 持续生成新场次）
+UPDATE `seckill_session_template`
+SET `status` = 1, `update_time` = NOW()
+WHERE `status` = 0 AND `del_flag` = '0';
+
+-- 3. 已生成的未开始/进行中场次一并结束
+UPDATE `seckill_session`
+SET `status` = 2, `update_time` = NOW()
+WHERE `status` IN (0, 1) AND `del_flag` = '0';
+
+-- 4. 限时折扣：未开始/进行中 → 已暂停
+UPDATE `discount_activity`
+SET `status` = 3, `update_by` = 'system', `update_time` = NOW()
+WHERE `status` IN (0, 1) AND `del_flag` = '0';
+
+-- 5. 拼团：草稿/进行中 → 已结束
+UPDATE `group_buy_activity`
+SET `activity_status` = '2', `update_by` = 'system', `update_time` = NOW()
+WHERE `activity_status` IN ('0', '1') AND `del_flag` = '0';
+
+-- 6. 优惠券模板全部禁用（停发；存量券自然过期）
+UPDATE `coupon_info`
+SET `status` = '1', `update_by` = 'system', `update_time` = NOW()
+WHERE `status` = '0' AND `del_flag` = '0';
+
+-- 7. 统一引擎手工活动暂停（保留系统托管专区 10/11 不动）
+UPDATE `promotion_activity`
+SET `status` = '3', `update_by` = 'system', `update_time` = NOW()
+WHERE `activity_type` IN ('4', '5', '7', '9')
+  AND `status` IN ('1', '2')
+  AND `del_flag` = '0';
+
+-- 8. 隐藏零售运营入口菜单（目录 + 子页面 + 按钮，覆盖三层）
+UPDATE `sys_menu`
+SET `del_flag` = '1', `update_by` = 'system', `update_time` = NOW()
+WHERE `del_flag` = '0'
+  AND `id` IN (
+    SELECT `id` FROM (
+      SELECT `id` FROM `sys_menu`
+      WHERE `id` IN (
+        '1991000000000000070',  -- 秒杀管理 /promotion/seckill-activity
+        '1991000000000000080',  -- 折扣管理 /promotion/discount-activity
+        '1991000000000000050',  -- 拼团管理 /promotion/groupbuy（含拼团活动/拼团记录）
+        '1585191363078467586',  -- 优惠券 /promotion/coupon（含优惠券管理）
+        '1991000000000000001'   -- 分销管理（222 迁移后一级目录）
+      )
+         OR `parent_id` IN (
+        '1991000000000000070',
+        '1991000000000000080',
+        '1991000000000000050',
+        '1585191363078467586',
+        '1991000000000000001'
+      )
+         OR `parent_id` IN (
+              SELECT `id` FROM (
+                SELECT `id` FROM `sys_menu`
+                WHERE `parent_id` IN (
+                  '1991000000000000070',
+                  '1991000000000000080',
+                  '1991000000000000050',
+                  '1585191363078467586',
+                  '1991000000000000001'
+                )
+              ) `t2`
+           )
+    ) `t1`
+  );
+
+-- ---------------------------------------------------------------------------
+-- 自检（执行后人工核对）：确认无残留的进行中活动、模板已停用、菜单已隐藏
+-- ---------------------------------------------------------------------------
+-- SELECT COUNT(*) AS seckill_running FROM seckill_activity WHERE status IN (0,1) AND del_flag='0';
+-- SELECT COUNT(*) AS seckill_template_active FROM seckill_session_template WHERE status=0;
+-- SELECT COUNT(*) AS seckill_session_open FROM seckill_session WHERE status IN (0,1);
+-- SELECT COUNT(*) AS discount_running FROM discount_activity WHERE status IN (0,1) AND del_flag='0';
+-- SELECT COUNT(*) AS groupbuy_running FROM group_buy_activity WHERE activity_status IN ('0','1') AND del_flag='0';
+-- SELECT COUNT(*) AS coupon_active FROM coupon_info WHERE status='0' AND del_flag='0';
+-- SELECT COUNT(*) AS manual_activity_running FROM promotion_activity
+--   WHERE activity_type IN ('4','5','7','9') AND status IN ('1','2') AND del_flag='0';
+-- SELECT COUNT(*) AS zone_activity_kept FROM promotion_activity
+--   WHERE activity_type IN ('10','11') AND status='2' AND del_flag='0';  -- 应保留（专区）
+-- SELECT id, name, del_flag FROM sys_menu
+--   WHERE id IN ('1991000000000000070','1991000000000000080','1991000000000000050',
+--                '1585191363078467586','1991000000000000001');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- P0 存量营销活动收口：调度停用（排期生成/状态流转）
+-- Source: db/boot/235p0_marketing_retire_jobs.sql
+-- ============================================================================
+-- P0 存量营销活动收口（Boot 单体模式 · 调度停用）
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-14 船供 B2B 活动与会员体系重构 · P0 停量）：
+--   与 234p0_marketing_retire_data.sql 配套，停用会把已收口活动数据改回去、
+--   或持续产生新运营动作的调度任务。必须与数据脚本一起执行。
+-- 停用清单（trigger_status 1→0，仅停调度，不删除任务定义，恢复即改回 1）：
+--   · seckillScheduleJobHandler  每日排期生成：不停则每 60 秒继续从模板生成新场次
+--     （数据层模板已停用是第一道闸，本任务停用是第二道）；
+--   · seckillStatusJobHandler    秒杀活动/场次状态流转：存量已全部置已结束，无需再流转；
+--   · discountStatusJobHandler   折扣状态流转：存量已全部置已暂停，防止未开始活动被
+--     按时间流转回「进行中」。
+-- 保留运行（在途数据自然收敛，勿停）：
+--   · seckillOrderExpireJobHandler  秒杀预扣单超时释放（在途预扣自然过期）；
+--   · groupBuyExpireJobHandler      在途拼团超时失败/退款收敛；
+--   · couponUserJobHandler          存量券过期扫描；
+--   · promotionLockCompensateJobHandler / mallZoneSyncJobHandler / skuPriceDailySnapshotJobHandler
+--     新体系仍依赖，保持不动。
+-- 特性：可重复执行；不删除任何任务定义。
+
+USE `aryn_boot_job`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+UPDATE `xxl_job_info`
+SET `trigger_status` = 0, `trigger_next_time` = 0, `update_time` = NOW()
+WHERE `executor_handler` IN (
+  'seckillScheduleJobHandler',
+  'seckillStatusJobHandler',
+  'discountStatusJobHandler'
+)
+  AND `trigger_status` = 1;
+
+-- 自检（执行后人工核对）：三个任务应全部为 0，保留任务应仍为 1
+-- SELECT executor_handler, trigger_status FROM xxl_job_info
+--  WHERE executor_handler IN ('seckillScheduleJobHandler','seckillStatusJobHandler',
+--    'discountStatusJobHandler','seckillOrderExpireJobHandler','groupBuyExpireJobHandler',
+--    'couponUserJobHandler','promotionLockCompensateJobHandler','mallZoneSyncJobHandler');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- B2B 价格与会员体系基础层（协议价/档期/企业等级/账期预留 + 引擎增强）
+-- Source: db/boot/236b2b_price_member_schema_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- B2B 价格与会员体系基础层 — Boot 单体模式
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-14 需求「船供 B2B 活动与会员体系重构」P1）：
+--   客群转为船供采购/海员个人/工厂餐厅采购，需要以「分层价格 + 档期经营 + 双轨会员」
+--   替代零售限时玩法。本脚本落新体系的数据基础层：
+--     1. price_policy / price_policy_item：协议价（按采购主体/船舶/客群标签的专属合同价）；
+--     2. promo_calendar：采购档期（周度/靠港/自然月/自定义时间窗），活动可归属档期；
+--     3. enterprise_level / enterprise_benefit / rel / record / growth：
+--        企业会员双轨（岸上企业 buyer_org + 船舶 vessel 双挂点，按近12月采购额分档）；
+--     4. enterprise_credit_account / enterprise_statement：账期授信预留表（本期只建表
+--        不启用，二期做额度校验/月结对账/还款核销）；
+--     5. buyer_org.level_id / vessel_info.level_id：企业等级挂点冗余列；
+--     6. promotion_activity 增加档期归属与档期特供限量（calendar_id/total_quota/consumed_quota）；
+--     7. promotion_snapshot.activity_type 注释扩展：8 协议价。
+--
+-- 口径：
+--   · 新表全部含 tenant_id，登记进 hx.tenant.tables（boot application.yml 与 cloud 各 biz yml）；
+--   · price_policy_item 唯一键 (tenant_id, policy_id, sku_id) 不含 del_flag：
+--     保存时按唯一键 upsert 复用行（复活 del_flag=0），禁止物理删除；
+--   · 企业等级门槛 condition_value = 近12个月主体已支付采购额（元）；
+--   · enterprise_growth 按「订单完成」事件增量累计（scene=2 按 vessel、scene=3 按 buyer_org），
+--     等级重算读 growth 表近12期求和，不跨库聚合。
+--
+-- 幂等：CREATE TABLE IF NOT EXISTS + information_schema 判断 + PREPARE 动态执行；
+--       可重复执行，不删除存量业务数据。
+-- 关联：cloud 模式对应 252b2b_price_member_schema_incremental.sql（分 aryn_promotion /
+--       aryn_user / aryn_order / aryn_vessel 四库）；菜单见 237 号脚本。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------------------------------------------------------
+-- 1. 协议价：价格政策主表 + SKU 明细
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `price_policy` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `policy_name` varchar(64) NOT NULL COMMENT '政策名称',
+  `apply_type` char(2) NOT NULL DEFAULT '1' COMMENT '适用对象：1指定采购主体 2指定船舶 3客群标签',
+  `apply_value` varchar(1000) NOT NULL COMMENT '适用对象ID集合（主体/船舶/标签ID逗号分隔）',
+  `price_mode` char(2) NOT NULL DEFAULT '1' COMMENT '价格模式：1固定协议价 2折扣率',
+  `priority` int NOT NULL DEFAULT 0 COMMENT '优先级（同SKU多政策命中取大，同级取低价）',
+  `start_time` datetime NOT NULL COMMENT '生效开始',
+  `end_time` datetime NOT NULL COMMENT '生效结束',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0草稿 1生效 2停用',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_price_policy_status` (`tenant_id`,`status`,`apply_type`,`start_time`,`end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='价格政策（协议价）';
+
+CREATE TABLE IF NOT EXISTS `price_policy_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `policy_id` varchar(32) NOT NULL COMMENT '政策ID',
+  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU',
+  `sku_id` varchar(32) NOT NULL COMMENT '商品SKU',
+  `policy_price` decimal(12,2) DEFAULT NULL COMMENT '协议固定价（price_mode=1 必填）',
+  `policy_rate` decimal(8,4) DEFAULT NULL COMMENT '协议折扣率（price_mode=2 必填，如0.9000=9折）',
+  `min_qty` int NOT NULL DEFAULT 1 COMMENT '协议起订量（展示提示，不参与计价校验）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_policy_sku` (`tenant_id`,`policy_id`,`sku_id`),
+  KEY `idx_policy_item_sku` (`tenant_id`,`sku_id`,`del_flag`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='价格政策SKU明细';
+
+-- ----------------------------------------------------------------------------
+-- 2. 采购档期
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `promo_calendar` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `calendar_name` varchar(64) NOT NULL COMMENT '档期名称',
+  `anchor_type` char(2) NOT NULL DEFAULT '1' COMMENT '锚点类型：1周度档期 2靠港档期 3自然月 4自定义时间窗',
+  `anchor_ref` varchar(64) DEFAULT NULL COMMENT '锚点引用：靠港计划ID（anchor_type=2）等',
+  `start_time` datetime NOT NULL COMMENT '档期开始',
+  `end_time` datetime NOT NULL COMMENT '档期结束',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0草稿 1生效 2停用',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_promo_calendar_window` (`tenant_id`,`status`,`start_time`,`end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采购档期';
+
+-- ----------------------------------------------------------------------------
+-- 3. 企业会员双轨（等级 / 权益 / 关联 / 变更流水 / 采购额月度累计）
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `enterprise_level` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `level_name` varchar(32) NOT NULL COMMENT '等级名称',
+  `level_icon` varchar(255) DEFAULT NULL COMMENT '等级徽章图',
+  `sort_order` int NOT NULL DEFAULT 0 COMMENT '排序号（越大等级越高）',
+  `condition_value` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '升级门槛：近12个月主体采购额（元）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0启用 1禁用',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_enterprise_level_sort` (`tenant_id`,`status`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业会员等级';
+
+CREATE TABLE IF NOT EXISTS `enterprise_benefit` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `benefit_name` varchar(64) NOT NULL COMMENT '权益名称',
+  `benefit_type` char(2) NOT NULL COMMENT '权益类型：1企业折扣率 2免邮 3协议价政策池 4开票资质 5专属客服 6返利率(预留) 7账期天数(预留)',
+  `benefit_value` varchar(255) DEFAULT NULL COMMENT '权益值（折扣率0.9500/免邮1/协议价政策ID/返利率百分数/账期天数）',
+  `description` varchar(255) DEFAULT NULL COMMENT '权益说明',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0启用 1禁用',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_enterprise_benefit_type` (`tenant_id`,`benefit_type`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业会员权益';
+
+CREATE TABLE IF NOT EXISTS `enterprise_benefit_level_rel` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `benefit_id` varchar(32) NOT NULL COMMENT '权益ID',
+  `level_id` varchar(32) NOT NULL COMMENT '企业等级ID',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_benefit_level` (`tenant_id`,`benefit_id`,`level_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业权益-等级关联';
+
+CREATE TABLE IF NOT EXISTS `enterprise_level_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `old_level_id` varchar(32) DEFAULT NULL COMMENT '原等级',
+  `new_level_id` varchar(32) DEFAULT NULL COMMENT '新等级',
+  `change_reason` varchar(255) DEFAULT NULL COMMENT '变更原因',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_enterprise_level_record_subject` (`tenant_id`,`subject_type`,`subject_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业等级变更记录';
+
+CREATE TABLE IF NOT EXISTS `enterprise_growth` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `period` varchar(7) NOT NULL COMMENT '统计月份 yyyy-MM（Asia/Shanghai）',
+  `consume_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '当月主体已支付采购额累计（元）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_growth_subject_period` (`tenant_id`,`subject_type`,`subject_id`,`period`),
+  KEY `idx_enterprise_growth_period` (`tenant_id`,`period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业采购额月度累计（等级成长值）';
+
+-- ----------------------------------------------------------------------------
+-- 4. 账期授信预留（本期只建表不启用；二期：额度校验/月结对账/还款核销）
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `enterprise_credit_account` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID',
+  `credit_limit` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '授信额度（元）',
+  `used_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '已用额度（未核销出账合计）',
+  `frozen_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '冻结额度（在途订单占用）',
+  `credit_days` int NOT NULL DEFAULT 0 COMMENT '账期天数',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0未启用 1启用 2冻结',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_credit_subject` (`tenant_id`,`subject_type`,`subject_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业授信账户（预留）';
+
+CREATE TABLE IF NOT EXISTS `enterprise_statement` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `statement_no` varchar(64) NOT NULL COMMENT '对账单号',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID',
+  `period` varchar(7) NOT NULL COMMENT '对账月份 yyyy-MM',
+  `begin_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '期初应付',
+  `charge_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '本期出账',
+  `repay_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '本期回款',
+  `end_amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT '期末应付',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待确认 1已确认 2已关闭',
+  `confirm_time` datetime DEFAULT NULL COMMENT '客户确认时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_enterprise_statement_period` (`tenant_id`,`subject_type`,`subject_id`,`period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业月度对账单（预留）';
+
+-- ----------------------------------------------------------------------------
+-- 5. 挂点列：buyer_org / vessel_info 企业等级
+-- ----------------------------------------------------------------------------
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buyer_org' AND COLUMN_NAME = 'level_id');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `buyer_org` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）'' AFTER `audit_status`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_info' AND COLUMN_NAME = 'level_id');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `vessel_info` ADD COLUMN `level_id` varchar(32) DEFAULT NULL COMMENT ''企业会员等级（enterprise_level.id）''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 6. 统一引擎增强：档期归属 + 档期特供限量
+-- ----------------------------------------------------------------------------
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'calendar_id');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `promotion_activity` ADD COLUMN `calendar_id` varchar(32) DEFAULT NULL COMMENT ''归属采购档期（promo_calendar.id，空不限）'' AFTER `purchase_scene`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'total_quota');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `promotion_activity` ADD COLUMN `total_quota` int DEFAULT NULL COMMENT ''活动级限量（件数，档期特供用；NULL不限）'' AFTER `calendar_id`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'consumed_quota');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `promotion_activity` ADD COLUMN `consumed_quota` int NOT NULL DEFAULT 0 COMMENT ''已消耗限量（件数，原子累计）'' AFTER `total_quota`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND INDEX_NAME = 'idx_promotion_activity_calendar');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `promotion_activity` ADD INDEX `idx_promotion_activity_calendar` (`tenant_id`,`calendar_id`,`status`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 7. 快照编码扩展：promotion_snapshot.activity_type 注释增加 8 协议价
+-- ----------------------------------------------------------------------------
+ALTER TABLE `promotion_snapshot`
+  MODIFY COLUMN `activity_type` char(2) NOT NULL COMMENT '活动类型：1优惠券 2满减 3折扣 4阶梯价 5买赠 6首单复购 7船供整船优惠 8协议价';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ---------------------------------------------------------------------------
+-- 自检（执行后人工核对）
+-- ---------------------------------------------------------------------------
+-- SHOW TABLES LIKE 'price_policy%';
+-- SHOW TABLES LIKE 'promo_calendar';
+-- SHOW TABLES LIKE 'enterprise_%';
+-- SELECT COLUMN_NAME FROM information_schema.COLUMNS
+--  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='buyer_org' AND COLUMN_NAME='level_id';
+-- SELECT COLUMN_NAME FROM information_schema.COLUMNS
+--  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='vessel_info' AND COLUMN_NAME='level_id';
+-- SELECT COLUMN_NAME FROM information_schema.COLUMNS
+--  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='promotion_activity'
+--    AND COLUMN_NAME IN ('calendar_id','total_quota','consumed_quota');
+
+-- ============================================================================
+-- B2B 价格与会员体系菜单与按钮权限
+-- Source: db/boot/237b2b_price_member_menu.sql
+-- ============================================================================
+-- ============================================================================
+-- B2B 价格与会员体系 — 管理端菜单与按钮权限（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-14 需求「船供 B2B 活动与会员体系重构」P1）：
+--   新体系管理入口：价格政策（协议价）/ 档期管理 挂「营销管理」；
+--   企业等级 / 企业权益 挂「会员管理」。表结构见 236 号脚本。
+--
+-- 菜单 ID 段：2180000000000000000+（2180 段此前未占用）
+-- 幂等：INSERT IGNORE；租户菜单/角色授权只向已持有父菜单的持有者补授，不覆盖既有授权。
+-- 注意：菜单在登录时快照，执行后需重新登录管理端才生效。
+-- 关联：cloud 模式对应 253b2b_price_member_menu_incremental.sql（同 ID 同权限串）。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu`
+  (id, name, permission, path, redirect, parent_id, icon, component, sort, type,
+   create_time, update_time, outer_status, del_flag, application_key, create_by, update_by)
+VALUES
+  -- 价格政策（协议价）—— 营销管理下
+  ('2180000000000000000', '价格政策', NULL, '/promotion/price-policy', NULL,
+   '1779386604402573314', 'carbon:coins', 'promotion/price-policy/index', 30, '0',
+   NOW(), NOW(), '0', '0', 'app_market', 'system', 'system'),
+  ('2180000000000000001', '价格政策分页', 'promotion:pricepolicy:page', NULL, NULL,
+   '2180000000000000000', NULL, NULL, 1, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  ('2180000000000000002', '价格政策保存', 'promotion:pricepolicy:save', NULL, NULL,
+   '2180000000000000000', NULL, NULL, 2, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  ('2180000000000000003', '价格政策发布', 'promotion:pricepolicy:publish', NULL, NULL,
+   '2180000000000000000', NULL, NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  ('2180000000000000004', '价格政策删除', 'promotion:pricepolicy:del', NULL, NULL,
+   '2180000000000000000', NULL, NULL, 4, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  -- 档期管理 —— 营销管理下
+  ('2180000000000000010', '档期管理', NULL, '/promotion/activity-calendar', NULL,
+   '1779386604402573314', 'carbon:calendar', 'promotion/trade-calendar/index', 31, '0',
+   NOW(), NOW(), '0', '0', 'app_market', 'system', 'system'),
+  ('2180000000000000011', '档期分页', 'promotion:calendar:page', NULL, NULL,
+   '2180000000000000010', NULL, NULL, 1, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  ('2180000000000000012', '档期保存', 'promotion:calendar:save', NULL, NULL,
+   '2180000000000000010', NULL, NULL, 2, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  ('2180000000000000013', '档期删除', 'promotion:calendar:del', NULL, NULL,
+   '2180000000000000010', NULL, NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_market', 'system', NULL),
+  -- 企业等级 —— 会员管理下
+  ('2180000000000000020', '企业等级', NULL, '/user/enterprise-level', NULL,
+   '1779386898750439425', 'carbon:enterprise', 'user/enterprise-level/index', 9, '0',
+   NOW(), NOW(), '0', '0', 'app_base', 'system', 'system'),
+  ('2180000000000000021', '企业等级分页', 'user:enterpriselevel:page', NULL, NULL,
+   '2180000000000000020', NULL, NULL, 1, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL),
+  ('2180000000000000022', '企业等级保存', 'user:enterpriselevel:save', NULL, NULL,
+   '2180000000000000020', NULL, NULL, 2, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL),
+  ('2180000000000000023', '企业等级删除', 'user:enterpriselevel:del', NULL, NULL,
+   '2180000000000000020', NULL, NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL),
+  -- 企业权益 —— 会员管理下
+  ('2180000000000000030', '企业权益', NULL, '/user/enterprise-benefit', NULL,
+   '1779386898750439425', 'carbon:partner', 'user/enterprise-benefit/index', 10, '0',
+   NOW(), NOW(), '0', '0', 'app_base', 'system', 'system'),
+  ('2180000000000000031', '企业权益分页', 'user:enterprisebenefit:page', NULL, NULL,
+   '2180000000000000030', NULL, NULL, 1, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL),
+  ('2180000000000000032', '企业权益保存', 'user:enterprisebenefit:save', NULL, NULL,
+   '2180000000000000030', NULL, NULL, 2, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL),
+  ('2180000000000000033', '企业权益删除', 'user:enterprisebenefit:del', NULL, NULL,
+   '2180000000000000030', NULL, NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', NULL);
+
+-- 租户授权：持有「营销管理」的租户补授价格政策/档期管理；持有「会员管理」的补授企业等级/权益
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant_menu` gt
+JOIN `sys_menu` m ON m.`id` IN (
+  '2180000000000000000','2180000000000000001','2180000000000000002','2180000000000000003','2180000000000000004',
+  '2180000000000000010','2180000000000000011','2180000000000000012','2180000000000000013')
+  AND m.`del_flag` = '0'
+WHERE gt.`menu_id` = '1779386604402573314';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_tenant_menu` gt
+JOIN `sys_menu` m ON m.`id` IN (
+  '2180000000000000020','2180000000000000021','2180000000000000022','2180000000000000023',
+  '2180000000000000030','2180000000000000031','2180000000000000032','2180000000000000033')
+  AND m.`del_flag` = '0'
+WHERE gt.`menu_id` = '1779386898750439425';
+
+-- 角色授权：持有父菜单的角色补授新菜单
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`role_id`, ':menu:', m.`id`)), r.`role_id`, m.`id`, NOW(), r.`tenant_id`
+FROM `sys_role_menu` r
+JOIN `sys_menu` m ON m.`id` IN (
+  '2180000000000000000','2180000000000000001','2180000000000000002','2180000000000000003','2180000000000000004',
+  '2180000000000000010','2180000000000000011','2180000000000000012','2180000000000000013')
+  AND m.`del_flag` = '0'
+WHERE r.`menu_id` = '1779386604402573314';
+
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`role_id`, ':menu:', m.`id`)), r.`role_id`, m.`id`, NOW(), r.`tenant_id`
+FROM `sys_role_menu` r
+JOIN `sys_menu` m ON m.`id` IN (
+  '2180000000000000020','2180000000000000021','2180000000000000022','2180000000000000023',
+  '2180000000000000030','2180000000000000031','2180000000000000032','2180000000000000033')
+  AND m.`del_flag` = '0'
+WHERE r.`menu_id` = '1779386898750439425';
+
+-- 自检（执行后人工核对）：新菜单 del_flag 应全为 0，授权行应随父菜单持有者生成
+-- SELECT id, name, permission, del_flag FROM sys_menu WHERE id LIKE '218000000000000%' ORDER BY id;
 
 SET FOREIGN_KEY_CHECKS = 1;
