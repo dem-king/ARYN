@@ -447,10 +447,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			.collect(Collectors.toMap(PromotionCalculationVO.UnitPriceOverride::getSkuId,
 					override -> override, (first, second) -> first));
 		BigDecimal baseAmount = BigDecimal.ZERO;
+		int eligibleQuantity = 0;
 		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
 			if (!activityPricedSkuIds.contains(item.getSkuId())) {
 				baseAmount = baseAmount
 					.add(item.getSalesPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+				eligibleQuantity += item.getQuantity();
 				continue;
 			}
 			// 新人价首件优惠 SKU：仅优惠件数让利不参与门槛，超出件按替换前生效价计入
@@ -460,6 +462,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						? partial.getRemainderUnitPrice() : item.getSalesPrice();
 				baseAmount = baseAmount.add(remainderUnitPrice
 					.multiply(BigDecimal.valueOf(item.getQuantity() - partial.getDiscountedQuantity())));
+				eligibleQuantity += item.getQuantity() - partial.getDiscountedQuantity();
 			}
 		}
 
@@ -480,11 +483,19 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				for (Object element : tiers) {
 					JSONObject tier = (JSONObject) element;
 					BigDecimal minAmount = tier.getBigDecimal("minAmount");
+					// 件数维度（2026-11-14 B2B）：minQty 按可参与明细件数判定，与金额维度
+					// 同档可并存（两者都配置时需同时满足）；历史档位只配 minAmount 不受影响
+					Integer minQty = tier.getInt("minQty");
 					BigDecimal discountAmount = tier.getBigDecimal("discountAmount");
-					if (minAmount == null || discountAmount == null || discountAmount.compareTo(BigDecimal.ZERO) <= 0) {
+					if (discountAmount == null || discountAmount.compareTo(BigDecimal.ZERO) <= 0) {
 						continue;
 					}
-					if (baseAmount.compareTo(minAmount) >= 0 && discountAmount.compareTo(discount) > 0) {
+					if (minAmount == null && minQty == null) {
+						continue;
+					}
+					boolean amountHit = minAmount == null || baseAmount.compareTo(minAmount) >= 0;
+					boolean qtyHit = minQty == null || eligibleQuantity >= minQty;
+					if (amountHit && qtyHit && discountAmount.compareTo(discount) > 0) {
 						discount = discountAmount;
 					}
 				}

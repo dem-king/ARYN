@@ -40,4 +40,17 @@ public interface RemoteCardMarketingService {
 	 */
 	List<GoodsSkuSeckillDTO> batchActiveSeckill(String tenantId, List<String> skuIds);
 
+	/**
+	 * 批量查询 SKU 级进行中档期特供价（价格快照 Job 用，2026-11-14 B2B）。
+	 *
+	 * <p>档期特供价是全局一致的到手价（非身份 scoped），必须进快照口径：
+	 * 「近14天最低价」合规标签漏算特供价会少打标。同一 SKU 命中多个特供活动取最低；
+	 * 实现侧不抛异常，失败返回空列表（调用方降级为仅本地价快照）。
+	 *
+	 * @param tenantId 租户 ID；缺失时返回空列表（fail-closed，防跨租户）
+	 * @param skuIds   SKU ID 集合，超出上限（200）部分忽略
+	 * @return 进行中的档期特供价（只包含命中的 SKU，DTO 复用秒杀形态：skuId+seckillPrice 字段名承载特供价）；无命中返回空列表
+	 */
+	List<GoodsSkuSeckillDTO> batchCalendarSpecialPrices(String tenantId, List<String> skuIds);
+
 }

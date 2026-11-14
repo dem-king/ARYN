@@ -57,7 +57,9 @@ class RemoteCardMarketingServiceImplTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new RemoteCardMarketingServiceImpl(newbieActivityService, seckillActivityService);
+		service = new RemoteCardMarketingServiceImpl(newbieActivityService, seckillActivityService,
+				// 档期特供价段（2026-11-14 B2B）：本测试不覆盖，桩掉即可
+				org.mockito.Mockito.mock(com.aryn.cloud.promotion.service.impl.PromoCalendarService.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 	}
 

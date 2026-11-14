@@ -101,6 +101,9 @@ public class GoodsSkuPriceDailyServiceImpl implements IGoodsSkuPriceDailyService
 			.toList();
 		Map<String, BigDecimal> clearancePrices = loadClearancePrices(tenantId, skuIds);
 		Map<String, BigDecimal> seckillPrices = loadSeckillPrices(tenantId, skuIds);
+		// 档期特供价（2026-11-14 B2B）：全局一致的到手价，必须进快照口径，
+		// 否则「近14天最低价」合规标签漏算特供价少打标
+		Map<String, BigDecimal> calendarSpecialPrices = loadCalendarSpecialPrices(tenantId, skuIds);
 
 		int rows = 0;
 		List<GoodsSkuPriceDaily> buffer = new ArrayList<>();
@@ -110,7 +113,8 @@ public class GoodsSkuPriceDailyServiceImpl implements IGoodsSkuPriceDailyService
 				continue;
 			}
 			BigDecimal sales = sku.getSalesPrice() != null ? sku.getSalesPrice() : spu.getSalesPrice();
-			BigDecimal price = minPositive(sales, clearancePrices.get(sku.getId()), seckillPrices.get(sku.getId()));
+			BigDecimal price = minPositive(sales, clearancePrices.get(sku.getId()), seckillPrices.get(sku.getId()),
+				calendarSpecialPrices.get(sku.getId()));
 			if (price == null || price.signum() <= 0) {
 				continue;
 			}
@@ -188,6 +192,37 @@ public class GoodsSkuPriceDailyServiceImpl implements IGoodsSkuPriceDailyService
 			}
 			catch (Exception ex) {
 				log.warn("价格快照秒杀价查询失败（该批降级仅本地价） tenant={} size={}", tenantId, part.size(), ex);
+			}
+		}
+		return prices;
+	}
+
+	/**
+	 * 档期特供价（2026-11-14 B2B）：promotion 域远程批量拉取，同一 SKU 多活动取最低；
+	 * 分批/失败降级口径与秒杀价一致（该批仅本地价，不阻断租户快照）。
+	 */
+	private Map<String, BigDecimal> loadCalendarSpecialPrices(String tenantId, List<String> skuIds) {
+		Map<String, BigDecimal> prices = new HashMap<>();
+		for (int from = 0; from < skuIds.size(); from += SECKILL_CHUNK) {
+			List<String> part = skuIds.subList(from, Math.min(from + SECKILL_CHUNK, skuIds.size()));
+			try {
+				List<GoodsSkuSeckillDTO> dtos = remoteCardMarketingService.batchCalendarSpecialPrices(tenantId, part);
+				if (CollectionUtils.isEmpty(dtos)) {
+					continue;
+				}
+				for (GoodsSkuSeckillDTO dto : dtos) {
+					if (dto == null || !StringUtils.hasText(dto.getSkuId())) {
+						continue;
+					}
+					BigDecimal price = dto.getSeckillPrice();
+					if (price == null || price.signum() <= 0) {
+						continue;
+					}
+					prices.merge(dto.getSkuId(), price, BigDecimal::min);
+				}
+			}
+			catch (Exception ex) {
+				log.warn("价格快照档期特供价查询失败（该批降级仅本地价） tenant={} size={}", tenantId, part.size(), ex);
 			}
 		}
 		return prices;

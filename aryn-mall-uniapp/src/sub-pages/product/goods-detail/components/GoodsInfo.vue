@@ -48,6 +48,16 @@ interface Props {
    * 优先级算好，上层活动命中时传的是空展示，这里不用再重复判定优先级。
    */
   discountDisplay: DiscountPriceDisplay
+  /**
+   * 当前 SKU 的协议价展示（2026-11-14 B2B）：父级按登录态+船/企业上下文拉取，
+   * 合同价锁定成交基价——主价优先级最高，命中时划线为当前售价；null=未命中。
+   */
+  policyDisplay?: { originalPrice: null | number, price: number } | null
+  /**
+   * 当前 SKU 的档期特供价展示（2026-11-14 B2B）：档期内限量特惠，主价优先级
+   * 仅次于协议价；null=无进行中特供。
+   */
+  calendarSpecialDisplay?: { originalPrice: null | number, price: number } | null
   /** 口碑气泡（详情接口随 goodsSpu.socialBubble 下发）；null=未达门槛，整颗不渲染 */
   socialBubble?: GoodsSocialBubble | null
 }
@@ -192,10 +202,15 @@ function onBubbleTap() {
 }
 
 /**
- * 价格区主价：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价（与后端 OrderPriceComputeService 的
- * 「拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价」同向，前端只覆盖这个页面能拿到的层级）。
+ * 价格区主价：协议价 > 档期特供 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价
+ * （与后端 OrderPriceComputeService 的「协议价 > 档期特供 > 拼团 > 秒杀 > 会员价 >
+ * 新人价 > 限时折扣 > 原价」同向，前端只覆盖这个页面能拿到的层级；拼团有独立会场不进商详）。
  */
 const mainPrice = computed(() => {
+  if (props.policyDisplay)
+    return props.policyDisplay.price
+  if (props.calendarSpecialDisplay)
+    return props.calendarSpecialDisplay.price
   if (props.seckillInfo)
     return props.seckillInfo.seckillPrice
   if (props.memberDisplay.showMemberPrice)
@@ -219,6 +234,11 @@ const mainPrice = computed(() => {
  * - 无活动：沿用既有「售价 < 原价」的划线口径（与 diy/price-display 同源）。
  */
 const strikePrice = computed(() => {
+  // 协议价/档期特供：划当前售价（后端口径：基于 salesPrice 降，不划商品原价）
+  if (props.policyDisplay)
+    return props.goodsSpu?.salesPrice
+  if (props.calendarSpecialDisplay)
+    return props.goodsSpu?.salesPrice
   if (props.seckillInfo)
     return props.goodsSpu?.salesPrice
   if (props.memberDisplay.showMemberPrice)
@@ -538,6 +558,13 @@ defineExpose({
                 :value="mainPrice"
                 symbol="￥"
               />
+              <!-- 协议价/档期特供角标：与会员价角标同一套白描边胶囊语言 -->
+              <text v-if="policyDisplay" class="policy-badge">
+                {{ t('product.policyPrice') }}
+              </text>
+              <text v-if="calendarSpecialDisplay" class="special-badge">
+                {{ t('product.calendarSpecialPrice') }}
+              </text>
               <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
               <text v-if="memberDisplay.showMemberPrice" class="member-badge">
                 {{ t('product.memberPrice') }}
@@ -1032,7 +1059,9 @@ defineExpose({
 
 // 会员价角标：与新人价/折扣角标同一套白描边语言（价格区为渐变主色底）
 .member-badge,
-.clearance-badge {
+.clearance-badge,
+.policy-badge,
+.special-badge {
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
   border: 1rpx solid rgb(255 255 255 / 70%);
@@ -1324,6 +1353,8 @@ defineExpose({
   /* 价格区角标：手机端那枚小胶囊在展开态会长到 ~19px，收到 12px 平板密度 */
   .member-badge,
   .clearance-badge,
+  .policy-badge,
+  .special-badge,
   .newbie-badge,
   .discount-badge,
   .saving-badge {

@@ -19,6 +19,8 @@ import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/
 import { getClearanceSkuPrices, getById as getSpuById } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getGoodsSeckillInfo, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
+import { getPolicyPrices } from '@/api/promotion/policy-price'
+import { getCalendarSpecials } from '@/api/promotion/trade-calendar'
 import { getDefault } from '@/api/user/address'
 import DiyPage from '@/components/diy/index.vue'
 import { useCartDestination } from '@/composables/useCartDestination'
@@ -85,6 +87,10 @@ interface State {
   clearancePriceVO: AppClearancePriceVO | null
   /** 本 SPU 各 SKU 命中的最优限时折扣；null 表示无活动/接口失败 */
   discountPrices: AppDiscountVO[] | null
+  /** 当前会话可享的协议价（按 SKU，含划线基准）；null=未登录/无上下文/未命中 */
+  policyPrices: Array<{ originalPrice?: number, policyPrice: number, skuId: string }> | null
+  /** 本 SPU 各 SKU 命中的档期特供价（按 SKU，可多活动并存）；null=无进行中特供/接口失败 */
+  calendarSpecialPrices: Array<{ originalPrice?: null | number, price: number, skuId: string }> | null
   /**
    * 多规格商品「用户当前看着的 SKU」。
    *
@@ -148,6 +154,8 @@ const state = reactive<State>({
   memberPriceVO: null,
   clearancePriceVO: null,
   discountPrices: null,
+  policyPrices: null as null | Array<{ originalPrice?: number, policyPrice: number, skuId: string }>,
+  calendarSpecialPrices: null as null | Array<{ originalPrice?: null | number, price: number, skuId: string }>,
   selectSkuId: '',
 })
 const router = useRouter()
@@ -250,6 +258,64 @@ async function loadNewbiePrices() {
   catch {
     // 新人价属增强展示，接口失败按原价展示
     state.newbiePriceVO = null
+  }
+}
+
+/**
+ * 加载当前会话可享的协议价（需登录；船/企业上下文由补价层默认口）。
+ *
+ * 与五路价同口径：失败静默、只影响价格标注，不影响加购/下单主流程；
+ * 未登录时接口由网关拦截 → catch 置 null，按原价展示。
+ */
+async function loadPolicyPrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length) {
+    state.policyPrices = null
+    return
+  }
+  try {
+    const items = await getPolicyPrices({ skuIds })
+    state.policyPrices = (items || []).map(item => ({
+      originalPrice: item.originalPrice,
+      policyPrice: item.policyPrice,
+      skuId: item.skuId,
+    }))
+  }
+  catch {
+    state.policyPrices = null
+  }
+}
+
+/**
+ * 加载本 SPU 命中的档期特供价（需登录）。
+ *
+ * 特供按活动配置整 SKU 覆盖：同一 SKU 命中多个活动取最低（服务端已按
+ * 活动窗+档期窗过滤，这里只做展示匹配）。
+ */
+async function loadCalendarSpecialPrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length) {
+    state.calendarSpecialPrices = null
+    return
+  }
+  try {
+    const specials = await getCalendarSpecials()
+    const items: Array<{ originalPrice?: null | number, price: number, skuId: string }> = []
+    for (const special of specials || []) {
+      for (const item of special.items || []) {
+        if (skuIds.includes(item.skuId) && Number(item.price) > 0) {
+          items.push({ originalPrice: item.originalPrice, price: Number(item.price), skuId: item.skuId })
+        }
+      }
+    }
+    state.calendarSpecialPrices = items
+  }
+  catch {
+    state.calendarSpecialPrices = null
   }
 }
 
@@ -392,6 +458,35 @@ const memberDisplay = computed(() => {
   if (effectiveClearanceDisplay.value.showClearancePrice)
     return emptyMemberPriceDisplay()
   return rawMemberDisplay.value
+})
+
+/**
+ * 协议价展示（当前 SKU 匹配）：合同价锁定成交基价，展示优先级最高。
+ * 命中时主价切协议价、划线为当前售价；null=未命中/未登录/无上下文。
+ */
+const policyDisplay = computed(() => {
+  const skuId = currentSkuId.value
+  if (!skuId)
+    return null
+  const hit = (state.policyPrices || []).find(item => item.skuId === skuId)
+  if (!hit)
+    return null
+  return { originalPrice: hit.originalPrice ?? null, price: hit.policyPrice }
+})
+
+/**
+ * 档期特供价展示（当前 SKU 匹配，多活动取最低）。
+ * 命中时主价切特供价、划线为当前售价；null=无进行中特供。
+ */
+const calendarSpecialDisplay = computed(() => {
+  const skuId = currentSkuId.value
+  if (!skuId)
+    return null
+  const hits = (state.calendarSpecialPrices || []).filter(item => item.skuId === skuId)
+  if (!hits.length)
+    return null
+  const best = hits.reduce((best, item) => (item.price < best.price ? item : best), hits[0])
+  return { originalPrice: best.originalPrice ?? null, price: best.price }
 })
 
 /**
@@ -697,6 +792,9 @@ async function getSpu(id: string) {
       loadMemberPrices()
       loadClearancePrices()
       loadDiscountPrices()
+      // 协议价（需登录+船/企业上下文）与档期特供价：同为增强展示，失败静默
+      loadPolicyPrices()
+      loadCalendarSpecialPrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
       // 规格结构初始化与 goods-detail-sheet / quick-cart-button 共用同一份工具
@@ -955,6 +1053,8 @@ async function handleReceive(coupon: any) {
       :clearance-display="effectiveClearanceDisplay"
       :newbie-display="newbieDisplay"
       :discount-display="discountDisplay"
+      :policy-display="policyDisplay"
+      :calendar-special-display="calendarSpecialDisplay"
       :social-bubble="state.goodsSpu?.socialBubble ?? null"
       @swiper="handleSwiper"
       @show-coupon="showCoupon"

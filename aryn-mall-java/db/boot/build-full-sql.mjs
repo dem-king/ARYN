@@ -203,6 +203,7 @@ const sections = [
   ['B2B 价格与会员体系菜单与按钮权限', '237b2b_price_member_menu.sql'],
   ['企业等级月度对账任务注册', '238enterprise_level_recalc_job.sql'],
   ['企业会员等级档位与示例权益种子', '239enterprise_level_seed.sql'],
+  ['个人会员档位面向海员客群重配', '240member_level_personal_tiers.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

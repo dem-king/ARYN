@@ -28,6 +28,8 @@ export default {
     memberPrice: '会员价',
     clearancePrice: '捡漏价',
     newbiePrice: '新人价',
+    policyPrice: '协议价',
+    calendarSpecialPrice: '档期特供',
     member: '会员',
     memberOnly: '会员专享 ¥{price}',
     joinToEnjoy: '开通即享',

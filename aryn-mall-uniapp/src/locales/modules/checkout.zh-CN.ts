@@ -44,6 +44,8 @@ export default {
       seckillPrice: '秒杀价',
       discountPrice: '折扣价',
       newbiePrice: '新人价',
+      policyPrice: '协议价',
+      calendarSpecialPrice: '档期特供价',
       newbieSplitHint: '首件享新人价，超出件单独计价',
       newbieFirstUnitHint: '首件享新人价',
       newbieRemainderHint: '超出件单独计价',

@@ -96,9 +96,9 @@ const skuLadders = ref<
     spuName: string;
   }>
 >([]);
-const tiers = ref<Array<{ discountAmount: number; minAmount: number }>>([
-  { discountAmount: 0, minAmount: 0 },
-]);
+const tiers = ref<
+  Array<{ discountAmount: number; minAmount: number; minQty?: number }>
+>([{ discountAmount: 0, minAmount: 0 }]);
 /** type=7 首单引擎：首单专享、主体类型、月预算、单笔封顶（写在 rules JSON，不新增表字段）。 */
 const firstOrderOnly = ref(false);
 const firstOrderSubjectType = ref<'1' | '2'>('1');
@@ -321,6 +321,7 @@ const openDialog = (row?: any) => {
   switch (form.activityType) {
     case '4': {
       enrichSkuDisplay(skuLadders.value);
+      loadCalendarOptions();
 
       break;
     }
@@ -357,7 +358,7 @@ const onActivityTypeChange = (value: boolean | number | string | undefined) => {
   form.couponStackable = lockStackable ? '0' : '1';
   form.pointsStackable = lockStackable ? '0' : '1';
   if (value !== '9') newbieLongTerm.value = false;
-  if (value === '12') loadCalendarOptions();
+  if (value === '12' || value === '4') loadCalendarOptions();
 };
 
 /** 列表展示：长期有效活动不显示 2099 哨兵时间 */
@@ -392,7 +393,12 @@ const buildPayload = () => {
     }
     case '7': {
       rules = {
-        tiers: tiers.value,
+        // minQty 0/空=不限件数：落 JSON 前剥掉，避免后端校验把 0 拒掉
+        tiers: tiers.value.map((row) => ({
+          discountAmount: row.discountAmount,
+          minAmount: row.minAmount,
+          ...(row.minQty && row.minQty > 0 ? { minQty: row.minQty } : {}),
+        })),
         firstOrderOnly: firstOrderOnly.value,
         monthlyBudget: monthlyBudget.value,
         maxDiscountAmount: maxDiscountAmount.value,
@@ -449,8 +455,11 @@ const buildPayload = () => {
       .map((row) => row.skuId)
       .join(',');
   }
-  if (form.activityType === '12') {
+  if (form.activityType === '4' || form.activityType === '12') {
+    // 阶梯价可选归属档期；档期特供必选
     payload.calendarId = calendarId.value;
+  }
+  if (form.activityType === '12') {
     // 0=不限：后端 total_quota NULL 视为不限，落库前归一
     payload.totalQuota =
       specialTotalQuota.value > 0 ? specialTotalQuota.value : null;
@@ -1228,6 +1237,29 @@ useKeepAliveRefresh(initPage);
           </ElFormItem>
 
           <template v-if="form.activityType === '4'">
+            <ElFormItem label="归属档期">
+              <ElSelect
+                v-model="calendarId"
+                :disabled="isPublished"
+                clearable
+                filterable
+                placeholder="不限（长期生效）"
+                style="width: 320px"
+              >
+                <ElOption
+                  v-for="calendar in calendarOptions"
+                  :key="calendar.id"
+                  :label="calendar.calendarName"
+                  :value="calendar.id"
+                />
+              </ElSelect>
+              <span
+                class="ml-8px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                可选：归属后仅在档期窗口内参与试算
+              </span>
+            </ElFormItem>
             <ElFormItem label="活动商品">
               <ElButton
                 type="primary"
@@ -1497,7 +1529,16 @@ useKeepAliveRefresh(initPage);
                 controls-position="right"
                 style="width: 130px; margin: 0 8px"
               />
-              <span>元，减</span>
+              <span>元</span>
+              <ElInputNumber
+                v-model="tier.minQty"
+                :min="0"
+                :precision="0"
+                :disabled="isPublished"
+                controls-position="right"
+                style="width: 110px; margin: 0 8px"
+              />
+              <span>件（金额与件数填其一或同填=同时满足），减</span>
               <ElInputNumber
                 v-model="tier.discountAmount"
                 :min="0"

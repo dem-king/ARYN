@@ -268,6 +268,8 @@ const activityTypeLabels = computed<Record<string, string>>(() => ({
   seckill: t('checkout.goods.seckillPrice'),
   discount: t('checkout.goods.discountPrice'),
   newbie: t('checkout.goods.newbiePrice'),
+  policy: t('checkout.goods.policyPrice'),
+  calendarSpecial: t('checkout.goods.calendarSpecialPrice'),
 }))
 function activityLabel(goods: OrderItem) {
   return goods.activityType ? (activityTypeLabels.value[goods.activityType] || '') : ''

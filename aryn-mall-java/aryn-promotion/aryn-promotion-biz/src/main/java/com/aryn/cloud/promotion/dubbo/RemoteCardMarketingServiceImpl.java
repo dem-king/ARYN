@@ -57,6 +57,8 @@ public class RemoteCardMarketingServiceImpl implements RemoteCardMarketingServic
 
 	private final ISeckillActivityService seckillActivityService;
 
+	private final com.aryn.cloud.promotion.service.impl.PromoCalendarService promoCalendarService;
+
 	/**
 	 * SPU→SKU 解析走商品域远程接口；非 final 字段注入——构造器注入远程接口
 	 * 与引用代理 bean 双候选曾致 boot 启动失败（NewbieActivityServiceImpl 同款注释）。
@@ -150,6 +152,48 @@ public class RemoteCardMarketingServiceImpl implements RemoteCardMarketingServic
 			else {
 				ArynTenantContextHolder.setTenantId(snapshot);
 			}
+		}
+	}
+
+	/**
+	 * 进行中档期特供价批量查询（价格快照 Job 用，2026-11-14 B2B）。
+	 *
+	 * <p>复用 {@code PromoCalendarService#specials}（活动窗+档期窗+剩余限量口径与 C 端
+	 * 楼层/成交试算同源）；DTO 复用秒杀形态（seckillPrice 字段名承载特供价，注释即口径）。
+	 * 同一 SKU 命中多个特供活动取最低；失败降级空列表，快照退化为仅本地价。
+	 */
+	@Override
+	public List<GoodsSkuSeckillDTO> batchCalendarSpecialPrices(String tenantId, List<String> skuIds) {
+		if (!StringUtils.hasText(tenantId) || CollectionUtils.isEmpty(skuIds)) {
+			return List.of();
+		}
+		try {
+			Map<String, GoodsSkuSeckillDTO> bySku = new LinkedHashMap<>();
+			for (com.aryn.cloud.promotion.api.vo.AppCalendarSpecialVO special : promoCalendarService
+					.specials(tenantId, null)) {
+				if (special == null || special.getItems() == null) {
+					continue;
+				}
+				for (com.aryn.cloud.promotion.api.vo.AppCalendarSpecialVO.SpecialItem item : special.getItems()) {
+					if (item == null || !StringUtils.hasText(item.getSkuId())
+							|| item.getPrice() == null || item.getPrice().signum() <= 0) {
+						continue;
+					}
+					GoodsSkuSeckillDTO dto = bySku.computeIfAbsent(item.getSkuId(), key -> {
+						GoodsSkuSeckillDTO created = new GoodsSkuSeckillDTO();
+						created.setSkuId(key);
+						return created;
+					});
+					if (dto.getSeckillPrice() == null || item.getPrice().compareTo(dto.getSeckillPrice()) < 0) {
+						dto.setSeckillPrice(item.getPrice());
+					}
+				}
+			}
+			return new ArrayList<>(bySku.values());
+		}
+		catch (Exception ex) {
+			log.warn("价格快照档期特供价批量查询失败，降级为空 tenant={}", tenantId, ex);
+			return List.of();
 		}
 	}
 

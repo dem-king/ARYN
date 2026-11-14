@@ -26,6 +26,8 @@ export default {
       recommend: 'Recommended',
     },
     memberPrice: 'Member Price',
+    policyPrice: 'Contract Price',
+    calendarSpecialPrice: 'Special Offer',
     clearancePrice: 'Clearance Price',
     newbiePrice: 'New User Price',
     member: 'Member',

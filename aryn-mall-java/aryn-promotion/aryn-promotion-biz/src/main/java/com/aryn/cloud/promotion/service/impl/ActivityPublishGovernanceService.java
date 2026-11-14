@@ -160,18 +160,29 @@ public class ActivityPublishGovernanceService {
 		if (tiers == null || tiers.isEmpty()) {
 			throw new ArynBusinessException("整船优惠活动必须配置 tiers 档位");
 		}
-		List<JSONObject> sorted = tiers.stream()
-				.map(element -> (JSONObject) element)
-				.sorted(Comparator.comparing(tier -> nullSafeDecimal(tier.getBigDecimal("minAmount"))))
-				.toList();
+		// 2026-11-14 B2B：档位支持金额(minAmount)与件数(minQty)两种维度，可单配或同档并配
+		// （并配=同时满足）。金额链的递增/唯一校验只作用于配置了 minAmount 的档位，
+		// 件数档位不参与金额排序，存量金额档位行为不变。
 		BigDecimal lastMinAmount = null;
 		BigDecimal lastDiscount = null;
-		for (JSONObject tier : sorted) {
+		for (JSONObject tier : tiers.stream().map(element -> (JSONObject) element).toList()) {
 			BigDecimal minAmount = tier.getBigDecimal("minAmount");
+			Integer minQty = tier.getInt("minQty");
 			BigDecimal discountAmount = tier.getBigDecimal("discountAmount");
-			if (minAmount == null || minAmount.signum() < 0 || discountAmount == null
-					|| discountAmount.signum() <= 0) {
-				throw new ArynBusinessException("整船优惠档位必须包含正数 discountAmount 与 minAmount");
+			if (discountAmount == null || discountAmount.signum() <= 0) {
+				throw new ArynBusinessException("整船优惠档位必须包含正数 discountAmount");
+			}
+			if (minAmount == null && minQty == null) {
+				throw new ArynBusinessException("整船优惠档位必须配置 minAmount（金额）或 minQty（件数）之一");
+			}
+			if (minAmount != null && minAmount.signum() < 0) {
+				throw new ArynBusinessException("整船优惠档位 minAmount 不得为负数");
+			}
+			if (minQty != null && minQty < 1) {
+				throw new ArynBusinessException("整船优惠档位 minQty 必须为正整数");
+			}
+			if (minAmount == null) {
+				continue;
 			}
 			if (lastMinAmount != null && minAmount.compareTo(lastMinAmount) == 0) {
 				throw new ArynBusinessException("整船优惠档位 minAmount 重复：" + minAmount);
