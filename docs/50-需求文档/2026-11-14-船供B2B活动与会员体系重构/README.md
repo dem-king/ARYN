@@ -9,9 +9,10 @@
 > - ✅ 管理端：价格政策/档期管理/企业等级/企业权益四页面 + 船供活动页档期特供表单区（归属档期/限量/特供商品选品）
 > - ✅ C 端：协议价/档期 API 层、商品卡协议价角标（zone-price 契约+useZonePrices 补价，船上下文默认）、档期特供楼层 diy-trade-calendar（双端注册+预览 parity，registry 契约计数 11）
 > - ✅ 企业会员卡数据层：GET /vessel/app/vessels/{id}/enterprise-benefits（船成员校验+绑定表解析）
-> - ⏳ P1.5 剩余：个人中心企业会员卡 UI（数据端点已就位）、岸上企业权益端点（AppBuyerOrgController，岸上上下文 C 端无持久 store）、档期特供 dry-run 冲突检索、船上下文/企业上下文切换时协议价缓存失效细化
-> - ⏳ 待运营：执行 P0 SQL（执行前需确认）、企业等级门槛调整、协议价审批流（P2）
-> - 验证基线：全仓 2712 例 0 失败 0 错误（boot 113/order 699/promotion 556/user 173/vessel 130）；管理端 check:type 通过、test:unit 1655/1657（2 例 preview-parity 为存量失败）；uniapp type-check + 1925 例全绿
+> - ✅ P1 缺口补齐（2026-11-14 三续）：满量优惠件数维度（minQty 单配/并配+治理+管理端）、阶梯价档期归属字段、档期特供价入快照口径（合规标签）、商详协议价/档期特供展示（主价链+角标）、确认页活动标签（policy/calendarSpecial 双语言）、个人档位重配工具（boot 240/cloud 256，**未执行**——boot 库档位已被运营手工调整，先对齐）
+> - ⏳ P1.5 剩余：个人中心企业会员卡完整 UI（徽章已落地）、岸上企业权益端点（AppBuyerOrgController，岸上上下文 C 端无持久 store）、协议价 dry-run 冲突检索、C 端会场页空态人工实测
+> - ⏳ 待运营：cloud 三脚本（249/250/251）待 cloud 环境启用补跑；企业等级门槛调整；个人档位 240 脚本执行前先与运营对齐；协议价审批流（P2）
+> - 验证基线：promotion 556 / uniapp 1925 例全绿（type-check/lint 干净）；管理端 typecheck 通过；full SQL verify 通过；boot 库 P0+P1 SQL 已执行并自检通过
 > 需求：停掉全部存量活动，面向「船供采购 / 海员个人 / 工厂餐厅采购」三类 B2B 客群重新设计活动体系与会员权益。不做小象/盒马式零售限时抢购形态。
 >
 > 已确认的四项决策：
