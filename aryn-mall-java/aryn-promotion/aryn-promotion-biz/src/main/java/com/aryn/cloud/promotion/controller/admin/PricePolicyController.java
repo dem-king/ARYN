@@ -87,6 +87,13 @@ public class PricePolicyController {
 				id, dto.getPolicy(), dto.getItems()));
 	}
 
+	@Operation(summary = "价格政策 dry-run（发布前冲突/倒挂预检）")
+	@SaCheckPermission("promotion:pricepolicy:page")
+	@GetMapping("/{id}/dry-run")
+	public Result<com.aryn.cloud.promotion.api.vo.PolicyDryRunVO> dryRun(@PathVariable String id) {
+		return Result.success(pricePolicyService.dryRun(ArynTenantContextHolder.getTenantId(), id));
+	}
+
 	@SysLog("发布/停用价格政策")
 	@Operation(summary = "切换价格政策状态（1生效 2停用 0草稿）")
 	@SaCheckPermission("promotion:pricepolicy:publish")

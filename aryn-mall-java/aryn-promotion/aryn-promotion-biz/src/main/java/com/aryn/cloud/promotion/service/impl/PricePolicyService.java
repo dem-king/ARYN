@@ -4,6 +4,7 @@ import cn.hutool.core.util.IdUtil;
 import com.aryn.cloud.promotion.api.dto.PolicyPriceQueryDTO;
 import com.aryn.cloud.promotion.api.entity.PricePolicy;
 import com.aryn.cloud.promotion.api.entity.PricePolicyItem;
+import com.aryn.cloud.promotion.api.vo.PolicyDryRunVO;
 import com.aryn.cloud.promotion.api.vo.PolicyPriceVO;
 import com.aryn.cloud.promotion.mapper.PricePolicyItemMapper;
 import com.aryn.cloud.promotion.mapper.PricePolicyMapper;
@@ -340,6 +341,124 @@ public class PricePolicyService {
 		}
 		catch (Exception ex) {
 			log.warn("协议价展示查询 SKU 售价失败，按无协议价返回: {}", ex.getMessage());
+			return Map.of();
+		}
+	}
+
+	/**
+	 * 发布前 dry-run 预检（2026-11-15）：逐 SKU 检索同 SKU 冲突与倒挂风险。
+	 *
+	 * <p>口径与引擎成交判定一致（priority 取大、同级取低价、倒挂不落价），
+	 * 预检只解释「按当前配置哪个政策会赢」，不阻断发布；成本倒挂仅提示，
+	 * 运营自行决策。远程售价失败时该 SKU 标记 INVERTED_SALES 不可判（降级提示）。
+	 */
+	public PolicyDryRunVO dryRun(String tenantId, String id) {
+		PricePolicy policy = get(tenantId, id);
+		if (policy == null) {
+			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("价格政策不存在");
+		}
+		PolicyDryRunVO result = new PolicyDryRunVO();
+		result.setPolicyId(policy.getId());
+		result.setPolicyName(policy.getPolicyName());
+		List<PricePolicyItem> ownItems = listItems(tenantId, id);
+		if (ownItems.isEmpty()) {
+			return result;
+		}
+		List<String> skuIds = ownItems.stream().map(PricePolicyItem::getSkuId).distinct().toList();
+		Map<String, com.aryn.cloud.product.api.entity.GoodsSku> skuById = fetchSkus(skuIds);
+		// 其他生效中的政策（排除自身）：同 SKU 冲突检索
+		List<PricePolicy> otherPolicies = pricePolicyMapper.selectList(
+				Wrappers.lambdaQuery(PricePolicy.class)
+					.eq(PricePolicy::getTenantId, tenantId)
+					.eq(PricePolicy::getStatus, PricePolicy.STATUS_ACTIVE)
+					.le(PricePolicy::getStartTime, LocalDateTime.now())
+					.ge(PricePolicy::getEndTime, LocalDateTime.now())
+					.ne(PricePolicy::getId, id));
+		Map<String, List<PricePolicyItem>> otherItemsBySku = otherPolicies.isEmpty() ? Map.of()
+				: pricePolicyItemMapper.selectList(Wrappers.lambdaQuery(PricePolicyItem.class)
+					.eq(PricePolicyItem::getTenantId, tenantId)
+					.in(PricePolicyItem::getPolicyId, otherPolicies.stream().map(PricePolicy::getId).toList()))
+					.stream()
+					.collect(java.util.stream.Collectors.groupingBy(PricePolicyItem::getSkuId));
+		Map<String, PricePolicy> otherPolicyById = otherPolicies.stream()
+			.collect(java.util.stream.Collectors.toMap(PricePolicy::getId, p -> p, (l, r) -> l));
+		int ownPriority = policy.getPriority() == null ? 0 : policy.getPriority();
+		for (PricePolicyItem item : ownItems) {
+			PolicyDryRunVO.Item row = new PolicyDryRunVO.Item();
+			row.setSkuId(item.getSkuId());
+			com.aryn.cloud.product.api.entity.GoodsSku sku = skuById.get(item.getSkuId());
+			if (sku == null || sku.getSalesPrice() == null) {
+				// 售价不可得（远程失败/商品下架）：预检无法判定，按倒挂提示保守处理
+				row.setVerdict("INVERTED_SALES");
+				result.getItems().add(row);
+				continue;
+			}
+			row.setSpuName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : "");
+			row.setSalesPrice(sku.getSalesPrice());
+			row.setCostPrice(sku.getCostPrice());
+			BigDecimal price = resolvePolicyPrice(item, policy.getPriceMode(), sku.getSalesPrice());
+			if (price == null) {
+				row.setVerdict("INVERTED_SALES");
+				result.getItems().add(row);
+				continue;
+			}
+			row.setPolicyPrice(price);
+			List<String> verdicts = new ArrayList<>();
+			if (price.compareTo(sku.getSalesPrice()) >= 0) {
+				// 倒挂：引擎不落价，公开价格层继续生效
+				verdicts.add("INVERTED_SALES");
+			}
+			if (sku.getCostPrice() != null && sku.getCostPrice().signum() > 0
+					&& price.compareTo(sku.getCostPrice()) < 0) {
+				verdicts.add("COST_RISK");
+			}
+			String counterparty = null;
+			for (PricePolicyItem otherItem : otherItemsBySku.getOrDefault(item.getSkuId(), List.of())) {
+				PricePolicy other = otherPolicyById.get(otherItem.getPolicyId());
+				if (other == null) {
+					continue;
+				}
+				int otherPriority = other.getPriority() == null ? 0 : other.getPriority();
+				BigDecimal otherPrice = resolvePolicyPrice(otherItem, other.getPriceMode(), sku.getSalesPrice());
+				if (otherPrice == null) {
+					continue;
+				}
+				boolean otherWins = otherPriority > ownPriority
+						|| (otherPriority == ownPriority && otherPrice.compareTo(price) < 0);
+				if (otherWins) {
+					verdicts.add("SHADOWED");
+					counterparty = other.getPolicyName();
+					break;
+				}
+				if (ownPriority > otherPriority
+						|| (ownPriority == otherPriority && price.compareTo(otherPrice) < 0)) {
+					verdicts.add("SHADOWS_OTHER");
+					counterparty = other.getPolicyName();
+					break;
+				}
+			}
+			if (verdicts.isEmpty()) {
+				verdicts.add("OK");
+			}
+			row.setVerdict(String.join(",", verdicts));
+			row.setCounterpartyPolicyName(counterparty);
+			result.getItems().add(row);
+		}
+		return result;
+	}
+
+	/** SKU 展示信息批量查询（预检用：售价/成本/名称）；失败返回空 Map（逐 SKU 降级提示）。 */
+	private Map<String, com.aryn.cloud.product.api.entity.GoodsSku> fetchSkus(List<String> skuIds) {
+		if (skuIds.isEmpty()) {
+			return Map.of();
+		}
+		try {
+			return remoteGoodsSkuService.getBySkuIds(skuIds).stream()
+				.collect(java.util.stream.Collectors.toMap(
+						com.aryn.cloud.product.api.entity.GoodsSku::getId, sku -> sku, (l, r) -> l));
+		}
+		catch (Exception ex) {
+			log.warn("价格政策 dry-run SKU 信息查询失败，按不可判定处理: {}", ex.getMessage());
 			return Map.of();
 		}
 	}

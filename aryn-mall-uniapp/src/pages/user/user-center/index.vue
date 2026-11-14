@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DeliveryEligibility } from '@/api/delivery'
+import type { EnterpriseBenefitsVO } from '@/api/vessel'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -175,6 +176,8 @@ const vesselName = ref('')
  * 未定级/查询失败一律空串不渲染（fail-closed，不与个人等级徽章冲突）。
  */
 const enterpriseLevelName = ref('')
+/** 弹层展示的权益聚合（与徽章同源数据，弹层打开时按最新数据渲染） */
+const enterpriseBenefits = ref<EnterpriseBenefitsVO | null>(null)
 /**
  * 是否已登记为在职销售（销售工作台入口的可见性依据）。
  *
@@ -225,12 +228,32 @@ function loadEnterpriseLevel() {
   }
   getVesselEnterpriseBenefits(vesselId)
     .then((benefits) => {
+      enterpriseBenefits.value = benefits
       enterpriseLevelName.value = benefits?.levelName || ''
     })
     .catch(() => {
+      enterpriseBenefits.value = null
       enterpriseLevelName.value = ''
     })
 }
+
+// ===================== 企业权益弹层（双轨会员企业轨展示） =====================
+
+const enterpriseSheetVisible = ref(false)
+
+function openEnterpriseSheet() {
+  if (!enterpriseBenefits.value)
+    return
+  enterpriseSheetVisible.value = true
+}
+
+/** 折扣率权益文案：0.95 → 「9.5折」；null=未配置 */
+const enterpriseDiscountText = computed(() => {
+  const rate = Number(enterpriseBenefits.value?.discountRate)
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1)
+    return ''
+  return `${(rate * 10).toFixed(1).replace(/\.0$/, '')}折`
+})
 
 // ===================== 配送工作台入口 =====================
 
@@ -531,6 +554,7 @@ onPageScroll(handlePageScroll)
           <text
             v-if="enterpriseLevelName"
             class="uc-hero__level uc-hero__level--enterprise"
+            @click.stop="openEnterpriseSheet"
           >
             {{ enterpriseLevelName }}
           </text>
@@ -759,6 +783,79 @@ onPageScroll(handlePageScroll)
   <WaterfallGoods />
   <!-- 悬浮玻璃底栏是 fixed 覆盖层：留一条等高空白，推荐流最后一行能滚到栏上方 -->
   <view class="tabbar-bottom-space" />
+  <!--
+    企业权益弹层：点页头企业等级徽章展开。双轨会员企业轨的权益感知层——
+    折扣/免邮在结算里已自动生效，这里解释「为什么价格不一样」；
+    返利率/账期为预留权益（二期资金域启用），灰显标注「即将上线」。
+  -->
+  <wd-popup
+    v-model="enterpriseSheetVisible"
+    position="bottom"
+    custom-class="uc-enterprise-sheet"
+    :safe-area-inset-bottom="true"
+    :z-index="1100"
+    @close="enterpriseSheetVisible = false"
+  >
+    <view v-if="enterpriseBenefits" class="uc-ent-sheet">
+      <view class="uc-ent-sheet__head">
+        <text class="uc-ent-sheet__title">
+          {{ t('userCenter.enterpriseSheet.title') }}
+        </text>
+        <text class="uc-ent-sheet__level">
+          {{ enterpriseBenefits.levelName }}
+        </text>
+      </view>
+      <view
+        v-if="enterpriseDiscountText
+          || enterpriseBenefits.freeShipping
+          || enterpriseBenefits.invoicingEnabled
+          || enterpriseBenefits.dedicatedService"
+        class="uc-ent-sheet__list"
+      >
+        <view v-if="enterpriseDiscountText" class="uc-ent-sheet__row">
+          <text class="i-carbon:percentage uc-ent-sheet__icon" />
+          <text class="uc-ent-sheet__text">
+            {{ t('userCenter.enterpriseSheet.discount', { rate: enterpriseDiscountText }) }}
+          </text>
+        </view>
+        <view v-if="enterpriseBenefits.freeShipping" class="uc-ent-sheet__row">
+          <text class="i-carbon:delivery uc-ent-sheet__icon" />
+          <text class="uc-ent-sheet__text">
+            {{ t('userCenter.enterpriseSheet.freeShipping') }}
+          </text>
+        </view>
+        <view v-if="enterpriseBenefits.invoicingEnabled" class="uc-ent-sheet__row">
+          <text class="i-carbon:document-signed uc-ent-sheet__icon" />
+          <text class="uc-ent-sheet__text">
+            {{ t('userCenter.enterpriseSheet.invoicing') }}
+          </text>
+        </view>
+        <view v-if="enterpriseBenefits.dedicatedService" class="uc-ent-sheet__row">
+          <text class="i-carbon:user-multiple uc-ent-sheet__icon" />
+          <text class="uc-ent-sheet__text">
+            {{ t('userCenter.enterpriseSheet.dedicatedService') }}
+          </text>
+        </view>
+      </view>
+      <view v-else class="uc-ent-sheet__empty">
+        {{ t('userCenter.enterpriseSheet.noBenefits') }}
+      </view>
+      <view
+        v-if="enterpriseBenefits.rebateRate || enterpriseBenefits.creditDays"
+        class="uc-ent-sheet__reserved"
+      >
+        <text v-if="enterpriseBenefits.rebateRate" class="uc-ent-sheet__reserved-item">
+          {{ t('userCenter.enterpriseSheet.reserved') }} · 返利
+        </text>
+        <text v-if="enterpriseBenefits.creditDays" class="uc-ent-sheet__reserved-item">
+          {{ t('userCenter.enterpriseSheet.reserved') }} · 账期 {{ enterpriseBenefits.creditDays }} 天
+        </text>
+      </view>
+      <text class="uc-ent-sheet__hint">
+        {{ t('userCenter.enterpriseSheet.tierHint') }}
+      </text>
+    </view>
+  </wd-popup>
 </template>
 
 <style lang="scss" scoped>
@@ -1171,6 +1268,94 @@ $uc-gutter: 20rpx;
     color: $uc-title;
     font-size: 28rpx;
     font-weight: 700;
+  }
+}
+
+// 企业权益弹层（点页头企业徽章展开）：底部弹层 + 权益行列表，
+// 视觉走页头同款玻璃语言（白底卡片 + 主题色图标）
+.uc-enterprise-sheet {
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+}
+
+.uc-ent-sheet {
+  &__head {
+    align-items: baseline;
+    display: flex;
+    gap: 16rpx;
+    justify-content: space-between;
+    margin-bottom: 24rpx;
+  }
+
+  &__title {
+    color: #303133;
+    font-size: 32rpx;
+    font-weight: 700;
+  }
+
+  &__level {
+    background: rgba(255, 34, 55, 0.08);
+    border-radius: 999rpx;
+    color: var(--wot-color-theme-primary, #ff2237);
+    font-size: 24rpx;
+    padding: 4rpx 18rpx;
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 20rpx;
+  }
+
+  &__row {
+    align-items: center;
+    background: #f7f8fa;
+    border-radius: 16rpx;
+    display: flex;
+    gap: 16rpx;
+    padding: 20rpx 24rpx;
+  }
+
+  &__icon {
+    color: var(--wot-color-theme-primary, #ff2237);
+    font-size: 34rpx;
+  }
+
+  &__text {
+    color: #303133;
+    font-size: 26rpx;
+    line-height: 1.6;
+  }
+
+  &__empty {
+    background: #f7f8fa;
+    border-radius: 16rpx;
+    color: #909399;
+    font-size: 26rpx;
+    padding: 32rpx 24rpx;
+    text-align: center;
+  }
+
+  &__reserved {
+    display: flex;
+    gap: 16rpx;
+    margin-top: 16rpx;
+  }
+
+  &__reserved-item {
+    background: #f4f4f5;
+    border-radius: 999rpx;
+    color: #909399;
+    font-size: 20rpx;
+    padding: 4rpx 16rpx;
+  }
+
+  &__hint {
+    color: #909399;
+    display: block;
+    font-size: 22rpx;
+    margin-top: 24rpx;
+    text-align: center;
   }
 }
 </style>

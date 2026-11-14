@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -100,6 +101,33 @@ public class AppBuyerOrgController {
 		return Result.success(buyerOrgService.listMembers(ArynTenantContextHolder.getTenantId(),
 			user.getUserId(), id));
 	}
+
+	/**
+	 * 采购主体的企业会员权益（双轨会员企业轨，2026-11-14 B2B）。
+	 *
+	 * <p>工厂/餐厅采购员（scene=3）的企业等级/权益展示数据源：成员资格在本域校验
+	 * （requireUsableForCart 覆盖主体存在/未停用/审核态/本人有效成员），非成员返回
+	 * null 不泄露他主体权益；等级经 user 域绑定表解析，未定级/查询失败返回 null
+	 * （fail-closed）。与船舶侧 VesselAppController#enterpriseBenefits 同语义。
+	 */
+	@Operation(summary = "采购主体企业会员权益（需登录；非成员/未定级返回 null）")
+	@GetMapping("/{id}/enterprise-benefits")
+	public Result<com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO> enterpriseBenefits(
+			@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		buyerOrgService.requireUsableForCart(ArynTenantContextHolder.getTenantId(),
+			user.getUserId(), id);
+		return Result.success(remoteEnterpriseUserService.getSubjectBenefits(
+			ArynTenantContextHolder.getTenantId(),
+			com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_BUYER_ORG, id));
+	}
+
+	/**
+	 * 企业会员权益远程引用（user 域）。字段注入保持构造器签名稳定（订单侧
+	 * remoteMallZoneSettingService 同款先例，构造参数会破坏直接 new 实例的测试桩）。
+	 */
+	@DubboReference
+	private com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
 
 	@Operation(summary = "生成采购主体邀请码")
 	@PostMapping("/{id}/invite-code")

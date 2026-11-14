@@ -134,6 +134,16 @@ export default {
     vesselLinked: '已关联船舶',
     vesselLinkedSubtitle: '{name} · 靠港、成员与港口车辆',
     vesselUnlinkedSubtitle: '未关联船舶，加入后可用靠港配送',
+    enterpriseSheet: {
+      title: '企业会员权益',
+      discount: '下单享 {rate}（与活动价取优，不叠加）',
+      freeShipping: '企业采购免配送费（到船配送恒免邮）',
+      invoicing: '支持企业开票',
+      dedicatedService: '专属客服/业务员服务',
+      reserved: '即将上线',
+      noBenefits: '当前等级暂未配置专属权益',
+      tierHint: '采购额累计提升等级后自动解锁更多权益',
+    },
   },
   userSetting: {
     title: '个人信息',

@@ -34,3 +34,8 @@ export async function changePricePolicyStatus(
 export async function deletePricePolicy(id: string) {
   return requestClient.delete(`/promotion/price-policy/${id}`);
 }
+
+/** 发布前 dry-run：同 SKU 冲突/倒挂/成本击穿预检 */
+export async function getPricePolicyDryRun(id: string) {
+  return requestClient.get(`/promotion/price-policy/${id}/dry-run`);
+}

@@ -131,6 +131,16 @@ export default {
     vesselLinked: 'Vessel linked',
     vesselLinkedSubtitle: '{name} · Port calls, crew & vehicles',
     vesselUnlinkedSubtitle: 'No vessel linked. Join one to use port delivery.',
+    enterpriseSheet: {
+      title: 'Enterprise Benefits',
+      discount: '{rate} off orders (takes the better of price vs. activity, never stacked)',
+      freeShipping: 'Free delivery for enterprise orders (vessel delivery is always free)',
+      invoicing: 'Business invoicing supported',
+      dedicatedService: 'Dedicated service agent',
+      reserved: 'Coming soon',
+      noBenefits: 'No exclusive benefits configured for this tier yet',
+      tierHint: 'Purchase volume unlocks higher tiers and more benefits',
+    },
   },
   userSetting: {
     title: 'Profile',

@@ -232,6 +232,8 @@ export interface EnterpriseBenefitsVO {
   levelSortOrder?: null | number
   /** 协议价政策池（等级可用的价格政策 ID，空=无） */
   policyPoolIds?: string[]
+  /** 返利率（百分数，预留字段，本期不生效） */
+  rebateRate?: null | number
   /** 主体类型：1岸上企业 2船舶 */
   subjectType?: string
   /** 主体 ID（buyer_org_id / vessel_id） */
@@ -248,5 +250,18 @@ export interface EnterpriseBenefitsVO {
 export function getVesselEnterpriseBenefits(vesselId: string) {
   return alovaInstance.Get<EnterpriseBenefitsVO | null>(
     `/vessel/app/vessels/${vesselId}/enterprise-benefits`,
+  )
+}
+
+/**
+ * 采购主体的企业会员权益（双轨会员企业轨，需登录）。
+ *
+ * 后端：GET /order/app/buyer-org/{id}/enterprise-benefits（AppBuyerOrgController）。
+ * 成员资格在服务端校验（requireUsableForCart）：非成员返回 null（不泄露他主体权益）；
+ * 未定级/查询失败也返回 null（fail-closed）。岸上共享车/「我的工厂」页企业卡数据源。
+ */
+export function getBuyerOrgEnterpriseBenefits(buyerOrgId: string) {
+  return alovaInstance.Get<EnterpriseBenefitsVO | null>(
+    `/order/app/buyer-org/${buyerOrgId}/enterprise-benefits`,
   )
 }

@@ -25,6 +25,7 @@ import {
   changePricePolicyStatus,
   deletePricePolicy,
   getPricePolicies,
+  getPricePolicyDryRun,
   updatePricePolicy,
 } from '#/api/promotion/price-policy';
 import PageToolbar from '#/components/page/page-toolbar.vue';
@@ -245,6 +246,35 @@ const publish = async (row: any) => {
   load();
 };
 
+/**
+ * 发布前 dry-run：同 SKU 多政策冲突 / 协议价倒挂 / 成本击穿预检。
+ * 结论只解释「按当前配置哪个政策会赢」，不阻断发布；COST_RISK 运营自行决策。
+ */
+const VERDICT_TYPE: Record<string, 'danger' | 'info' | 'primary' | 'warning'> =
+  {
+    OK: 'info',
+    INVERTED_SALES: 'danger',
+    SHADOWED: 'warning',
+    SHADOWS_OTHER: 'primary',
+    COST_RISK: 'warning',
+  };
+const dryRunVisible = ref(false);
+const dryRunLoading = ref(false);
+const dryRunRow = ref<any>(null);
+const dryRunItems = ref<any[]>([]);
+
+const openDryRun = async (row: any) => {
+  dryRunRow.value = row;
+  dryRunVisible.value = true;
+  dryRunLoading.value = true;
+  try {
+    const detail: any = await getPricePolicyDryRun(row.id);
+    dryRunItems.value = detail?.items || [];
+  } finally {
+    dryRunLoading.value = false;
+  }
+};
+
 const pause = async (row: any) => {
   await changePricePolicyStatus(row.id, '2');
   ElMessage.success('已停用');
@@ -350,8 +380,16 @@ useKeepAliveRefresh(load);
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="操作" width="200" align="center">
+        <ElTableColumn label="操作" width="250" align="center">
           <template #default="scope">
+            <ElButton
+              link
+              type="primary"
+              v-access:code="'promotion:pricepolicy:page'"
+              @click="openDryRun(scope.row)"
+            >
+              预检
+            </ElButton>
             <ElButton
               v-if="scope.row.status !== '1'"
               link
@@ -549,6 +587,55 @@ useKeepAliveRefresh(load);
           <ElButton type="primary" @click="confirmPicker">
             添加所选 SKU
           </ElButton>
+        </template>
+      </ElDialog>
+
+      <ElDialog
+        v-model="dryRunVisible"
+        :title="`发布预检：${dryRunRow?.policyName ?? ''}`"
+        width="760px"
+        destroy-on-close
+      >
+        <ElAlert type="info" :closable="false" show-icon>
+          预检只解释「按当前配置哪个政策会赢」（与成交引擎同口径），不阻断发布；
+          INVERTED_SALES=协议价不低于售价（引擎不落价）、SHADOWED=会被更高优先级政策
+          压住、SHADOWS_OTHER=会压住其他政策、COST_RISK=低于成本价（自行决策）。
+        </ElAlert>
+        <ElTable
+          v-loading="dryRunLoading"
+          :data="dryRunItems"
+          size="small"
+          border
+          class="mt-3"
+          empty-text="该政策没有 SKU 明细"
+        >
+          <ElTableColumn prop="skuId" label="SKU" width="200" />
+          <ElTableColumn prop="spuName" label="商品" min-width="160" />
+          <ElTableColumn prop="salesPrice" label="当前售价" width="90" />
+          <ElTableColumn prop="policyPrice" label="本政策价" width="90" />
+          <ElTableColumn prop="costPrice" label="成本价" width="90" />
+          <ElTableColumn label="结论" min-width="220">
+            <template #default="scope">
+              <ElTag
+                v-for="v in String(scope.row.verdict || '').split(',')"
+                :key="v"
+                class="mr-1"
+                size="small"
+                :type="VERDICT_TYPE[v] || 'info'"
+              >
+                {{ v }}
+              </ElTag>
+              <span
+                v-if="scope.row.counterpartyPolicyName"
+                class="text-xs text-gray-500"
+              >
+                对手：{{ scope.row.counterpartyPolicyName }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+        <template #footer>
+          <ElButton @click="dryRunVisible = false"> 关闭 </ElButton>
         </template>
       </ElDialog>
     </div>
