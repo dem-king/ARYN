@@ -10,8 +10,9 @@ import com.aryn.cloud.vessel.api.entity.VesselInfo;
 import com.aryn.cloud.vessel.service.VesselService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -63,5 +64,34 @@ public class VesselAppController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(vesselService.currentContext(user.getTenantId(), user.getUserId(), vesselId));
 	}
+
+	/**
+	 * 船舶的企业会员权益（双轨会员企业轨，2026-11-14 B2B）。
+	 *
+	 * <p>C 端企业会员卡数据源：按船舶主体解析企业等级与权益（船供采购 scene=2 的
+	 * 让利口径）。成员资格在本域校验（非船成员返回 null，不泄露他船权益）；
+	 * 等级经 user 域绑定表解析，查询失败/未定级返回 null（fail-closed）。
+	 */
+	@Operation(summary = "船舶企业会员权益（需登录；非成员/未定级返回 null）")
+	@GetMapping("/vessels/{id}/enterprise-benefits")
+	public Result<com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO> enterpriseBenefits(
+			@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		if (!vesselService.isVesselMember(user.getTenantId(), id, user.getUserId())) {
+			return Result.success(null);
+		}
+		return Result.success(remoteEnterpriseUserService.getSubjectBenefits(
+				user.getTenantId(),
+				com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_VESSEL, id));
+	}
+
+	/**
+	 * 企业会员权益远程引用（user 域，双轨会员企业轨）。
+	 *
+	 * <p>字段注入而非构造器注入：保持构造器签名稳定（订单侧 remoteMallZoneSettingService
+	 * 同款先例，构造参数会破坏直接 new 实例的测试桩）。
+	 */
+	@DubboReference
+	private com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
 
 }
