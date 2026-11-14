@@ -9,8 +9,8 @@
 > - ✅ 管理端：价格政策/档期管理/企业等级/企业权益四页面 + 船供活动页增强（档期特供 type=12 表单区、阶梯价归属档期字段、满量优惠「满 N 件」件数维度）
 > - ✅ C 端：协议价/档期 API 层、商品卡协议价角标（zone-price 契约+useZonePrices 补价，船上下文默认）、档期特供楼层 diy-trade-calendar（双端注册+预览 parity，registry 契约计数 11）、商详协议价/档期特供主价与角标、确认页活动标签（policy/calendarSpecial 双语言）
 > - ✅ 企业会员展示与数据层：GET /vessel/app/vessels/{id}/enterprise-benefits（船成员校验+绑定表解析）+ 个人中心页头企业等级徽章
-> - ⏳ P1.5 剩余：个人中心企业会员卡完整 UI（徽章已落地，权益明细展示后续按需扩）、岸上企业权益端点（AppBuyerOrgController，岸上上下文 C 端无持久 store）、协议价 dry-run 冲突检索、C 端会场页空态人工实测
-> - ⏳ 待运营：cloud 三脚本补跑；企业等级门槛调整；个人档位 240 脚本执行前先与运营对齐（boot 库档位已被运营手工调整为 0.01/1.5万/3万/6万/10万，勿盲目覆盖）；协议价审批流（P2）
+> - ✅ P1.5 清零（2026-11-15）：岸上企业权益端点（`GET /order/app/buyer-org/{id}/enterprise-benefits`，requireUsableForCart 校验）、个人中心企业权益弹层（徽章点击展开折扣/免邮/开票/专属客服，预留灰显）、协议价 dry-run（`/price-policy/{id}/dry-run` 五值预检 + 管理端「预检」弹窗）、会场页空态核查（四页 hall-state/z-paging 空态分支 + boot 接口空数据联验）
+> - ⏳ 待运营/P2：cloud 三脚本补跑；企业等级门槛调整；个人档位 240 脚本执行前先与运营对齐（boot 库档位已被运营手工调整为 0.01/1.5万/3万/6万/10万，勿盲目覆盖）；协议价审批流、账期实施、企业返利生效、个人等级滚动年、提前购分级（均为 P2）
 >
 > **与方案正文的实现口径差异（已按此实现，非缺口）**：
 > 1. §8 的「activity-strip 改造」以新建 `diy-trade-calendar` 楼层承接档期曝光替代；activity-strip 依赖的秒杀/拼团/折扣数据停运后整条自动隐藏，功能等价。
