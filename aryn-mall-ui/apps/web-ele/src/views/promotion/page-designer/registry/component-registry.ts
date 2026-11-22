@@ -791,3 +791,11 @@ export function getAllowedComponentsForPageType(
 export function getComponentDefinition(type: string) {
   return componentRegistry[type as RegisteredComponentType];
 }
+
+/**
+ * 组件库（左侧拖拽面板）隐藏清单：仅从营销组件库入口移除，不影响组件注册、
+ * 契约测试与已发布页面渲染。
+ * newbie-floor（新人专享）一期下线添加入口，但存量已发布页面仍引用，故保留注册。
+ */
+export const libraryHiddenComponentTypes: ReadonlySet<RegisteredComponentType> =
+  new Set(['newbie-floor']);

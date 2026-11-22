@@ -1,6 +1,8 @@
 
 package com.aryn.cloud.promotion.controller.app;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -33,6 +35,7 @@ public class AppCouponInfoController {
 	@Operation(summary = "优惠券列表")
 	@GetMapping("/page")
 	public Result<IPage<CouponInfo>> page(Page page, CouponInfo couponInfo, CouponGoods couponGoods) {
+		B2bActivityAdmission.rejectRetired("领券中心");
 		CouponUser couponUser = new CouponUser();
 		if (StpUtil.isLogin()) {
 			couponUser.setUserId(SecurityUtils.getUser().getUserId());
@@ -43,6 +46,7 @@ public class AppCouponInfoController {
 	@Operation(summary = "按ids批量查询优惠券")
 	@GetMapping("/byIds/{ids}")
 	public Result<List<CouponInfo>> byIds(@PathVariable List<String> ids) {
+		B2bActivityAdmission.rejectRetired("领券中心");
 		CouponUser couponUser = new CouponUser();
 		if (StpUtil.isLogin()) {
 			couponUser.setUserId(SecurityUtils.getUser().getUserId());

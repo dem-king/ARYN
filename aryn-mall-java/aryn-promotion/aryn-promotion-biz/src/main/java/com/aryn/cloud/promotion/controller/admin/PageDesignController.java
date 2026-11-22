@@ -102,6 +102,7 @@ public class PageDesignController {
 	@SaCheckPermission("promotion:pagedesign:add")
 	@PostMapping
 	public Result<String> add(@RequestBody PageDesign pageDesign) {
+		pageDesign.setCampaignDraftId(null);
 		pageDesignService.createPage(pageDesign);
 		return Result.success(pageDesign.getId());
 	}
@@ -111,6 +112,7 @@ public class PageDesignController {
 	@SaCheckPermission("promotion:pagedesign:edit")
 	@PutMapping
 	public Result<Boolean> edit(@RequestBody PageDesign pageDesign) {
+		pageDesign.setCampaignDraftId(null);
 		return Result.success(pageDesignService.updatePageDesignById(pageDesign));
 	}
 

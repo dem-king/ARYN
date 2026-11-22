@@ -40,15 +40,18 @@ import java.io.IOException;
 public class AppReplenishImportController {
 
 	private final IReplenishDirectImportService replenishDirectImportService;
+    private final com.aryn.cloud.order.service.impl.ProcurementDraftService procurementDrafts;
 
 	@Operation(summary = "上传清单 Excel，解析并返回导入报告")
 	@PostMapping("/preview")
-	public Result<ReplenishDirectImportVO> preview(
-			@RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws IOException {
-		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(replenishDirectImportService.preview(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), file.getOriginalFilename(), file.getSize(), file.getBytes()));
-	}
+    public Result<?> preview(@RequestParam String draftId, @RequestParam String clientRequestId,
+            @RequestParam long expectedRevision, @RequestParam(defaultValue = "false") boolean explicitNew,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws IOException {
+        var user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+        if (file.getSize() > 8 * 1024 * 1024) throw new com.aryn.cloud.common.security.handler.ArynBusinessException("文件超过8MB");
+        return Result.success(procurementDrafts.submitExcel(ArynTenantContextHolder.getTenantId(), user.getUserId(), draftId,
+            clientRequestId, expectedRevision, explicitNew, file.getOriginalFilename(), file.getBytes()));
+    }
 
 	@Operation(summary = "取回导入报告（稍后处理）")
 	@GetMapping("/imports/{importId}")
@@ -87,8 +90,9 @@ public class AppReplenishImportController {
 	public Result<ReplenishDirectImportConfirmVO> confirm(@PathVariable String importId,
 			@RequestBody(required = false) @Valid ReplenishDirectImportConfirmDTO dto) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(replenishDirectImportService.confirm(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), importId, dto));
+        var report = replenishDirectImportService.getImport(ArynTenantContextHolder.getTenantId(), user.getUserId(), importId);
+        if (!"2".equals(report.getStatus())) throw new com.aryn.cloud.common.security.handler.ArynBusinessException(409, "旧未确认任务请在采购工作台重新解析；历史报告保留只读");
+        return Result.success(replenishDirectImportService.resume(ArynTenantContextHolder.getTenantId(), user.getUserId(), importId));
 	}
 
 }

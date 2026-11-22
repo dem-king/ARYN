@@ -13,7 +13,7 @@ import type { SharedCart, SharedCartItem, SharedCartMember, SharedCartMemberCand
 import { onLoad, onShareAppMessage, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import {
   closeSharedCart,
   confirmSharedCart,
@@ -36,6 +36,7 @@ import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
+import { procurementRequestId } from '@/utils/procurement-session'
 import { resolveImageSrc } from '@/utils/image'
 import { OVERLAY_Z_INDEX } from '@/utils/overlay'
 import {
@@ -752,7 +753,7 @@ function handleRemoveItem(item: SharedCartItem) {
 function goImport() {
   requireNameBefore(() => {
     uni.navigateTo({
-      url: `/sub-pages/order/shared-cart/import?cartId=${cartId.value}`,
+      url: `/sub-pages/order/procurement/index?cartId=${cartId.value}`,
     })
   })
 }
@@ -761,7 +762,7 @@ function goImport() {
 function goChainImport() {
   requireNameBefore(() => {
     uni.navigateTo({
-      url: `/sub-pages/order/shared-cart/chain-import?cartId=${cartId.value}`,
+      url: `/sub-pages/order/procurement/index?cartId=${cartId.value}`,
     })
   })
 }
@@ -876,65 +877,24 @@ const callSnapshotStale = computed(() =>
  * 已结束的靠港；船必须与源单一致（服务端也会校验，这里先做一次本地提示
  * 以免白跑一趟）。岸上车直接复用（地址沿用源单），不需要船舶上下文。
  */
-function handleReuse() {
-  if (!cart.value || reusing.value) {
-    return
+async function handleReuse() {
+  if (!cart.value || reusing.value) return
+  const shore = isShoreCart(cart.value)
+  if (!shore && shipContextStore.vesselId !== cart.value.vesselId) {
+    uni.showToast({ title: t('sharedCart.detail.reuseSameVessel'), icon: 'none' }); return
   }
-  if (isShoreCart(cart.value)) {
-    reusing.value = true
-    reuseSharedCartFromHistory(cart.value.id, {})
-      .then((result) => {
-        if (!result?.cartId) {
-          return
-        }
-        // 部分成功要如实告知：跳过项往往是「本次清单已有该商品」或原明细没有可用数量
-        const skipped = result.skippedCount ?? 0
-        uni.showToast({
-          title: skipped > 0
-            ? t('sharedCart.detail.reusePartial', { reused: result.reusedCount, skipped })
-            : t('sharedCart.detail.reuseDone', { reused: result.reusedCount }),
-          icon: 'none',
-        })
-        uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
-      })
-      .catch(() => {})
-      .finally(() => {
-        reusing.value = false
-      })
-    return
-  }
-  // 兜底：按钮已按船舶过滤，这里再挡一次（例如上下文在页面停留期间被切走）
-  if (shipContextStore.vesselId && shipContextStore.vesselId !== cart.value.vesselId) {
-    uni.showToast({ title: t('sharedCart.detail.reuseSameVessel'), icon: 'none' })
-    return
-  }
-  if (!shipContextStore.hasVesselContext) {
-    shipPickerVisible.value = true
-    return
-  }
+  if (!shore && !shipContextStore.hasVesselContext) { shipPickerVisible.value = true; return }
+  const scope = `procurement-reuse:${import.meta.env.VITE_TENANT_ID}:${userStore.getUserId}:${cart.value.id}:${shore ? 'shore' : shipContextStore.vesselCallId}`
+  const requestId = uni.getStorageSync(scope) || procurementRequestId()
+  uni.setStorageSync(scope, requestId)
   reusing.value = true
-  reuseSharedCartFromHistory(cart.value.id, {
-    vesselId: cart.value.vesselId,
-    vesselCallId: shipContextStore.vesselCallId,
-  })
-    .then((result) => {
-      if (!result?.cartId) {
-        return
-      }
-      // 部分成功要如实告知：跳过项往往是「本次清单已有该商品」或原明细没有可用数量
-      const skipped = result.skippedCount ?? 0
-      uni.showToast({
-        title: skipped > 0
-          ? t('sharedCart.detail.reusePartial', { reused: result.reusedCount, skipped })
-          : t('sharedCart.detail.reuseDone', { reused: result.reusedCount }),
-        icon: 'none',
-      })
-      uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
-    })
-    .catch(() => {})
-    .finally(() => {
-      reusing.value = false
-    })
+  try {
+    const result = await reuseSharedCartFromHistory(cart.value.id, { clientRequestId: requestId,
+      vesselId: shore ? undefined : cart.value.vesselId, vesselCallId: shore ? undefined : shipContextStore.vesselCallId })
+    uni.removeStorageSync(scope)
+    uni.navigateTo({ url: `/sub-pages/order/procurement/index?cartId=${encodeURIComponent(result.cartId)}&draftId=${encodeURIComponent(result.draftId)}` })
+  } catch { /* 统一请求层显示错误，保留原请求号供弱网重试。 */ }
+  finally { reusing.value = false }
 }
 
 function openConfirm() {

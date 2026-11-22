@@ -20,8 +20,15 @@ export default {
     // 采购档期特供楼层（diy-trade-calendar）
     tradeCalendar: {
       badge: '档期特供',
+      mark: '档',
+      endsIn: '距结束',
       quotaUnlimited: '不限量',
+      quotaTotal: '整场限量 {count} 件',
       quotaLeft: '余 {count} 件',
+      limitPerUser: '每人限 {count} 件',
+      limitNone: '不限购',
+      multiActivity: '{count} 场特供进行中',
+      viewAll: '查看全部',
       fallbackTitle: '档期特供',
     },
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  appendGoodsParamTemplates,
   validateGoodsAttrTags,
   validateGoodsIntroduction,
+  validateGoodsParams,
   validateGoodsSkus,
 } from './goods-spu-form-validation';
 
@@ -246,5 +248,46 @@ describe('goods attr tag validation', () => {
         `<span style="color: #c00">脆</span>${'<br/>'.repeat(900)}`,
       ),
     ).toBe('商品卖点内容过长，请精简排版');
+  });
+});
+
+describe('goods param validation', () => {
+  it('accepts real shelf life and storage rows', () => {
+    expect(
+      validateGoodsParams([
+        { label: '产地', value: '山东烟台' },
+        { label: '储存', value: '0-4℃ 冷藏' },
+        { label: '保质期', value: '冷藏 7 天' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('rejects after-sales timing written into shelf life', () => {
+    expect(
+      validateGoodsParams([
+        { label: '保质期', value: '冷链发货，签收后 7 天内' },
+      ]),
+    ).toBe(
+      '「保质期」请填商品可存放时长（如 7 天）；签收/发货属于售后时效，请另设「售后」参数',
+    );
+  });
+
+  it('appends common food param templates without duplicating labels', () => {
+    const rows = appendGoodsParamTemplates([{ label: '产地', value: '烟台' }]);
+    expect(rows.map((row) => row.label)).toEqual([
+      '产地',
+      '储存',
+      '保质期',
+      '包装',
+    ]);
+    expect(rows[0]?.value).toBe('烟台');
+  });
+
+  it('does not append templates past the 12-row cap', () => {
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      label: `参数${index}`,
+      value: '值',
+    }));
+    expect(appendGoodsParamTemplates(rows)).toHaveLength(12);
   });
 });

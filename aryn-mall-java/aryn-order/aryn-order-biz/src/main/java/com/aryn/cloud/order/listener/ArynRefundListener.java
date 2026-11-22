@@ -138,6 +138,11 @@ public class ArynRefundListener implements RocketMQListener<String> {
 			orderRefundSuccessEvent.setPaymentType(orderInfo.getPaymentType());
 			orderRefundSuccessEvent.setRefundNo(orderRefund.getId());
 			orderRefundSuccessEvent.setRefundBaseAmount(refundBaseAmount(orderRefund, orderItemEntity));
+			// 企业轨成长值回扣：携带主体与原订单完成时间（回扣到原归属月份）
+			orderRefundSuccessEvent.setPurchaseScene(orderInfo.getPurchaseScene());
+			orderRefundSuccessEvent.setVesselId(orderInfo.getVesselId());
+			orderRefundSuccessEvent.setBuyerOrgId(orderInfo.getBuyerOrgId());
+			orderRefundSuccessEvent.setCompleteTime(orderInfo.getReceiverTime());
 
 			OrderItemRefundSuccessEvent orderItemRefundSuccessEvent = new OrderItemRefundSuccessEvent();
 			BeanUtils.copyProperties(orderItemEntity, orderItemRefundSuccessEvent);

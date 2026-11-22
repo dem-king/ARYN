@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPage } from '@/api/order/orderInfo'
 import PriceText from '@/components/price-text/index.vue'
 import { useStatusTipStore } from '@/store/statusTipStore'

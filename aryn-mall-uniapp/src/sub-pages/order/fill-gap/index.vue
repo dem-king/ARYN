@@ -13,7 +13,7 @@
  */
 import { onLoad, onReachBottom, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 
 import { getPage } from '@/api/product/spu'
 import PriceText from '@/components/price-text/index.vue'

@@ -76,6 +76,19 @@ class ReplenishImportMatchServiceTest {
 		return dto;
 	}
 
+    @Test
+    void reviewedAliasesAndExplicitCodeSystemsAreUsedWithoutGuessingUnmappedCodes() {
+        var mapping = skuRow("sku-approved", "马铃薯"); mapping.setIdentifierType("ALIAS"); mapping.setIdentifierValue("土豆");
+        var code = skuRow("sku-impa", "船用配件"); code.setIdentifierType("IMPA"); code.setIdentifierValue("123456");
+        when(replenishImportMatchMapper.selectRowsByIdentifiers(anyString(), anyList())).thenReturn(List.of(mapping, code));
+        var aliasRequest = request(null, "土豆");
+        assertEquals("sku-approved", service.matchRows(TENANT, List.of(aliasRequest)).get(0).getSkuId());
+        var typed = request("123456", null); typed.setCodeType("IMPA");
+        assertEquals("sku-impa", service.matchRows(TENANT, List.of(typed)).get(0).getSkuId());
+        typed.setCodeType(null);
+        assertNull(service.matchRows(TENANT, List.of(typed)).get(0).getSkuId());
+    }
+
 	@Test
 	@DisplayName("编码列即 SKU 编号：按编码精确唯一命中，matchType=CODE")
 	void matchesCodeAsSkuId() {
@@ -87,7 +100,7 @@ class ReplenishImportMatchServiceTest {
 		assertEquals(1, results.size());
 		assertEquals("CODE", results.get(0).getMatchType(), "目录模板回传的编码必须能按 SKU 编号命中");
 		assertEquals(hit.getSkuId(), results.get(0).getSkuId());
-		assertNull(results.get(0).getMoq(), "船供包装资料下线后 MOQ 恒空，由订单域按 1 兜底");
+		assertEquals(1, results.get(0).getMoq(), "旧SKU起订量默认1");
 	}
 
 	@Test

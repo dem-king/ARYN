@@ -61,6 +61,15 @@ public class GoodsZoneTagStateResolver {
 		return (int) skus.stream().filter(this::hasZoneOverride).count();
 	}
 
+	public int skuOverrideCount(List<GoodsSku> skus, String zone) {
+		if (CollectionUtils.isEmpty(skus)) {
+			return 0;
+		}
+		return (int) skus.stream()
+			.filter(ZONE_MEMBER.equals(zone) ? this::hasMemberOverride : this::hasClearanceOverride)
+			.count();
+	}
+
 	public int skuTagExclusionCount(List<GoodsSku> skus, String zone) {
 		if (CollectionUtils.isEmpty(skus)) {
 			return 0;
@@ -275,11 +284,18 @@ public class GoodsZoneTagStateResolver {
 	}
 
 	public boolean hasZoneOverride(GoodsSku sku) {
+		return hasMemberOverride(sku) || hasClearanceOverride(sku);
+	}
+
+	private boolean hasMemberOverride(GoodsSku sku) {
 		return sku.getIsMemberItem() != null
 				|| sku.getMemberDiscountRate() != null
 				|| sku.getMemberPriceFixed() != null
-				|| sku.getMemberPriceFloor() != null
-				|| sku.getIsClearanceItem() != null
+				|| sku.getMemberPriceFloor() != null;
+	}
+
+	private boolean hasClearanceOverride(GoodsSku sku) {
+		return sku.getIsClearanceItem() != null
 				|| sku.getClearancePrice() != null
 				|| sku.getClearanceDiscountRate() != null
 				|| sku.getClearanceExpireTime() != null;

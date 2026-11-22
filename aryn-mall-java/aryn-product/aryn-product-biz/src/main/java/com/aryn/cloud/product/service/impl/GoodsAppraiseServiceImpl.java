@@ -16,7 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -38,7 +41,24 @@ public class GoodsAppraiseServiceImpl extends ServiceImpl<GoodsAppraiseMapper, G
 
 	@Override
 	public AppraiseCountVO getCount(GoodsAppraise goodsAppraise) {
-		return baseMapper.selectGoodsAppraiseCount(goodsAppraise);
+		AppraiseCountVO counts = baseMapper.selectGoodsAppraiseCount(goodsAppraise);
+		if (counts != null && counts.getAllCount() != null && counts.getAllCount() >= 3
+				&& StringUtils.hasText(goodsAppraise.getSpuId())) {
+			Map<String, Long> tags = new HashMap<>();
+			for (var group : baseMapper.selectGoodsAppraiseTagGroups(goodsAppraise)) {
+				Arrays.stream(group.tag().split(","))
+					.map(String::strip)
+					.filter(tag -> !tag.isEmpty())
+					.distinct()
+					.forEach(tag -> tags.merge(tag, group.count(), Long::sum));
+			}
+			counts.setTags(tags.entrySet().stream()
+				.sorted(Map.Entry.<String, Long>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+				.limit(6)
+				.map(entry -> new AppraiseCountVO.TagCount(entry.getKey(), entry.getValue()))
+				.toList());
+		}
+		return counts;
 	}
 
 	@Override

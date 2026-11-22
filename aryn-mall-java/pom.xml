@@ -95,6 +95,11 @@
         <dependencies>
             <dependency>
                 <groupId>com.aryn</groupId>
+                <artifactId>aryn-common-ai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aryn</groupId>
                 <artifactId>aryn-promotion-api</artifactId>
                 <version>${project.version}</version>
             </dependency>

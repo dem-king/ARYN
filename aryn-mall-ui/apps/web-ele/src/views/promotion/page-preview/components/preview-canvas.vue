@@ -314,9 +314,13 @@ function sectionAmbientColor(
     </header>
 
     <!-- 内嵌页型套原生骨架：装修块的真实落点与列宽在骨架里才看得见 -->
-    <CanvasPageShell v-if="isEmbeddedPage" :page-type="pageType">
+    <CanvasPageShell
+      v-if="isEmbeddedPage"
+      :page-type="pageType"
+      :user-center="document.page.userCenter"
+    >
       <div class="preview-embedded" :style="embeddedStyle">
-        <div v-if="isEmpty" class="preview-empty">
+        <div v-if="isEmpty && pageType !== '4'" class="preview-empty">
           {{ emptyText ?? '该页面还没有装修内容' }}
         </div>
         <div

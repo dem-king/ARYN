@@ -32,7 +32,6 @@ import {
   ElImage,
   ElInput,
   ElMessage,
-  ElMessageBox,
   ElOption,
   ElSelect,
   ElTable,
@@ -55,13 +54,13 @@ import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import ZoneBatchDialog from '#/views/product/zone-batch/components/ZoneBatchDialog.vue';
 import ZoneSkuEditor from '#/views/product/zone-batch/components/ZoneSkuEditor.vue';
+import { clearanceCandidate } from '#/views/product/zone-batch/price-preview';
 
 import BatchRecordDrawer from './components/BatchRecordDrawer.vue';
 import GoodsPickerDialog from './components/GoodsPickerDialog.vue';
 import ZoneActionBar from './components/ZoneActionBar.vue';
 import ZoneStatusHeader from './components/ZoneStatusHeader.vue';
 import {
-  buildRemoveConfirmText,
   buildRuleChips,
   buildZoneIdsPayload,
   buildZonePageQuery,
@@ -70,9 +69,7 @@ import {
   describeSelectAllResult,
   describeSelection,
   formatPrice,
-  formatRate,
   hasSkuOverride,
-  hasZoneRule,
   mergeFilterSelection,
   resolveBatchDoneTone,
   resolveSelectAllLimit,
@@ -132,6 +129,9 @@ const currentSyncZone = computed<null | ZoneSyncZone>(
 );
 const currentSetting = computed<ZoneSettingRow>(
   () => zoneSettings.value[zoneType.value] ?? {},
+);
+const defaultRate = computed(() =>
+  toNumber(currentSetting.value.defaultDiscountRate),
 );
 const syncFailed = computed(
   () =>
@@ -472,43 +472,16 @@ function openBatchRules() {
   openBatchDialog(effectiveIds.value, 'standard', 'rules');
 }
 
-async function openBatchRemove() {
+function openBatchRemove() {
   if (selectedCount.value === 0) {
     ElMessage.warning('请先选择商品');
     return;
   }
-  const ids = effectiveIds.value;
-  try {
-    await ElMessageBox.confirm(
-      buildRemoveConfirmText(zoneType.value, ids.length),
-      '批量移出专区',
-      {
-        cancelButtonText: '取消',
-        confirmButtonText: '继续移出',
-        type: 'warning',
-      },
-    );
-  } catch {
-    return;
-  }
-  openBatchDialog(ids, 'remove', 'remove');
+  openBatchDialog(effectiveIds.value, 'remove', 'remove');
 }
 
 /** 行内移出：复用共享弹窗的 remove 模式，先预检影响再确认 */
-async function handleRowRemove(row: Record<string, any> | ZoneGoodsRow) {
-  try {
-    await ElMessageBox.confirm(
-      buildRemoveConfirmText(zoneType.value, 1),
-      '移出专区',
-      {
-        cancelButtonText: '取消',
-        confirmButtonText: '继续移出',
-        type: 'warning',
-      },
-    );
-  } catch {
-    return;
-  }
+function handleRowRemove(row: ZoneGoodsRow) {
   openBatchDialog([String(row.id)], 'remove', 'remove');
 }
 
@@ -529,19 +502,22 @@ function handleBatchDone(payload: ZoneBatchDoneEvent) {
 // ---------------------------------------------------------------------------
 
 const skuDrawerVisible = ref(false);
-const skuSpuId = ref('');
-const skuSpuName = ref('');
-const skuDrawerTitle = computed(() =>
-  skuSpuName.value ? `专区规则精调 - ${skuSpuName.value}` : '专区规则精调',
+const editedRow = ref<null | ZoneGoodsRow>(null);
+const openSpecs = ref(false);
+const compactDrawer = useMediaQuery('(max-width: 760px)');
+const skuDrawerTitle = computed(
+  () =>
+    `${ZONE_LABEL[zoneType.value]} · ${editedRow.value?.name ?? '编辑价格规则'}`,
 );
 
-function openSkuEditor(row: Record<string, any> | ZoneGoodsRow) {
-  skuSpuId.value = String(row.id ?? '');
-  skuSpuName.value = String(row.name ?? '');
+function openSkuEditor(row: ZoneGoodsRow, showSpecs = false) {
+  editedRow.value = row;
+  openSpecs.value = showSpecs;
   skuDrawerVisible.value = true;
 }
 
 function handleSkuSaved() {
+  skuDrawerVisible.value = false;
   void refreshAll();
 }
 
@@ -585,12 +561,12 @@ function goBatchRecords() {
 // ---------------------------------------------------------------------------
 
 /** 生效状态徽标（模板内多次读取，集中到一处避免重复三目） */
-function stateMeta(row: Record<string, any>) {
+function stateMeta(row: Omit<ZoneGoodsRow, 'id'>) {
   return resolveStateMeta(row.state, row.stateLabel);
 }
 
 /** 生效价相对售价的实际折扣角标 */
-function discountOf(row: Record<string, any>) {
+function discountOf(row: Omit<ZoneGoodsRow, 'id'>) {
   return describeEffectiveDiscount(row.effectivePrice, row.salesPrice);
 }
 
@@ -598,16 +574,19 @@ function discountOf(row: Record<string, any>) {
  * 规则标记：未单独配规则但「生效中」时，价格来自专区默认折扣率，
  * 直接把实际口径写成「默认折扣 9折」，避免运营误判为「什么都没配」。
  */
-function ruleChips(row: Record<string, any>) {
-  const defaultRate = toNumber(currentSetting.value.defaultDiscountRate);
-  const inheritDefault =
-    !hasZoneRule(zoneType.value, row) &&
-    String(row.state ?? '').toUpperCase() === 'NORMAL' &&
-    defaultRate !== null;
-  if (inheritDefault) {
-    return [{ label: `默认折扣 ${formatRate(defaultRate)}` }];
+function ruleChips(row: Omit<ZoneGoodsRow, 'id'>) {
+  return buildRuleChips(zoneType.value, row, undefined, defaultRate.value);
+}
+
+function priceOf(row: Omit<ZoneGoodsRow, 'id'>) {
+  if (zoneType.value === 'clearance' && row.state === 'INVERTED') {
+    return clearanceCandidate(
+      row.originalPrice,
+      row.clearancePrice,
+      row.clearanceDiscountRate ?? defaultRate.value,
+    );
   }
-  return buildRuleChips(zoneType.value, row);
+  return row.effectivePrice;
 }
 
 /** 是否存在有效筛选条件（空状态下的「清空筛选」只在有筛选时才有意义） */
@@ -719,9 +698,9 @@ useKeepAliveRefresh(() => {
         <ElSelect
           v-model="filter.status"
           class="zone-filters__select zone-filters__select--status"
-          aria-label="商品状态"
+          aria-label="上架状态"
           clearable
-          placeholder="商品状态"
+          placeholder="上架状态"
           @change="handleSearch"
         >
           <ElOption
@@ -845,16 +824,16 @@ useKeepAliveRefresh(() => {
         <ElTableColumn width="190">
           <template #header>
             <span class="zone-th">
-              生效价
+              商品规则试算价
               <ElTooltip
-                content="生效价为 C 端实际展示的专区价；售价 / 原价为商品基础价格"
+                content="按商品级规则试算。规格设置、到期折扣和会员资格会影响最终专区价"
                 placement="top"
                 :trigger="['hover', 'focus']"
               >
                 <ElIcon
                   class="zone-th__tip"
                   tabindex="0"
-                  aria-label="价格口径说明：生效价为 C 端实际展示的专区价，售价与原价为商品基础价格"
+                  aria-label="价格口径说明"
                 >
                   <QuestionFilled />
                 </ElIcon>
@@ -866,17 +845,12 @@ useKeepAliveRefresh(() => {
               <div class="price-cell__main">
                 <span
                   class="price-cell__now"
-                  :class="{ 'is-empty': row.effectivePrice == null }"
-                  :title="
-                    hasSkuOverride(row)
-                      ? '含 SKU 精调：部分规格按精调价格展示'
-                      : undefined
-                  "
+                  :class="{
+                    'is-empty': priceOf(row) == null,
+                    'is-inverted': row.state === 'INVERTED',
+                  }"
                 >
-                  {{ formatPrice(row.effectivePrice) }}
-                </span>
-                <span v-if="hasSkuOverride(row)" class="price-cell__flag">
-                  含精调
+                  {{ formatPrice(priceOf(row)) }}
                 </span>
                 <span v-if="discountOf(row)" class="price-cell__off">
                   {{ discountOf(row) }}
@@ -884,7 +858,7 @@ useKeepAliveRefresh(() => {
               </div>
               <div class="price-cell__meta">
                 <span>售价 {{ formatPrice(row.salesPrice) }}</span>
-                <span v-if="row.originalPrice" class="price-cell__origin">
+                <span v-if="row.originalPrice">
                   原价 {{ formatPrice(row.originalPrice) }}
                 </span>
               </div>
@@ -897,14 +871,14 @@ useKeepAliveRefresh(() => {
             <span class="zone-th">
               专区规则
               <ElTooltip
-                content="规则按 SPU 配置；SKU 精调会按规格覆盖 SPU 规则"
+                content="商品规则适用于所有规格，可为个别规格单独设置"
                 placement="top"
                 :trigger="['hover', 'focus']"
               >
                 <ElIcon
                   class="zone-th__tip"
                   tabindex="0"
-                  aria-label="专区规则说明：规则按 SPU 配置，SKU 精调会按规格覆盖 SPU 规则"
+                  aria-label="专区规则说明"
                 >
                   <QuestionFilled />
                 </ElIcon>
@@ -924,35 +898,18 @@ useKeepAliveRefresh(() => {
               </span>
               <button
                 v-if="hasSkuOverride(row)"
+                v-access:code="'product:goodsspu:edit'"
                 type="button"
                 class="rule-chip rule-chip--action"
-                @click="openSkuEditor(row)"
+                @click="openSkuEditor(row as ZoneGoodsRow, true)"
               >
-                SKU 精调 {{ row.skuOverrideCount }}
+                查看规格设置
               </button>
             </div>
           </template>
         </ElTableColumn>
 
-        <ElTableColumn width="120" align="center">
-          <template #header>
-            <span class="zone-th">
-              生效状态
-              <ElTooltip
-                content="状态优先级：已下架 > 已到期 > 未配规则 > 倒挂不生效 > 生效中"
-                placement="top"
-                :trigger="['hover', 'focus']"
-              >
-                <ElIcon
-                  class="zone-th__tip"
-                  tabindex="0"
-                  aria-label="生效状态说明：状态优先级为已下架、已到期、未配规则、倒挂不生效、生效中"
-                >
-                  <QuestionFilled />
-                </ElIcon>
-              </ElTooltip>
-            </span>
-          </template>
+        <ElTableColumn label="试算状态" width="144" align="center">
           <template #default="{ row }">
             <ElTooltip :content="stateMeta(row).tip" placement="top">
               <span
@@ -973,15 +930,15 @@ useKeepAliveRefresh(() => {
                 v-access:code="'product:goodsspu:edit'"
                 link
                 type="primary"
-                @click="openSkuEditor(row)"
+                @click="openSkuEditor(row as ZoneGoodsRow)"
               >
-                调整规则
+                改价格规则
               </ElButton>
               <ElButton
                 v-access:code="'product:goodsspu:edit'"
                 link
                 type="danger"
-                @click="handleRowRemove(row)"
+                @click="handleRowRemove(row as ZoneGoodsRow)"
               >
                 移出
               </ElButton>
@@ -1044,14 +1001,19 @@ useKeepAliveRefresh(() => {
       <ElDrawer
         v-model="skuDrawerVisible"
         :title="skuDrawerTitle"
-        size="72%"
+        :size="compactDrawer ? '100%' : '720px'"
+        :append-to-body="true"
         :close-on-click-modal="false"
         destroy-on-close
       >
         <ZoneSkuEditor
-          v-if="skuSpuId"
-          :key="skuSpuId"
-          :spu-id="skuSpuId"
+          v-if="editedRow"
+          :key="editedRow.id"
+          :default-rate="defaultRate"
+          :row="editedRow"
+          :show-specs="openSpecs"
+          :spu-id="editedRow.id"
+          :zone="zoneType"
           @saved="handleSkuSaved"
         />
       </ElDrawer>
@@ -1313,7 +1275,11 @@ useKeepAliveRefresh(() => {
   font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--el-color-danger);
+  color: var(--el-text-color-primary);
+
+  &.is-inverted {
+    color: var(--el-color-danger);
+  }
 
   &.is-empty {
     font-size: 14px;
@@ -1337,15 +1303,6 @@ useKeepAliveRefresh(() => {
   border-radius: 4px;
 }
 
-.price-cell__flag {
-  padding: 0 5px;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--el-text-color-regular);
-  background: var(--el-fill-color);
-  border-radius: 4px;
-}
-
 .price-cell__meta {
   display: flex;
   flex-wrap: wrap;
@@ -1353,10 +1310,6 @@ useKeepAliveRefresh(() => {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--el-text-color-regular);
-}
-
-.price-cell__origin {
-  text-decoration: line-through;
 }
 
 /* 规则 chip */

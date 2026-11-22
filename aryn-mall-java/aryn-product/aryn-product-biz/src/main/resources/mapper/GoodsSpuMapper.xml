@@ -12,6 +12,14 @@
         <result column="name" property="name"/>
         <result column="attr_tags" property="attrTags"
                 typeHandler="com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler"/>
+        <result column="params_json" property="params"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsParamListTypeHandler"/>
+        <result column="goods_profile" property="goodsProfile"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsProfileTypeHandler"/>
+        <result column="detail_sections" property="detailSections"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsDetailSectionListTypeHandler"/>
+        <result column="service_tags" property="serviceTags"
+                typeHandler="com.aryn.cloud.product.api.hanlder.ServiceTagListTypeHandler"/>
         <collection property="goodsSkus" column="{spuId=id}"
                     ofType="com.aryn.cloud.product.api.entity.GoodsSku"
                     select="com.aryn.cloud.product.mapper.GoodsSkuMapper.selectBySpuId"></collection>
@@ -20,6 +28,14 @@
     <resultMap id="resultMap2" type="com.aryn.cloud.product.api.entity.GoodsSpu">
         <result column="attr_tags" property="attrTags"
                 typeHandler="com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler"/>
+        <result column="params_json" property="params"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsParamListTypeHandler"/>
+        <result column="goods_profile" property="goodsProfile"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsProfileTypeHandler"/>
+        <result column="detail_sections" property="detailSections"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsDetailSectionListTypeHandler"/>
+        <result column="service_tags" property="serviceTags"
+                typeHandler="com.aryn.cloud.product.api.hanlder.ServiceTagListTypeHandler"/>
         <collection property="goodsSkus" column="{spuId=id}"
                     ofType="com.aryn.cloud.product.api.entity.GoodsSku"
                     select="com.aryn.cloud.product.mapper.GoodsSkuMapper.selectBySpuId"></collection>
@@ -140,7 +156,11 @@
     <select id="selectSpuById" resultMap="goodsSpuMap">
         SELECT
         <include refid="goodsSpuSql"/>,
-        goods_spu.attr_tags
+        goods_spu.attr_tags,
+        goods_spu.params_json,
+        goods_spu.goods_profile,
+        goods_spu.detail_sections,
+        goods_spu.service_tags
         FROM
         goods_spu as `goods_spu`
         WHERE goods_spu.`id` =#{id} AND goods_spu.`del_flag` = '0'
@@ -294,9 +314,22 @@
     <select id="selectApiSpuById" resultMap="resultMap2">
         SELECT
         <include refid="goodsSpuSql"/>,
-        goods_spu.attr_tags
+        goods_spu.attr_tags,
+        goods_spu.params_json,
+        goods_spu.goods_profile,
+        goods_spu.detail_sections,
+        goods_spu.service_tags,
+        goods_brand.name AS brandName,
+        NULLIF(CONCAT_WS(' / ', NULLIF(first_category.name, ''), NULLIF(second_category.name, '')), '') AS categoryName
         FROM
         goods_spu AS goods_spu
+        LEFT JOIN goods_brand AS goods_brand ON goods_brand.id = goods_spu.brand_id
+            AND goods_brand.tenant_id = goods_spu.tenant_id
+            AND goods_brand.del_flag = '0' AND goods_brand.status = '0'
+        LEFT JOIN goods_category first_category ON first_category.id = goods_spu.category_first_id
+            AND first_category.tenant_id = goods_spu.tenant_id AND first_category.del_flag = '0'
+        LEFT JOIN goods_category second_category ON second_category.id = goods_spu.category_second_id
+            AND second_category.tenant_id = goods_spu.tenant_id AND second_category.del_flag = '0'
         where goods_spu.id = #{id}
         AND goods_spu.del_flag = '0'
         AND goods_spu.status = '1'

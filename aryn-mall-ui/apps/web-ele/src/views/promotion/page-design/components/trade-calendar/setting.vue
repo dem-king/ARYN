@@ -10,12 +10,14 @@ import {
   ElInputNumber,
   ElOption,
   ElSelect,
+  ElSwitch,
 } from 'element-plus';
 
 import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
+import LinkUrl from '../common/link-url/index.vue';
 
 const props = defineProps<{ modelValue: TradeCalendarProps }>();
 const emit = defineEmits<{
@@ -58,6 +60,15 @@ watch(
         :min="1"
         controls-position="right"
       />
+    </ElFormItem>
+    <ElFormItem label="展示查看全部">
+      <ElSwitch
+        :model-value="form.showMore !== false"
+        @update:model-value="(value) => (form.showMore = Boolean(value))"
+      />
+    </ElFormItem>
+    <ElFormItem v-if="form.showMore !== false" label="查看全部链接">
+      <LinkUrl v-model="form.moreLink" placeholder="留空默认进入档期特供会场" />
     </ElFormItem>
     <ElFormItem label="无数据策略">
       <ElSelect v-model="form.emptyStrategy">

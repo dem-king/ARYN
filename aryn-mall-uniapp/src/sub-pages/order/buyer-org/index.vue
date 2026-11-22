@@ -216,7 +216,7 @@
 <script setup lang="ts">
 import type { BuyerOrg, BuyerOrgMember } from '@/api/order/buyerOrg'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { onLoad } from '@dcloudio/uni-app'
 import {
   applyBuyerOrg,

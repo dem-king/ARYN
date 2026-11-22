@@ -15,7 +15,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
  * 但把目的地锁定到当前共享车，并保留底部「查看共享购物车」出口。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getSharedCart, getSharedCartItems } from '@/api/order/sharedCart'
 import { getActiveTree } from '@/api/product/category'
 import CategoryAllSheet from '@/components/category-all-sheet/index.vue'

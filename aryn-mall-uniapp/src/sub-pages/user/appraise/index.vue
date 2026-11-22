@@ -2,7 +2,7 @@
 import type { MessageResult } from 'wot-design-uni/components/wd-message-box/types'
 import { onShow } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import {

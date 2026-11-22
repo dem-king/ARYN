@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onPageScroll, onUnload } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { editPassword } from '@/sub-pages/api/user/user'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { getTopPage, isPageAlive } from '@/utils/navigation-lock'

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
-import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
 import { getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
@@ -25,6 +25,8 @@ import AddressSelector from './components/AddressSelector.vue'
 import CouponSelector from './components/CouponSelector.vue'
 import PaymentFooter from './components/PaymentFooter.vue'
 import ShopOrderItem from './components/ShopOrderItem.vue'
+import DeliveryGroupSchedule from '@/sub-pages/order/components/delivery-group-schedule.vue'
+import { useDeliverySchedule } from '@/sub-pages/order/composables/useDeliverySchedule'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -91,6 +93,7 @@ let settlementSeq = 0
 interface ImportHandoff {
   handoffId: string
   scene: string
+  buyerOrgId: string
   userAddressId: string
   remark: string
   vesselId: string
@@ -171,6 +174,7 @@ onLoad(async (options) => {
     importHandoff.value = {
       handoffId: directImportOrderStore.handoffId,
       scene: directImportOrderStore.scene,
+      buyerOrgId: directImportOrderStore.buyerOrgId,
       userAddressId: directImportOrderStore.userAddressId,
       remark: directImportOrderStore.remark,
       vesselId: directImportOrderStore.vesselId,
@@ -193,41 +197,54 @@ onLoad(async (options) => {
  * 失败（船被解绑、靠港删除、换船）时不清空交接、也不静默改用全局上下文，
  * 而是置位阻断并给出「重新选择靠港」入口；网络异常不阻断，服务端结算/提交仍校验。
  */
+let contextValidationEpoch = 0
 async function validateImportShipContext() {
+  const ticket = ++contextValidationEpoch
   const handoff = importHandoff.value
-  if (!handoff || handoff.scene === '3')
+  const delivery = currentDeliveryContext()
+  if (delivery.deliveryWay !== '4')
     return
-  if (!handoff.vesselId || !handoff.vesselCallId) {
+  const vesselId = delivery.vesselId || ''
+  const callId = delivery.vesselCallId || ''
+  const isCurrent = () => {
+    const latest = currentDeliveryContext()
+    return ticket === contextValidationEpoch && latest.deliveryWay === '4'
+      && latest.vesselId === vesselId && latest.vesselCallId === callId
+  }
+  if (!vesselId || !callId) {
     importContextInvalid.value = true
     return
   }
   try {
-    const vessels = await getMyVessels()
-    const vessel = (vessels || []).find((item: any) => item.id === handoff.vesselId)
-    if (!vessel) {
+    const [vessels, calls] = await Promise.all([getMyVessels(), getVesselCalls(vesselId)])
+    if (!isCurrent())
+      return
+    const vessel = (vessels || []).find((item: any) => item.id === vesselId)
+    const call = (calls || []).find((item: any) => item.id === callId)
+    if (!vessel || !call) {
       importContextInvalid.value = true
+      if (!handoff)
+        shipContextStore.clearVesselCall()
       return
     }
-    const calls = await getVesselCalls(handoff.vesselId)
-    const call = (calls || []).find((item: any) => item.id === handoff.vesselCallId)
-    if (!call) {
-      importContextInvalid.value = true
-      return
+    if (handoff) {
+      handoff.vesselName = vessel.vesselName || ''
+      handoff.portName = call.portName || ''
+      handoff.berth = call.berth || ''
+      directImportOrderStore.setVesselContext({
+        vesselId, vesselCallId: callId, vesselName: handoff.vesselName,
+        portName: handoff.portName, berth: handoff.berth,
+      })
     }
-    handoff.vesselName = vessel.vesselName || handoff.vesselName
-    handoff.portName = call.portName || handoff.portName
-    handoff.berth = call.berth || handoff.berth
-    directImportOrderStore.setVesselContext({
-      vesselId: handoff.vesselId,
-      vesselCallId: handoff.vesselCallId,
-      vesselName: handoff.vesselName,
-      portName: handoff.portName,
-      berth: handoff.berth,
-    })
+    else {
+      shipContextStore.setVesselContext({ vesselId, vesselName: vessel.vesselName, vesselCallId: callId,
+        portName: call.portName, portCode: call.portCode, berth: call.berth,
+        deliveryWindowStart: call.deliveryWindowStart, deliveryWindowEnd: call.deliveryWindowEnd })
+    }
     importContextInvalid.value = false
   }
   catch {
-    // 网络抖动不误判为「靠港失效」；服务端仍会做最终校验
+    // 网络异常不宣告成员失效；最新排程卡会显示读取失败，服务端仍做最终校验。
   }
 }
 
@@ -239,7 +256,7 @@ watch(
   () => [shipContextStore.vesselId, shipContextStore.vesselCallId] as const,
   ([vesselId, vesselCallId]) => {
     const handoff = importHandoff.value
-    if (!handoff || handoff.scene === '3' || !vesselId || !vesselCallId)
+    if (!handoff || handoff.scene === '3' || (handoff.scene === '1' && !handoff.vesselId) || !vesselId || !vesselCallId)
       return
     const changed = handoff.vesselId !== vesselId || handoff.vesselCallId !== vesselCallId
     handoff.vesselId = vesselId
@@ -263,25 +280,35 @@ watch(
 /** 岸上导入换地址后同步交接，刷新结算页仍恢复用户最后选择的地址 */
 watch(selectedAddress, (address) => {
   const handoff = importHandoff.value
-  if (!handoff || handoff.scene !== '3' || !address?.id)
+  if (!handoff || handoff.vesselId || !address?.id)
     return
   handoff.userAddressId = address.id
   directImportOrderStore.setUserAddressId(address.id)
 })
 
 /** 结算/提交共用的配送参数解析：切换积分/券重新结算也走同一份场景 */
-function applyCheckoutDeliveryContext() {
+function currentDeliveryContext() {
   const handoff = importHandoff.value
-  const resolved = resolveDeliveryContext({
+  return resolveDeliveryContext({
     deliveryWay: state.orderParams.deliveryWay,
     importScene: handoff?.scene,
+    importBuyerOrgId: handoff?.buyerOrgId,
     importVesselId: handoff?.vesselId,
     importVesselCallId: handoff?.vesselCallId,
     globalContext: shipContextStore.deliveryContextParams,
   })
+}
+function applyCheckoutDeliveryContext() {
+  const resolved = currentDeliveryContext()
   applyDeliveryContext(state.orderParams, resolved)
   return resolved
 }
+const { schedule, loading: scheduleLoading, failed: scheduleFailed, fetchedAt, refresh: refreshSchedule } = useDeliverySchedule(() => {
+  const delivery = currentDeliveryContext()
+  return delivery.deliveryWay === '4' && delivery.vesselId && delivery.vesselCallId
+    ? { vesselId: delivery.vesselId, vesselCallId: delivery.vesselCallId } : null
+})
+onShow(() => { void validateImportShipContext(); void refreshSchedule() })
 
 /** 是否拼团单：拼团价由服务端重算，支付方式必须在线（成团判定依赖支付回调） */
 const isGroupBuyOrder = computed(() => !!state.orderParams.groupBuyRecordId)
@@ -417,8 +444,9 @@ function initData() {
     // 用同一个解析函数生成参数，避免这里和 toSettlement/toPay 各写一套。
     const handoff = importHandoff.value
     applyDeliveryContext(state.orderParams, resolveDeliveryContext({
-      deliveryWay: handoff.scene === '3' ? '3' : '4',
+      deliveryWay: handoff.vesselId ? '4' : '3',
       importScene: handoff.scene,
+      importBuyerOrgId: handoff.buyerOrgId,
       importVesselId: handoff.vesselId,
       importVesselCallId: handoff.vesselCallId,
     }))
@@ -479,7 +507,7 @@ async function getDefaultAddress() {
   try {
     // 导入直下单（岸上）：预取向导里选定的收货地址，取不到再回落默认地址
     const handoff = importHandoff.value
-    if (handoff && handoff.scene === '3' && handoff.userAddressId) {
+    if (handoff && !handoff.vesselId && handoff.userAddressId) {
       try {
         const picked = await getAddressById(handoff.userAddressId)
         selectedAddress.value = picked?.id ? picked : null
@@ -725,7 +753,7 @@ async function toPay() {
   }
 
   // 导入船供：靠港在刷新后失效时不允许提交，必须重新选择（不能静默换用全局上下文）
-  if (importContextActive.value && importHandoff.value?.scene === '2' && importContextInvalid.value) {
+  if (importContextActive.value && importHandoff.value?.vesselId && importContextInvalid.value) {
     importShipPickerVisible.value = true
     return useGlobalToast().warning(t('checkout.importHandoff.invalidDesc'))
   }
@@ -834,6 +862,7 @@ function handleSelectedAddressUpdate(newAddress: Address) {
 uni.$on('update:selectedAddress', handleSelectedAddressUpdate)
 
 onUnload(() => {
+  contextValidationEpoch++
   uni.$off('update:selectedAddress', handleSelectedAddressUpdate)
   uni.$off('order-confirm:refresh', handleFillGapRefresh)
 })
@@ -847,7 +876,7 @@ onPageScroll(handlePageScroll)
   <view v-if="!loading" class="confirm-page">
     <!-- 导入船供：刷新后靠港已失效时阻断提交，并给出重新选择入口 -->
     <view
-      v-if="importContextActive && importHandoff?.scene === '2' && importContextInvalid"
+      v-if="importContextActive && importHandoff?.vesselId && importContextInvalid"
       class="import-warning"
     >
       <view class="import-warning__body">
@@ -881,16 +910,15 @@ onPageScroll(handlePageScroll)
         </view>
         <view class="ship-card__meta">
           {{ shipCardContext.portName }} {{ shipCardContext.berth }}
-          <text v-if="shipContextStore.deliveryWindowStart">
-            （{{ shipContextStore.deliveryWindowStart }} ~
-            {{ shipContextStore.deliveryWindowEnd }}）
-          </text>
+          
         </view>
         <view class="ship-card__note">
           {{ t('checkout.delivery.toVesselNote') }}
         </view>
       </view>
     </view>
+
+    <DeliveryGroupSchedule v-if="state.orderParams.deliveryWay === '4'" :schedule="schedule" :loading="scheduleLoading" :failed="scheduleFailed" :fetched-at="fetchedAt" checkout @refresh="refreshSchedule" />
 
     <!-- 收货地址选择（普通快递/商城配送） -->
     <AddressSelector

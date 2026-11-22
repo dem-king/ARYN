@@ -51,6 +51,8 @@ class FulfillmentServiceTest {
 
 	private FulfillmentServiceImpl service;
 
+	private com.aryn.cloud.order.support.DeliveryGroupFulfillment groupFulfillment;
+
 	@BeforeEach
 	void setUp() {
 		waveMapper = mock(FulfillmentWaveMapper.class);
@@ -59,8 +61,9 @@ class FulfillmentServiceTest {
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		orderItemMapper = mock(OrderItemMapper.class);
 		sharedCartMapper = mock(com.aryn.cloud.order.mapper.SharedCartMapper.class);
+		groupFulfillment = mock(com.aryn.cloud.order.support.DeliveryGroupFulfillment.class);
 		service = new FulfillmentServiceImpl(waveMapper, pickItemMapper, exceptionMapper, orderInfoMapper,
-				orderItemMapper, sharedCartMapper);
+				orderItemMapper, sharedCartMapper, groupFulfillment);
 	}
 
 	private FulfillmentWave wave(String status) {
@@ -115,13 +118,13 @@ class FulfillmentServiceTest {
 		orderInfo.setTenantId(TENANT);
 		orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
 		orderInfo.setPortCode("CNSTM");
-		when(orderInfoMapper.selectById("order-1")).thenReturn(orderInfo);
+		when(orderInfoMapper.selectOne(any())).thenReturn(orderInfo);
 
 		assertThrows(ArynBusinessException.class, () -> service.addOrderToWave(TENANT, "wave-1", "order-1"));
 	}
 
 	@Test
-	@DisplayName("订单加入波次按订单明细生成拣货明细，波次进入拣货中")
+	@DisplayName("订单加入波次生成明细并保持待拣货，允许继续加单")
 	void addOrderGeneratesPickItems() {
 		when(waveMapper.selectOne(any())).thenReturn(wave(FulfillmentWave.STATUS_PENDING_PICK));
 		OrderInfo orderInfo = new OrderInfo();
@@ -129,7 +132,7 @@ class FulfillmentServiceTest {
 		orderInfo.setTenantId(TENANT);
 		orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
 		orderInfo.setPortCode("CNSHA");
-		when(orderInfoMapper.selectById("order-1")).thenReturn(orderInfo);
+		when(orderInfoMapper.selectOne(any())).thenReturn(orderInfo);
 		when(pickItemMapper.selectCount(any())).thenReturn(0L);
 		OrderItemEntity orderItem = new OrderItemEntity();
 		orderItem.setId("oi-1");
@@ -140,8 +143,9 @@ class FulfillmentServiceTest {
 		List<FulfillmentPickItem> items = service.addOrderToWave(TENANT, "wave-1", "order-1");
 		assertEquals(1, items.size());
 		assertEquals(6, items.get(0).getRequiredQuantity());
-		assertEquals(FulfillmentWave.STATUS_PICKING, items.get(0).getPickStatus() != null
-				? wave(FulfillmentWave.STATUS_PICKING).getStatus() : null);
+		ArgumentCaptor<FulfillmentWave> captor = ArgumentCaptor.forClass(FulfillmentWave.class);
+		org.mockito.Mockito.verify(waveMapper, org.mockito.Mockito.never()).updateById(captor.capture());
+		assertEquals(FulfillmentPickItem.PICK_PENDING, items.get(0).getPickStatus());
 	}
 
 	@Test
@@ -153,8 +157,9 @@ class FulfillmentServiceTest {
 		orderInfo.setTenantId(TENANT);
 		orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
 		orderInfo.setPortCode("CNSHA");
-		when(orderInfoMapper.selectById("order-1")).thenReturn(orderInfo);
-		when(pickItemMapper.selectCount(any())).thenReturn(1L);
+		when(orderInfoMapper.selectOne(any())).thenReturn(orderInfo);
+		FulfillmentPickItem other = pickItem(); other.setWaveId("other-wave");
+		when(pickItemMapper.selectList(any())).thenReturn(List.of(other));
 
 		assertThrows(ArynBusinessException.class, () -> service.addOrderToWave(TENANT, "wave-1", "order-1"));
 	}
@@ -166,6 +171,32 @@ class FulfillmentServiceTest {
 		when(pickItemMapper.selectOne(any())).thenReturn(pickItem());
 
 		assertThrows(ArynBusinessException.class, () -> service.scanPick(TENANT, "picker-1", scanDTO("wrong", 5)));
+	}
+
+	@Test void batchAdmissionKeepsWaveOpenUntilExplicitStart() {
+		var wave = wave(FulfillmentWave.STATUS_PENDING_PICK);
+		when(waveMapper.selectOne(any())).thenReturn(wave);
+		OrderInfo a = new OrderInfo(); a.setId("a"); a.setTenantId(TENANT); a.setStatus("2"); a.setPortCode("CNSHA");
+		OrderInfo b = new OrderInfo(); org.springframework.beans.BeanUtils.copyProperties(a, b); b.setId("b");
+		when(orderInfoMapper.selectOne(any())).thenReturn(a, b);
+		OrderItemEntity item = new OrderItemEntity(); item.setId("oi"); item.setSkuId("sku"); item.setBuyQuantity(2);
+		when(orderItemMapper.selectList(any())).thenReturn(List.of(item));
+		var result = service.addOrdersToWave(TENANT, "wave-1", List.of("b", "a"));
+		assertEquals(2, result.size()); assertEquals(FulfillmentWave.STATUS_PENDING_PICK, wave.getStatus());
+		assertThrows(ArynBusinessException.class, () -> service.scanPick(TENANT, "picker", scanDTO("sku", 1)));
+		when(pickItemMapper.selectList(any())).thenReturn(result);
+		when(orderInfoMapper.selectOne(any())).thenReturn(a, b);
+		assertEquals(FulfillmentWave.STATUS_PICKING, service.startPicking(TENANT, "op", "wave-1").getStatus());
+		assertThrows(ArynBusinessException.class, () -> service.addOrdersToWave(TENANT, "wave-1", List.of("a", "b")));
+	}
+
+	@Test void differentCallAndDuplicateBatchAreRejected() {
+		when(waveMapper.selectOne(any())).thenReturn(wave(FulfillmentWave.STATUS_PENDING_PICK));
+		OrderInfo order = new OrderInfo(); order.setId("o"); order.setTenantId(TENANT); order.setStatus("2"); order.setPortCode("CNSHA"); order.setVesselCallId("other-call");
+		when(orderInfoMapper.selectOne(any())).thenReturn(order);
+		assertThrows(ArynBusinessException.class, () -> service.addOrderToWave(TENANT, "wave-1", "o"));
+		assertThrows(ArynBusinessException.class, () -> service.addOrdersToWave(TENANT, "wave-1", List.of("o", "o")));
+		org.mockito.Mockito.verify(pickItemMapper, org.mockito.Mockito.never()).insert(any(FulfillmentPickItem.class));
 	}
 
 	@Test

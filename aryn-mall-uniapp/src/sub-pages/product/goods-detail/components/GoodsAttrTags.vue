@@ -2,7 +2,7 @@
 import type { GoodsAttrTagIconKey, GoodsAttrTagPayload } from '@/api/product/attr-tags'
 import type { GoodsAttrTagView } from './goods-attr-tags'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { OVERLAY_Z_INDEX } from '@/utils/overlay'
 import { isAllowedInternalPagePath, normalizeGoodsAttrTags } from './goods-attr-tags'
 
@@ -44,8 +44,8 @@ const displayTags = computed(() => tags.value.map(tag => ({
   iconClass: tag.iconKey ? ICON_CLASS_MAP[tag.iconKey] : '',
 })))
 
-/** 超过 3 张改为单行横滑（不换行），第 4 张露出一截提示可滑 */
-const isScrollable = computed(() => displayTags.value.length > 3)
+/** 超过 4 张改为单行横滑（不换行），4 张以内等宽铺满；对应首屏 4 个采购标签 */
+const isScrollable = computed(() => displayTags.value.length > 4)
 
 const popupVisible = ref(false)
 const popupTitle = ref('')
@@ -91,8 +91,8 @@ function onTagClick(tag: GoodsAttrTagView) {
 <template>
   <view v-if="displayTags.length > 0" class="attr-tags">
     <!--
-      属性卡条：3 张以内等宽铺满整行；超过 3 张改为单行横滑（不换行），
-      第 4 张露出一截作为「还有更多」的提示。
+      属性卡条：4 张以内等宽铺满整行；超过 4 张改为单行横滑（不换行），
+      多出来的卡露出一截作为「还有更多」的提示。
     -->
     <scroll-view
       class="attr-tags__scroll"
@@ -108,7 +108,7 @@ function onTagClick(tag: GoodsAttrTagView) {
           v-for="tag in displayTags"
           :key="tag.key"
           class="attr-tag dark:bg-[var(--wot-dark-background4)]"
-          :class="`attr-tag--${tag.tone}`"
+          :class="[`attr-tag--${tag.tone}`, { 'attr-tag--compact': displayTags.length >= 4 }]"
           :hover-class="isActionable(tag) ? 'attr-tag--pressed' : 'none'"
           @click="onTagClick(tag)"
         >
@@ -175,7 +175,7 @@ function onTagClick(tag: GoodsAttrTagView) {
     display: flex;
     gap: 12rpx;
 
-    // 超量时才定宽横滑：3 张以内由 flex-grow 均分铺满整行，右侧不留白
+    // 超量时才定宽横滑：4 张以内由 flex-grow 均分铺满整行，右侧不留白
     &--scroll .attr-tag {
       flex: 0 0 176rpx;
     }
@@ -225,6 +225,22 @@ function onTagClick(tag: GoodsAttrTagView) {
     transform: scale(0.97);
   }
 
+  // 4 张并排时收紧字号和内边距，保证“500g/盒”“10盒/箱”不被省略号截断
+  &--compact {
+    padding: 10rpx 8rpx;
+
+    .attr-tag__value {
+      font-size: 20rpx;
+    }
+
+    .attr-tag__icon,
+    .attr-tag__img {
+      width: 22rpx;
+      height: 22rpx;
+      font-size: 22rpx;
+    }
+  }
+
   &__main {
     display: flex;
     min-width: 0;
@@ -248,15 +264,19 @@ function onTagClick(tag: GoodsAttrTagView) {
   }
 
   &__value {
+    display: -webkit-box;
     overflow: hidden;
     min-width: 0;
     flex: 1;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     color: var(--attr-tag-value, var(--app-text));
     font-size: 24rpx;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.25;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    word-break: break-word;
   }
 
   &__chevron {

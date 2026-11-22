@@ -94,6 +94,14 @@ class PublicEndpointWhitelistContractTest {
 			// 低价捡漏专区（商品级出清标签选品/批量查价，免登）
 			"/app/clearance/activity-goods",
 			"/app/clearance/prices",
+			// B2B 协议价批量查价（免登：游客/非成员主体上下文服务端净化）
+			"/app/policy/prices",
+			// B2B 采购档期与档期特供（全局公开价格层，免登）
+			"/app/calendar/list",
+			"/app/calendar/specials",
+			// B2B 阶梯价档位查询（商详阶梯表/结算进度提示，免登）
+			"/app/ladder/prices",
+			"/app/goods-hints/sample",
 			// 本机存储文件（装修图标等）
 			"/file/local/1590229800633634816/icon.jpg");
 

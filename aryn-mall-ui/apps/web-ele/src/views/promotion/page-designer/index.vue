@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import type { DecorationDocument, PageSettings } from './schema/types';
+import type { UserCenterSettings } from './schema/user-center';
+import type {
+  UserCenterModule,
+  UserCenterPreviewMode,
+} from './schema/user-center-preview';
 
 import type {
   PageDesignTheme,
@@ -43,6 +48,7 @@ import PublishDialog from './components/publish-dialog.vue';
 import SectionSettings from './components/section-settings.vue';
 import TemplateDialog from './components/template-dialog.vue';
 import ThemeDialog from './components/theme-dialog.vue';
+import UserCenterModuleSettings from './components/user-center-module-settings.vue';
 import { useDraftSave } from './composables/use-draft-save';
 import { usePageDesigner } from './composables/use-page-designer';
 import { getComponentDefinition } from './registry/component-registry';
@@ -70,6 +76,18 @@ const zoom = ref(1);
  * 按页型在加载完成后重置，避免从内嵌页切到微页面时把开关状态带过去。
  */
 const showPageShell = ref(true);
+const settingsTab = ref(pageType.value === '4' ? 'native' : 'component');
+const nativeModule = ref<'' | UserCenterModule>('services');
+const userCenterMode = ref<UserCenterPreviewMode>('personal');
+
+function editNativeModule(module: UserCenterModule) {
+  settingsTab.value = 'native';
+  nativeModule.value = module;
+}
+
+function patchUserCenter(value: undefined | UserCenterSettings) {
+  changed(() => designer.patchPage({ userCenter: value }));
+}
 const shellAvailable = computed(() => ['2', '3', '4'].includes(pageType.value));
 const loading = ref(true);
 const templateVisible = ref(false);
@@ -253,6 +271,7 @@ async function loadPage() {
     const editor = await getEditor(pageId.value);
     pageName.value = editor.pageName;
     pageType.value = editor.pageType;
+    settingsTab.value = editor.pageType === '4' ? 'native' : 'component';
     revision.value = editor.draftRevision;
     publishedStatus.value = editor.publishedStatus;
     themeRef.value =
@@ -292,6 +311,11 @@ function addComponent(type: string) {
 function addSection() {
   changed(() => designer.addSection(designer.activeSectionId.value));
 }
+
+const regularPageSettings = computed(() => {
+  const { userCenter: _userCenter, ...settings } = designer.document.value.page;
+  return settings;
+});
 
 function patchPage(value: PageSettings) {
   changed(() => designer.patchPage(value, 'page-settings'));
@@ -334,7 +358,7 @@ async function preview() {
 }
 
 async function publish(remark = '') {
-  if (designer.flatComponents.value.length === 0) {
+  if (pageType.value !== '4' && designer.flatComponents.value.length === 0) {
     ElMessage.warning('至少添加一个组件后再发布');
     return;
   }
@@ -506,20 +530,40 @@ onBeforeUnmount(() => {
         :selected-id="designer.selectedId.value"
         :show-page-shell="showPageShell"
         :theme-vars="canvasThemeVars"
+        :user-center-mode="userCenterMode"
         :zoom="zoom"
+        @edit-module="editNativeModule"
         @duplicate="(id) => changed(() => designer.duplicateComponent(id))"
         @move="
           (id, index, sectionId) =>
             changed(() => designer.moveComponent(id, index, sectionId))
         "
         @remove="(id) => changed(() => designer.removeComponent(id))"
-        @select="designer.selectComponent"
-        @select-section="designer.selectSection"
+        @select="
+          (id) => {
+            designer.selectComponent(id);
+            if (id && pageType === '4') settingsTab = 'component';
+          }
+        "
+        @select-section="
+          (id) => {
+            designer.selectSection(id);
+            if (pageType === '4') settingsTab = 'section';
+          }
+        "
       />
 
       <aside class="right-rail">
-        <ElTabs type="border-card" class="right-tabs">
-          <ElTabPane label="组件设置">
+        <ElTabs v-model="settingsTab" type="border-card" class="right-tabs">
+          <ElTabPane v-if="pageType === '4'" label="原生模块" name="native">
+            <UserCenterModuleSettings
+              v-model:active="nativeModule"
+              v-model:preview-mode="userCenterMode"
+              :model-value="designer.document.value.page.userCenter"
+              @update:model-value="patchUserCenter"
+            />
+          </ElTabPane>
+          <ElTabPane label="组件设置" name="component">
             <PropertyPanel
               :component="selectedComponent"
               @patch="
@@ -534,7 +578,7 @@ onBeforeUnmount(() => {
               "
             />
           </ElTabPane>
-          <ElTabPane label="区块设置">
+          <ElTabPane label="区块设置" name="section">
             <SectionSettings
               :section="selectedSection"
               @patch="
@@ -549,10 +593,10 @@ onBeforeUnmount(() => {
               "
             />
           </ElTabPane>
-          <ElTabPane label="页面设置">
+          <ElTabPane label="页面设置" name="page">
             <PageSettingsPanel
               :first-section="firstContentSection"
-              :model-value="designer.document.value.page"
+              :model-value="regularPageSettings"
               :page-name="pageName"
               :page-theme-name="pageThemeName"
               :page-type="pageType"

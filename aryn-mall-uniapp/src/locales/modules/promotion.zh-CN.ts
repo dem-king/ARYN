@@ -16,6 +16,22 @@ export default {
       daysClock: '{days}天 {clock}',
       days: '{days}天',
     },
+    // 档期特供会场（首页楼层「查看全部」落地页）
+    calendarSpecial: {
+      title: '档期特供',
+      count: '共 {count} 款特供',
+      emptyTitle: '暂无进行中的档期特供',
+      emptyDesc: '档期开启后，限量特供会在这里展示',
+      loadFailedTitle: '暂时无法加载档期特供',
+      loadFailedDesc: '下拉刷新重试，或先回首页逛逛',
+      backHome: '去首页逛逛',
+      quotaTotal: '整场限量 {count} 件',
+      quotaUnlimited: '不限量',
+      limitPerUser: '每人限 {count} 件',
+      limitNone: '不限购',
+      multiActivity: '{count} 场特供进行中',
+      footNote: '特供价、余量与限购以结算页为准',
+    },
     newbie: {
       title: '新人专享',
       goodsCount: '共 {count} 件新人价商品',

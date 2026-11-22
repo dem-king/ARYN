@@ -14,7 +14,7 @@ import java.util.List;
  * {@code RemoteReplenishImportMatchService} 的注释）。
  *
  * <p>船供包装资料（采购单位/MOQ/步长）与船供编码已下线（2026-09-29），
- * 本行模型只保留品名/规格/价格/库存等商品本体字段。
+ * 本轮以SKU商品事实重新引入度量版本及门槛，未审核存量不推断重量。
  *
  * @author aryn
  * @since 2026/9/22
@@ -23,6 +23,8 @@ import java.util.List;
 public class ReplenishImportSkuRow {
 
 	private String skuId;
+	private String identifierType;
+	private String identifierValue;
 
 	private String spuId;
 
@@ -37,6 +39,24 @@ public class ReplenishImportSkuRow {
 	private BigDecimal salesPrice;
 
 	private Integer stock;
+
+	private String salesUnit;
+
+	private String baseDimension;
+
+	private String baseUnit;
+
+	private BigDecimal baseQtyPerSalesUnit;
+
+	private String quantityPrecision;
+
+	private Integer minOrderQty;
+
+	private Integer stepQty;
+
+	private String unitSpecText;
+
+	private Long measurementRevision;
 
 	private List<GoodsSku.Specs> specsArr;
 

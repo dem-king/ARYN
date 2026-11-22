@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { LadderPriceItem } from '@/api/promotion/ladder-price'
 import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 
+import { useI18n } from '@/sub-pages/locales'
+import { getLadderPrices } from '@/api/promotion/ladder-price'
 import PriceText from '@/components/price-text/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
 import {
@@ -12,6 +14,7 @@ import {
   deliveryWayOptions,
 } from '@/sub-pages/utils/delivery-way'
 import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
+import { ladderTiersOf, nextLadderTier } from '@/utils/ladder-price'
 import { mergeNewbieSplitRows } from '@/utils/order-item-merge'
 
 interface OrderItem {
@@ -123,6 +126,7 @@ const paymentWay = ref(props.paymentWay || '')
 const paymentWayDraft = ref(paymentWay.value)
 // 创建本地响应式变量来避免直接修改prop
 const localOrder = ref<Order>({ ...props.order })
+const shipContextStore = useShipContextStore()
 
 const hasSelectedCoupon = computed(() => !!localOrder.value.couponUserId)
 
@@ -270,9 +274,45 @@ const activityTypeLabels = computed<Record<string, string>>(() => ({
   newbie: t('checkout.goods.newbiePrice'),
   policy: t('checkout.goods.policyPrice'),
   calendarSpecial: t('checkout.goods.calendarSpecialPrice'),
+  ladder: t('checkout.goods.ladderPrice'),
 }))
 function activityLabel(goods: OrderItem) {
   return goods.activityType ? (activityTypeLabels.value[goods.activityType] || '') : ''
+}
+
+/** 本单 SKU 的阶梯档位（免登接口，按场景/船舶圈定）：进度提示「再买 N 件单价降至 X」用 */
+const ladderPrices = ref<LadderPriceItem[]>([])
+async function loadLadderPrices() {
+  const skuIds = [...new Set((localOrder.value.orderItemList || []).map(item => item.skuId).filter(Boolean))]
+  if (!skuIds.length) {
+    ladderPrices.value = []
+    return
+  }
+  try {
+    ladderPrices.value = await getLadderPrices({
+      skuIds,
+      purchaseScene: shipContextStore.purchaseScene,
+      vesselId: shipContextStore.vesselId || undefined,
+    })
+  }
+  catch {
+    ladderPrices.value = []
+  }
+}
+loadLadderPrices()
+
+/**
+ * 阶梯进度提示：仅对普通/阶梯价行展示（协议价/秒杀/拼团/特供/新人价锁定基价，
+ * 不引导凑阶梯）；下一档单价必须低于当前售价才提示，避免「越买越贵」的误导。
+ */
+function ladderProgress(goods: OrderItem) {
+  const locked = ['policy', 'seckill', 'groupBuy', 'calendarSpecial', 'newbie']
+  if (goods.activityType && locked.includes(goods.activityType))
+    return ''
+  const next = nextLadderTier(ladderTiersOf(ladderPrices.value, goods.skuId), goods.buyQuantity)
+  if (!next || !(Number(goods.salesPrice) > next.unitPrice))
+    return ''
+  return t('checkout.goods.ladderProgress', { count: next.needQty, price: next.unitPrice })
 }
 
 /**
@@ -292,6 +332,7 @@ const displayTotalQuantity = computed(() =>
 // 监听prop变化以保持同步
 watch(() => props.order, (newOrder) => {
   localOrder.value = { ...newOrder }
+  loadLadderPrices()
 }, { deep: true })
 
 // 父组件在重新结算时可能改变配送方式（如绑定船舶后回落为内部配送），需同步已确认值
@@ -314,7 +355,6 @@ watch(() => props.paymentWay, (way) => {
 // 配送方式选项。已绑定船舶+靠港上下文（在船成员）只走内部配送（入口统一），
 // 未绑定时提供快递/自提/商城配送三种岸上方式。取值来自 @/sub-pages/utils/delivery-way，
 // 展示文案走本页词条，保证切换语言后即时刷新。
-const shipContextStore = useShipContextStore()
 
 /** 配送方式取值仍来自 delivery-way 单一来源，展示文案走本页词条 */
 const DELIVERY_WAY_LABEL_KEYS: Record<string, string> = {
@@ -438,6 +478,9 @@ function saveRemark() {
           </text>
           <text v-if="goods.newbieSplitHint" class="goods-row__split-hint">
             {{ t('checkout.goods.newbieSplitHint') }}
+          </text>
+          <text v-if="ladderProgress(goods)" class="goods-row__split-hint">
+            {{ ladderProgress(goods) }}
           </text>
           <view class="goods-row__price-line">
             <view class="goods-row__price">

@@ -61,8 +61,8 @@ public class SalesCustomerBindFacade implements ISalesCustomerBindFacade {
 						customerUserId, existingBind.getSalesStaffId(), dto.getInviterUserId());
 				return;
 			}
-			// 保持原分销绑定行为
-			distributionUserService.register(dto);
+			// 非销售邀请不再建立社交分销关系；销售 CRM 绑定分支继续保留。
+			B2bActivityAdmission.rejectRetired("社交分销绑定");
 			return;
 		}
 		if (customerUserId.equals(sales.getMemberUserId())) {

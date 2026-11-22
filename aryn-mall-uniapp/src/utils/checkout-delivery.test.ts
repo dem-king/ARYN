@@ -31,6 +31,15 @@ describe('resolveDeliveryContext', () => {
     expect(resolved).toEqual({ deliveryWay: '3', purchaseScene: '3' })
   })
 
+  it('企业交接携带采购主体，个人到岸与到船均保留个人场景', () => {
+    expect(resolveDeliveryContext({ deliveryWay: '3', importScene: '3', importBuyerOrgId: 'org-1' })).toEqual({ deliveryWay: '3', purchaseScene: '3', buyerOrgId: 'org-1' })
+    expect(resolveDeliveryContext({ deliveryWay: '4', importScene: '1' })).toEqual({ deliveryWay: '3', purchaseScene: '1' })
+    expect(resolveDeliveryContext({ deliveryWay: '3', importScene: '1', importVesselId: 'v', importVesselCallId: 'c' })).toEqual({ deliveryWay: '4', purchaseScene: '1', vesselId: 'v', vesselCallId: 'c' })
+    const params: Record<string, any> = { buyerOrgId: 'old-org' }
+    applyDeliveryContext(params, resolveDeliveryContext({ deliveryWay: '3', importScene: '1' }))
+    expect(params).not.toHaveProperty('buyerOrgId')
+  })
+
   it('普通到船沿用全局上下文（含场景），普通岸上不传场景', () => {
     expect(resolveDeliveryContext({
       deliveryWay: '4',

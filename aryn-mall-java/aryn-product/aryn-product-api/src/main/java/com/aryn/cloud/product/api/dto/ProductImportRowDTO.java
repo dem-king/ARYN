@@ -47,4 +47,22 @@ public class ProductImportRowDTO implements Serializable {
 	@Schema(description = "库存")
 	private Integer stock;
 
+	private String salesUnit;
+
+	private String baseDimension;
+
+	private String baseUnit;
+
+	private BigDecimal baseQtyPerSalesUnit;
+
+	private String quantityPrecision;
+
+	private Integer minOrderQty;
+
+	private Integer stepQty;
+
+	private String unitSpecText;
+
+	private Long measurementRevision;
+
 }

@@ -32,6 +32,10 @@ public interface IFulfillmentService {
 	 */
 	List<FulfillmentPickItem> addOrderToWave(String tenantId, String waveId, String orderId);
 
+	List<FulfillmentPickItem> addOrdersToWave(String tenantId, String waveId, List<String> orderIds);
+
+	FulfillmentWave startPicking(String tenantId, String operatorId, String waveId);
+
 	/**
 	 * 扫码拣货：校验 SKU 与数量，全部拣完自动进入已复核前置状态。
 	 */

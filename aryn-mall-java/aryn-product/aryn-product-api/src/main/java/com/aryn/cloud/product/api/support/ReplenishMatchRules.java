@@ -200,9 +200,9 @@ public final class ReplenishMatchRules {
 		if (quantity == null || quantity <= 0) {
 			return false;
 		}
-		int min = moq == null || moq < 1 ? 1 : moq;
-		int step = stepQty == null || stepQty < 1 ? 1 : stepQty;
-		return quantity >= min && quantity % step == 0;
+		int min = moq == null ? 1 : moq;
+		int step = stepQty == null ? 1 : stepQty;
+		return min > 0 && step > 0 && quantity >= min && (quantity - min) % step == 0;
 	}
 
 	/**
@@ -212,9 +212,10 @@ public final class ReplenishMatchRules {
 		if (stock == null || stock <= 0) {
 			return null;
 		}
-		int min = moq == null || moq < 1 ? 1 : moq;
-		int step = stepQty == null || stepQty < 1 ? 1 : stepQty;
-		int candidate = stock - (stock % step);
+		int min = moq == null ? 1 : moq;
+		int step = stepQty == null ? 1 : stepQty;
+		if (min < 1 || step < 1 || stock < min) return null;
+		int candidate = stock - ((stock - min) % step);
 		if (candidate < min) {
 			return null;
 		}

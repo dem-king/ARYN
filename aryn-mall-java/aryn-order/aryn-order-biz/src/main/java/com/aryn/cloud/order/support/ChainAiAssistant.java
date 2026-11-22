@@ -10,12 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
+import com.aryn.cloud.common.ai.contract.AiUsage;
+import com.aryn.cloud.upms.api.client.AiRuntimeClient;
+import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,7 +65,7 @@ public class ChainAiAssistant {
 			- person：报货人姓名或职务原文（如「任化东」「水手长」）；该条没有报人就填 null
 			- name：商品名。去掉数量和包装规格串（如 600ml*24瓶、500ML12罐、24罐装），但保留区分商品的口味/品种/做法词（如「青香蕉」「熟点」「蒜香」「卤牛腱子」）；「红和黄 各一斤」这类要拆成多条（name 写「小番茄 红」「小番茄 黄」）
 			- spec：包装规格原文，没有则 null
-			- quantity：正整数。中文数字（四、两、二十）转阿拉伯数字；「各一斤」按每样 1；数量不明填 null，不要替用户猜；规格里的数字不是数量
+			- quantity：原始正数，保留小数，禁止截断。中文数字（四、两、二十）转阿拉伯数字；「各一斤」按每样 1；数量不明填 null，不要替用户猜；规格里的数字不是数量
 			- unit：数量单位（斤/箱/包/瓶/罐/串/个等），没有则 null
 			- note：该条的备注原文（如「红和黄 各一斤」），没有则 null
 			只输出 JSON 数组。""";
@@ -83,41 +80,12 @@ public class ChainAiAssistant {
 			要求：只给同一种东西的通行叫法（西红柿→番茄、卷心菜→包菜、土豆→马铃薯、地瓜→红薯）；品牌名与加工口味变体不算（芬达≠橙子、番茄酱≠番茄）；不要带数量、包装、规格词；想不出就给空数组。
 			只输出 JSON：{"suggests":[{"rowNo":行号,"terms":["别名"]}]}，不要解释。""";
 
-	private final boolean enabled;
-
-	private final boolean aliasRecallEnabled;
-
-	private final String apiKey;
-
-	private final String model;
-
-	private final String baseUrl;
-
-	private final Duration timeout;
-
-	private final HttpClient httpClient = HttpClient.newBuilder()
-		.connectTimeout(Duration.ofSeconds(5))
-		.build();
-
-	public ChainAiAssistant(
-			@Value("${aryn.chain-ai.enabled:true}") boolean enabled,
-			@Value("${aryn.chain-ai.alias-recall-enabled:false}") boolean aliasRecallEnabled,
-			@Value("${aryn.chain-ai.api-key:}") String apiKey,
-			@Value("${aryn.chain-ai.model:deepseek-chat}") String model,
-			@Value("${aryn.chain-ai.base-url:https://api.deepseek.com}") String baseUrl,
-			@Value("${aryn.chain-ai.timeout-ms:20000}") long timeoutMs) {
-		this.enabled = enabled;
-		this.aliasRecallEnabled = aliasRecallEnabled;
-		this.apiKey = apiKey;
-		this.model = model;
-		this.baseUrl = baseUrl;
-		this.timeout = Duration.ofMillis(timeoutMs);
-	}
-
-	/** 开关打开且配了 key 才可用；未配置时调用方走纯规则路径 */
-	public boolean isAvailable() {
-		return enabled && StringUtils.hasText(apiKey);
-	}
+	private final OrderAiRuntime runtime;
+    private final boolean aliasRecallEnabled;
+    public ChainAiAssistant(OrderAiRuntime runtime,@Value("${aryn.chain-ai.alias-recall-enabled:false}") boolean aliasRecallEnabled) {
+        this.runtime=runtime;this.aliasRecallEnabled=aliasRecallEnabled;
+    }
+    public boolean isAvailable(){return runtime.available(AiUsage.PROCUREMENT_PARSE);}
 
 	/**
 	 * AI 别名召回开关（默认关）：缺品候选的主路径已由商品域的向量召回接管
@@ -130,7 +98,7 @@ public class ChainAiAssistant {
 
 	/** AI 解析出的单行（复用规则解析器的行结构，管道其余部分零改动） */
 	public List<ChainOrderTextParser.ParsedItem> parseChain(String text) {
-		String content = chat(buildChatBody(PARSE_SYSTEM_PROMPT, "接龙原文：\n" + text));
+		String content = chat(AiUsage.PROCUREMENT_PARSE, PARSE_SYSTEM_PROMPT, "接龙原文：\n" + text);
 		return parseChainContent(content);
 	}
 
@@ -157,7 +125,7 @@ public class ChainAiAssistant {
 			item.put("candidates", list);
 			items.add(item);
 		});
-		String content = chat(buildChatBody(PICK_SYSTEM_PROMPT, items.toJSONString()));
+		String content = chat(AiUsage.SKU_RERANK, PICK_SYSTEM_PROMPT, items.toJSONString());
 		return parsePickContent(content, candidatesByRowNo);
 	}
 
@@ -179,7 +147,7 @@ public class ChainAiAssistant {
 			item.put("name", name);
 			items.add(item);
 		});
-		String content = chat(buildChatBody(SUGGEST_SYSTEM_PROMPT, items.toJSONString()));
+		String content = chat(AiUsage.SKU_RERANK, SUGGEST_SYSTEM_PROMPT, items.toJSONString());
 		return parseSuggestContent(content, namesByRowNo);
 	}
 
@@ -197,10 +165,11 @@ public class ChainAiAssistant {
 			if (!StringUtils.hasText(name)) {
 				continue;
 			}
-			Integer quantity = parseIntSafe(row.get("quantity"));
+			java.math.BigDecimal rawQuantity = parseDecimal(row.get("quantity"));
+            Integer quantity = exactSalesQuantity(rawQuantity);
 			String spec = trimToNull(row.getString("spec"));
 			String note = trimToNull(row.getString("note"));
-			String segment = note != null ? note : name;
+			String segment = (note != null ? note : name) + "（原始数量：" + (rawQuantity == null ? "未知" : rawQuantity.toPlainString()) + " " + row.getString("unit") + "）";
 			if (spec != null) {
 				segment = segment + "（规格：" + spec + "）";
 			}
@@ -211,10 +180,10 @@ public class ChainAiAssistant {
 			items.add(new ChainOrderTextParser.ParsedItem(++lineNo,
 					trimToNull(row.getString("person")),
 					name,
-					quantityMissing ? 1 : Math.min(quantity, 999999),
+					quantityMissing ? null : quantity,
 					trimToNull(row.getString("unit")),
 					segment,
-					quantityMissing ? "未识别到数量，默认 1，请核对" : null));
+					quantityMissing ? (rawQuantity != null && rawQuantity.signum() > 0 ? "原始数量含小数或超出销售件数范围，请核对单位" : "数量缺失或无效，请核对") : null, rawQuantity));
 		}
 		if (items.isEmpty()) {
 			throw new IllegalStateException("AI 解析结果为空");
@@ -304,77 +273,9 @@ public class ChainAiAssistant {
 		return result;
 	}
 
-	private String buildChatBody(String systemPrompt, String userContent) {
-		JSONObject body = new JSONObject();
-		body.put("model", model);
-		JSONArray messages = new JSONArray();
-		JSONObject system = new JSONObject();
-		system.put("role", "system");
-		system.put("content", systemPrompt);
-		JSONObject user = new JSONObject();
-		user.put("role", "user");
-		user.put("content", userContent);
-		messages.add(system);
-		messages.add(user);
-		body.put("messages", messages);
-		body.put("temperature", 0.1);
-		// 结构化提取不需要思考链：GLM-4.5/4.7 关掉后更快，也不会被推理吃掉输出预算
-		// （glm-4 系实测容忍该参数）；max_tokens 留足 25 行接龙的 JSON 输出
-		JSONObject thinking = new JSONObject();
-		thinking.put("type", "disabled");
-		body.put("thinking", thinking);
-		body.put("max_tokens", 8192);
-		return body.toJSONString();
-	}
-
-	private String chat(String requestBody) {
-		// 过载（1305/429/5xx）这类秒回错误重试一次性价比高；超时类失败（已耗满
-		// timeout）不重试——解析有规则兜底，不能让用户干等两倍时长
-		for (int attempt = 1; attempt <= 2; attempt++) {
-			long startedAt = System.nanoTime();
-			try {
-				HttpRequest request = HttpRequest.newBuilder()
-					.uri(URI.create(baseUrl + "/chat/completions"))
-					.timeout(timeout)
-					.header("Authorization", "Bearer " + apiKey)
-					.header("Content-Type", "application/json")
-					.POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-					.build();
-				HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-				if (response.statusCode() != 200) {
-					throw new IllegalStateException("AI 接口 HTTP " + response.statusCode() + "：" + truncate(response.body()));
-				}
-				JSONObject root = JSON.parseObject(response.body());
-				JSONArray choices = root.getJSONArray("choices");
-				if (choices == null || choices.isEmpty()) {
-					throw new IllegalStateException("AI 返回缺少 choices");
-				}
-				String content = choices.getJSONObject(0).getJSONObject("message").getString("content");
-				if (!StringUtils.hasText(content)) {
-					throw new IllegalStateException("AI 返回内容为空");
-				}
-				return content;
-			}
-			catch (java.io.IOException | InterruptedException exception) {
-				if (exception instanceof InterruptedException) {
-					Thread.currentThread().interrupt();
-				}
-				throw new IllegalStateException("AI 接口调用失败：" + exception.getMessage(), exception);
-			}
-			catch (IllegalStateException exception) {
-				// 5 秒内返回的错误视为「瞬时拒绝」（过载/限流），值得立即重试一次
-				boolean fastFailure = System.nanoTime() - startedAt < FAST_FAIL_RETRY_WINDOW_NANOS;
-				if (attempt == 2 || !fastFailure) {
-					throw exception;
-				}
-				log.warn("AI 接口快速失败（{}），重试一次", exception.getMessage());
-			}
-		}
-		throw new IllegalStateException("unreachable");
-	}
-
-	/** 5 秒内返回的错误视为「瞬时拒绝」（过载/限流），值得立即重试一次 */
-	private static final long FAST_FAIL_RETRY_WINDOW_NANOS = 5_000_000_000L;
+	private String chat(AiUsage usage,String system,String input) {
+        return runtime.open(usage,UUID.randomUUID().toString()).text(system,input,java.util.Set.of()).output().toString();
+    }
 
 	private static String truncate(String text) {
 		if (text == null) {
@@ -391,12 +292,20 @@ public class ChainAiAssistant {
 		return trimmed.isEmpty() ? null : trimmed;
 	}
 
+	private static java.math.BigDecimal parseDecimal(Object value) {
+        if(value==null) return null;
+        try{return new java.math.BigDecimal(value.toString().strip());}catch(NumberFormatException ex){return null;}
+    }
+    private static Integer exactSalesQuantity(java.math.BigDecimal quantity) {
+        try { int value=quantity.intValueExact();return value>0 && value<=999999?value:null; }
+        catch(ArithmeticException|NullPointerException ex){return null;}
+    }
 	private static Integer parseIntSafe(Object value) {
 		if (value == null) {
 			return null;
 		}
 		if (value instanceof Number number) {
-			return number.intValue();
+			try{return new java.math.BigDecimal(number.toString()).intValueExact();}catch(ArithmeticException ex){return null;}
 		}
 		try {
 			return Integer.valueOf(value.toString().strip());
@@ -440,7 +349,7 @@ public class ChainAiAssistant {
 			return JSON.parseArray(block);
 		}
 		catch (Exception exception) {
-			throw new IllegalStateException("AI 输出不是合法的 JSON 数组：" + truncate(block));
+			throw new IllegalStateException("AI 输出不是合法的 JSON 数组");
 		}
 	}
 
@@ -450,7 +359,7 @@ public class ChainAiAssistant {
 			return JSON.parseObject(block);
 		}
 		catch (Exception exception) {
-			throw new IllegalStateException("AI 输出不是合法的 JSON 对象：" + truncate(block));
+			throw new IllegalStateException("AI 输出不是合法的 JSON 对象");
 		}
 	}
 

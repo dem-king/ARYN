@@ -6,12 +6,12 @@ import { alovaInstance } from '@/api/core/instance'
 
 /** 船舶档案（C 端返回本人作为成员的在营船舶） */
 export function getMyVessels() {
-  return alovaInstance.Get<any[]>('/vessel/app/my-vessels')
+  return alovaInstance.Get<any[]>('/vessel/app/my-vessels', { cacheFor: 0 })
 }
 
 /** 船舶可用靠港计划（排除已过期/已完成/已取消） */
 export function getVesselCalls(vesselId: string) {
-  return alovaInstance.Get<any[]>(`/vessel/app/${vesselId}/calls`)
+  return alovaInstance.Get<any[]>(`/vessel/app/${encodeURIComponent(vesselId)}/calls`, { cacheFor: 0 })
 }
 
 /** 船舶配送上下文（下一靠港、港口、泊位、时间窗） */

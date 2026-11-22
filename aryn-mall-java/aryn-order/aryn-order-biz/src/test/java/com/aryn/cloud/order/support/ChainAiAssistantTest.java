@@ -46,7 +46,7 @@ class ChainAiAssistantTest {
 		assertEquals("任化东", items.get(0).personName());
 		assertEquals("青香蕉", items.get(0).goodsName());
 		assertEquals(3, items.get(0).quantity());
-		assertEquals(1, items.get(1).quantity(), "数量缺失按 1 兜底");
+		assertEquals(null, items.get(1).quantity(), "缺数量必须人工补填");
 	}
 
 	@Test
@@ -63,10 +63,10 @@ class ChainAiAssistantTest {
 
 		assertEquals(3, items.size());
 		assertEquals(null, items.get(0).warning(), "数量正常的行不带疑点，报告页不再满屏警告");
-		assertEquals(1, items.get(1).quantity(), "非数字数量按 1 兜底");
-		assertEquals("未识别到数量，默认 1，请核对", items.get(1).warning());
-		assertEquals(1, items.get(2).quantity(), "非正数数量按 1 兜底");
-		assertEquals("未识别到数量，默认 1，请核对", items.get(2).warning());
+		assertEquals(null, items.get(1).quantity(), "非数字数量必须核对");
+		assertEquals("数量缺失或无效，请核对", items.get(1).warning());
+		assertEquals(null, items.get(2).quantity(), "非正数数量不得变成1");
+		assertEquals("数量缺失或无效，请核对", items.get(2).warning());
 	}
 
 	@Test
@@ -140,17 +140,20 @@ class ChainAiAssistantTest {
 	}
 
 	@Test
-	@DisplayName("可用性：未配 key 或开关关闭都不可用，调用方走纯规则；别名召回默认关")
-	void availabilityGate() {
-		assertFalse(new ChainAiAssistant(true, false, "", "glm-4.7-flash",
-				"https://open.bigmodel.cn/api/paas/v4", 20000).isAvailable());
-		assertFalse(new ChainAiAssistant(false, false, "some-key", "glm-4.7-flash",
-				"https://open.bigmodel.cn/api/paas/v4", 20000).isAvailable());
-		assertTrue(new ChainAiAssistant(true, false, "some-key", "glm-4.7-flash",
-				"https://open.bigmodel.cn/api/paas/v4", 20000).isAvailable());
-		// 别名召回是独立开关（缺品备胎，默认关），与整体可用性无关
-		assertTrue(new ChainAiAssistant(true, true, "some-key", "glm-4.7-flash",
-				"https://open.bigmodel.cn/api/paas/v4", 20000).isAliasRecallEnabled());
-	}
+    void availabilityComesFromRuntimeOnly() {
+        var runtime=org.mockito.Mockito.mock(OrderAiRuntime.class);
+        var client=new ChainAiAssistant(runtime,false);
+        assertFalse(client.isAvailable());
+        org.mockito.Mockito.when(runtime.available(com.aryn.cloud.common.ai.contract.AiUsage.PROCUREMENT_PARSE)).thenReturn(true);
+        assertTrue(client.isAvailable());
+        assertFalse(client.isAliasRecallEnabled());
+    }
+
+    @Test void decimalRawQuantityNeverTruncatesToSalesPieces() {
+        var items=ChainAiAssistant.parseChainContent("[{\"name\":\"土豆\",\"quantity\":1.5,\"unit\":\"kg\"}]");
+        assertEquals(new java.math.BigDecimal("1.5"),items.get(0).rawQuantity());
+        assertEquals(null,items.get(0).quantity());
+        assertTrue(items.get(0).warning().contains("核对"));
+    }
 
 }

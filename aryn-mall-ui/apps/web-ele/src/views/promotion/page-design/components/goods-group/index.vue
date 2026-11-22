@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import type { GoodsGroupProps } from './types';
 
-import { watch } from 'vue';
+import { inject, watch } from 'vue';
 
 import { Picture, ShoppingCart } from '@element-plus/icons-vue';
 import { ElIcon, ElImage } from 'element-plus';
 
+import {
+  campaignPreviewGoodsKey,
+  selectCampaignPreviewGoods,
+} from '../common/retail-preview/campaign-preview';
 import { shouldShowOriginalPrice } from '../common/retail-preview/price-display';
 import { loadGoodsGroup } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
@@ -15,6 +19,7 @@ import { createRetailPreviewController } from '../common/retail-preview/use-reta
 import { validateGoodsGroup } from './types';
 
 const props = defineProps<{ showData: GoodsGroupProps }>();
+const captured = inject(campaignPreviewGoodsKey, undefined);
 const controller =
   createRetailPreviewController<
     Awaited<ReturnType<typeof loadGoodsGroup>>[number]
@@ -22,10 +27,12 @@ const controller =
 const { state } = controller;
 
 watch(
-  () => props.showData,
-  (showData) =>
+  [() => props.showData, () => captured?.value],
+  ([showData]) =>
     controller.load(validateGoodsGroup(showData), () =>
-      loadGoodsGroup(showData),
+      captured
+        ? Promise.resolve(selectCampaignPreviewGoods(showData, captured.value))
+        : loadGoodsGroup(showData),
     ),
   { deep: true, immediate: true },
 );

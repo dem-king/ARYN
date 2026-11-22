@@ -82,8 +82,19 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 			.map(String::trim)
 			.distinct()
 			.toList();
-		Map<String, ReplenishImportSkuRow> rowByCode = codeValues.isEmpty() ? Map.of()
+		Map<String, ReplenishImportSkuRow> rowByCode = codeValues.isEmpty() ? new LinkedHashMap<>()
 				: loadRowsByCodes(tenantId, codeValues);
+
+		List<String> identifierValues = new ArrayList<>();
+		for (var dto : rows) {
+			String type = dto.getCodeType() == null ? "SKU_ID" : dto.getCodeType();
+			if (!Set.of("SKU_ID", "IMPA", "ISSA", "CUSTOM").contains(type)) throw new IllegalArgumentException("不支持的商品码制");
+			if (StringUtils.hasText(dto.getCode()) && !"SKU_ID".equals(type)) identifierValues.add(SkuIdentifierService.normalized(type, dto.getCode()));
+			if (StringUtils.hasText(dto.getName())) identifierValues.add(SkuIdentifierService.normalized("ALIAS", dto.getName()));
+		}
+		if (!identifierValues.isEmpty()) for (var mapped : replenishImportMatchMapper.selectRowsByIdentifiers(tenantId, identifierValues.stream().distinct().toList())) {
+			rowByCode.put(mapped.getIdentifierType() + ":" + mapped.getIdentifierValue(), mapped);
+		}
 
 		// 二、品名兜底所需的候选
 		List<String> exactNames = rows.stream()
@@ -221,7 +232,7 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 		Map<String, ReplenishImportSkuRow> rowByCode = new LinkedHashMap<>();
 		for (ReplenishImportSkuRow row : rows) {
 			if (StringUtils.hasText(row.getSkuId())) {
-				rowByCode.put(row.getSkuId(), row);
+				rowByCode.put("SKU_ID:" + row.getSkuId(), row);
 			}
 		}
 		return rowByCode;
@@ -241,6 +252,9 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 			vo.setName(row.getName());
 			vo.setSpec(joinSpecs(row));
 			vo.setStock(row.getStock());
+		vo.setMoq(row.getMinOrderQty() == null ? 1 : row.getMinOrderQty());
+		vo.setStepQty(row.getStepQty() == null ? 1 : row.getStepQty());
+		vo.setMeasurement(measurement(row));
 			vo.setSalesPrice(row.getSalesPrice());
 			// 编码列即 SKU 编号：导出与 matchRows 回查共用同一稳定键
 			vo.setCode(row.getSkuId());
@@ -283,6 +297,9 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 			vo.setSpec(joinSpecs(row));
 			vo.setSalesPrice(row.getSalesPrice());
 			vo.setStock(row.getStock());
+		vo.setMoq(row.getMinOrderQty() == null ? 1 : row.getMinOrderQty());
+		vo.setStepQty(row.getStepQty() == null ? 1 : row.getStepQty());
+		vo.setMeasurement(measurement(row));
 			vo.setSkuStatus(row.getSkuStatus());
 			vo.setSpuStatus(row.getSpuStatus());
 			result.add(vo);
@@ -295,6 +312,10 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 			Map<String, ReplenishImportSkuRow> nameRows,
 			Map<String, ReplenishImportSkuRow> fuzzyRows) {
 		List<ReplenishImportSkuRow> byCode = resolveByCode(dto, rowByCode);
+		if (byCode.isEmpty() && StringUtils.hasText(dto.getName())) {
+			var alias = rowByCode.get("ALIAS:" + SkuIdentifierService.normalized("ALIAS", dto.getName()));
+			if (alias != null) byCode = List.of(alias);
+		}
 		List<ReplenishImportSkuRow> candidates = byCode.isEmpty()
 				? resolveByName(dto, nameRows)
 				: byCode;
@@ -336,7 +357,9 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 		if (!StringUtils.hasText(dto.getCode())) {
 			return List.of();
 		}
-		ReplenishImportSkuRow row = rowByCode.get(dto.getCode().trim());
+		String type = dto.getCodeType() == null ? "SKU_ID" : dto.getCodeType();
+		String value = "SKU_ID".equals(type) ? dto.getCode().trim() : SkuIdentifierService.normalized(type, dto.getCode());
+		ReplenishImportSkuRow row = rowByCode.get(type + ":" + value);
 		return row == null ? List.of() : List.of(row);
 	}
 
@@ -458,6 +481,13 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 		return ambiguous;
 	}
 
+	private com.aryn.cloud.product.api.support.ProductMeasurementRules.Measurement measurement(ReplenishImportSkuRow row) {
+		return new com.aryn.cloud.product.api.support.ProductMeasurementRules.Measurement(
+			row.getSalesUnit() == null ? "件" : row.getSalesUnit(), row.getBaseDimension(), row.getBaseUnit(), row.getBaseQtyPerSalesUnit(),
+			row.getQuantityPrecision() == null ? "UNKNOWN" : row.getQuantityPrecision(), row.getMinOrderQty() == null ? 1 : row.getMinOrderQty(),
+			row.getStepQty() == null ? 1 : row.getStepQty(), row.getMeasurementRevision() == null ? 0L : row.getMeasurementRevision());
+	}
+
 	private ReplenishImportMatchVO toMatched(ReplenishImportMatchDTO dto, ReplenishImportSkuRow row,
 			String matchType) {
 		ReplenishImportMatchVO vo = new ReplenishImportMatchVO();
@@ -469,6 +499,9 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 		vo.setSpec(joinSpecs(row));
 		vo.setSalesPrice(row.getSalesPrice());
 		vo.setStock(row.getStock());
+		vo.setMoq(row.getMinOrderQty() == null ? 1 : row.getMinOrderQty());
+		vo.setStepQty(row.getStepQty() == null ? 1 : row.getStepQty());
+		vo.setMeasurement(measurement(row));
 		vo.setSkuStatus(row.getSkuStatus());
 		vo.setSpuStatus(row.getSpuStatus());
 		return vo;
@@ -489,6 +522,7 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 		candidate.setSpec(joinSpecs(row));
 		candidate.setSalesPrice(row.getSalesPrice());
 		candidate.setStock(row.getStock());
+		candidate.setMeasurement(measurement(row));
 		candidate.setSkuStatus(row.getSkuStatus());
 		candidate.setSpuStatus(row.getSpuStatus());
 		return candidate;

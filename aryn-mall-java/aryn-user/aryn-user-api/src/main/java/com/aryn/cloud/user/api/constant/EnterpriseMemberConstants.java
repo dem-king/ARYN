@@ -39,6 +39,20 @@ public final class EnterpriseMemberConstants {
 	/** 权益类型：账期天数（预留，本期不生效） */
 	public static final String BENEFIT_CREDIT_DAYS = "7";
 
+	/**
+	 * 购买场景 → 企业主体类型（订单计价与企业成长值共用，避免两处各写一份映射）：
+	 * 2 船供采购→船舶、3 企业采购→岸上企业；个人（1/空）返回 null 走个人轨。
+	 */
+	public static String subjectTypeForScene(String purchaseScene) {
+		if ("2".equals(purchaseScene)) {
+			return SUBJECT_VESSEL;
+		}
+		if ("3".equals(purchaseScene)) {
+			return SUBJECT_BUYER_ORG;
+		}
+		return null;
+	}
+
 	private EnterpriseMemberConstants() {
 	}
 

@@ -68,4 +68,21 @@ public interface PromotionActivityMapper extends BaseMapper<PromotionActivity> {
 	int releaseQuota(@Param("tenantId") String tenantId, @Param("activityId") String activityId,
 			@Param("units") int units);
 
+	/**
+	 * 退款按锁回补限量（档期特供）：锁上已回补件数原子累计做幂等闸门，
+	 * 累计不超过本锁占用件数（quotaUnits）才回补活动 consumed_quota。
+	 * 返回 0 表示重复投递/超额回补被拒；调用方须与活动回补同事务。
+	 */
+	@Update("""
+			UPDATE `promotion_lock`
+			   SET `refunded_quota_units` = `refunded_quota_units` + #{units},
+			       `update_time` = NOW()
+			 WHERE `id` = #{lockId}
+			   AND `tenant_id` = #{tenantId}
+			   AND `del_flag` = '0'
+			   AND `refunded_quota_units` + #{units} <= #{quotaUnits}
+			""")
+	int accumulateRefundedQuota(@Param("tenantId") String tenantId, @Param("lockId") String lockId,
+			@Param("units") int units, @Param("quotaUnits") int quotaUnits);
+
 }

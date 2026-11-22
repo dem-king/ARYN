@@ -73,6 +73,18 @@ public class FulfillmentController {
 		return Result.success(fulfillmentService.addOrderToWave(ArynTenantContextHolder.getTenantId(), waveId, orderId));
 	}
 
+	@SaCheckPermission("fulfillment:wave:save")
+	@PostMapping("/wave/{waveId}/orders/batch")
+	public Result<List<FulfillmentPickItem>> addOrders(@PathVariable String waveId, @RequestBody List<String> orderIds) {
+		return Result.success(fulfillmentService.addOrdersToWave(ArynTenantContextHolder.getTenantId(), waveId, orderIds));
+	}
+
+	@SaCheckPermission("fulfillment:wave:pick")
+	@PostMapping("/wave/{waveId}/start")
+	public Result<FulfillmentWave> start(@PathVariable String waveId) {
+		return Result.success(fulfillmentService.startPicking(ArynTenantContextHolder.getTenantId(), StpUtil.getLoginIdAsString(), waveId));
+	}
+
 	@Operation(summary = "扫码拣货")
 	@SaCheckPermission("fulfillment:wave:pick")
 	@PostMapping("/pick/scan")

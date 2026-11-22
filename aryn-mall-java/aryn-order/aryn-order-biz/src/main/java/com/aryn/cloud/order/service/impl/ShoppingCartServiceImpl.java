@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.order.service.impl;
 
+import com.aryn.cloud.product.api.support.ProductMeasurementRules;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -175,7 +176,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		// 防串船：合并范围限定在同用户 + 同 SKU + 同靠港（无上下文归入“未指定”组）
 		ShoppingCart mergeable = findMergeableRow(userId, sku.getId(), request.getVesselCallId());
 		if (mergeable != null) {
-			return baseMapper.incrementQuantityById(userId, mergeable.getId(), request.getQuantity()) > 0;
+			return incrementChecked(userId, mergeable, request.getQuantity(), sku);
 		}
 		// 无靠港上下文加购：靠港结束后客户端不再持有靠港快照，再买同款若只按靠港归组，
 		// 会在「无归属」组新建第二行；滞留行与无归属行最终都按常规配送，没有区分意义，
@@ -183,9 +184,10 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		if (!StringUtils.hasText(request.getVesselCallId())) {
 			ShoppingCart stranded = findStrandedRowOfSameVessel(userId, sku.getId(), request.getVesselId());
 			if (stranded != null) {
-				return baseMapper.incrementQuantityById(userId, stranded.getId(), request.getQuantity()) > 0;
+				return incrementChecked(userId, stranded, request.getQuantity(), sku);
 			}
 		}
+		requireQuantity(sku, request.getQuantity());
 		ShoppingCart shoppingCart = buildCart(userId, sku, request.getQuantity(), request);
 		try {
 			return super.save(shoppingCart);
@@ -193,7 +195,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		catch (DuplicateKeyException exception) {
 			ShoppingCart concurrent = findMergeableRow(userId, sku.getId(), request.getVesselCallId());
 			if (concurrent != null) {
-				return baseMapper.incrementQuantityById(userId, concurrent.getId(), request.getQuantity()) > 0;
+				return incrementChecked(userId, concurrent, request.getQuantity(), sku);
 			}
 			throw exception;
 		}
@@ -225,7 +227,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			.eq(ShoppingCart::getDelFlag, "0")
 			.isNotNull(ShoppingCart::getVesselCallId)
 			.ne(ShoppingCart::getVesselCallId, "")
-			.orderByDesc(ShoppingCart::getCreateTime));
+			.orderByDesc(ShoppingCart::getCreateTime).last("FOR UPDATE"));
 		if (CollectionUtils.isEmpty(candidates)) {
 			return null;
 		}
@@ -264,7 +266,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			wrapper.and(query -> query.isNull(ShoppingCart::getVesselCallId)
 				.or().eq(ShoppingCart::getVesselCallId, ""));
 		}
-		return baseMapper.selectOne(wrapper.last("LIMIT 1"));
+		return baseMapper.selectOne(wrapper.last("LIMIT 1 FOR UPDATE"));
 	}
 
 	/**
@@ -283,8 +285,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		int added = 0;
 		for (ShoppingCartCreateDTO item : items) {
 			try {
-				// 数量规则（MOQ/步长）随船供包装资料下线（2026-09-29）：
-				// 批量加购不再做 MOQ/步长拦截，与单条加购口径一致。
+				// 单条入口统一校验合并后的MOQ/步长，单项失败保留其余成功项。
 				if (saveShoppingCart(userId, item)) {
 					added++;
 				}
@@ -329,13 +330,14 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 	public boolean updateShoppingCart(String userId, ShoppingCartUpdateDTO request) {
 		ShoppingCart source = baseMapper.selectOne(Wrappers.<ShoppingCart>lambdaQuery()
 			.eq(ShoppingCart::getId, request.getId())
-			.eq(ShoppingCart::getUserId, userId));
+			.eq(ShoppingCart::getUserId, userId).last("FOR UPDATE"));
 		if (source == null) {
 			throw new ArynBusinessException("购物车商品不存在");
 		}
 		String targetSkuId = StringUtils.hasText(request.getSkuId()) ? request.getSkuId() : source.getSkuId();
 		GoodsSku sku = requireSaleSku(targetSkuId, request.getQuantity());
 		if (targetSkuId.equals(source.getSkuId())) {
+			requireQuantity(sku, request.getQuantity());
 			applySkuSnapshot(source, sku);
 			source.setQuantity(request.getQuantity());
 			return super.updateById(source);
@@ -346,20 +348,23 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			.eq(ShoppingCart::getSkuId, sku.getId())
 			.eq(ShoppingCart::getVesselCallId, source.getVesselCallId())
 			.ne(ShoppingCart::getId, source.getId())
-			.last("LIMIT 1"));
+			.last("LIMIT 1 FOR UPDATE"));
 		if (target != null) {
-			baseMapper.incrementQuantityById(userId, target.getId(), request.getQuantity());
+			incrementChecked(userId, target, request.getQuantity(), sku);
 			return baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 				.eq(ShoppingCart::getId, source.getId())
 				.eq(ShoppingCart::getUserId, userId)) > 0;
 		}
+		requireQuantity(sku, request.getQuantity());
 		applySkuSnapshot(source, sku);
 		source.setQuantity(request.getQuantity());
 		try {
 			return super.updateById(source);
 		}
 		catch (DuplicateKeyException exception) {
-			baseMapper.incrementQuantityById(userId, source.getId(), request.getQuantity());
+			ShoppingCart concurrent = findMergeableRow(userId, sku.getId(), source.getVesselCallId());
+			if (concurrent == null || concurrent.getId().equals(source.getId())) throw exception;
+			incrementChecked(userId, concurrent, request.getQuantity(), sku);
 			return baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 				.eq(ShoppingCart::getId, source.getId())
 				.eq(ShoppingCart::getUserId, userId)) > 0;
@@ -457,7 +462,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			.eq(ShoppingCart::getSkuId, row.getSkuId())
 			.eq(ShoppingCart::getVesselCallId, targetCallId)
 			.ne(ShoppingCart::getId, row.getId())
-			.last("LIMIT 1"));
+			.last("LIMIT 1 FOR UPDATE"));
 		if (existing == null) {
 			try {
 				return baseMapper.update(null, Wrappers.<ShoppingCart>lambdaUpdate()
@@ -474,21 +479,38 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 					.eq(ShoppingCart::getSkuId, row.getSkuId())
 					.eq(ShoppingCart::getVesselCallId, targetCallId)
 					.ne(ShoppingCart::getId, row.getId())
-					.last("LIMIT 1"));
+					.last("LIMIT 1 FOR UPDATE"));
 				if (existing == null) {
 					throw exception;
 				}
 			}
 		}
 		// 原子加量防并发丢数量；源行随逻辑删除退场
-		baseMapper.incrementQuantityById(row.getUserId(), existing.getId(), row.getQuantity());
+		GoodsSku currentSku = requireSaleSku(row.getSkuId(), row.getQuantity());
+		incrementChecked(row.getUserId(), existing, row.getQuantity(), currentSku);
 		baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 			.eq(ShoppingCart::getId, row.getId())
 			.eq(ShoppingCart::getTenantId, tenantId));
 		return true;
 	}
 
+	private void requireQuantity(GoodsSku sku, Integer quantity) {
+		try { ProductMeasurementRules.requireSalesQuantity(sku, quantity); }
+		catch (IllegalArgumentException exception) { throw new ArynBusinessException(exception.getMessage()); }
+		if (sku.getStock() == null || quantity > sku.getStock()) throw new ArynBusinessException("合并数量超过当前库存");
+	}
+
+	private boolean incrementChecked(String userId, ShoppingCart target, int delta, GoodsSku sku) {
+		int total;
+		try { total = Math.addExact(target.getQuantity() == null ? 0 : target.getQuantity(), delta); }
+		catch (ArithmeticException exception) { throw new ArynBusinessException("数量超出上限"); }
+		requireQuantity(sku, total);
+		if (baseMapper.incrementQuantityById(userId, target.getId(), delta) != 1) throw new ArynBusinessException("购物车已变化，请刷新");
+		return true;
+	}
+
 	private GoodsSku requireSaleSku(String skuId, int quantity) {
+		if (quantity <= 0) throw new ArynBusinessException("数量必须为正整数");
 		List<GoodsSku> skuList = remoteGoodsSkuService.getBySkuIds(List.of(skuId));
 		if (skuList == null || skuList.size() != 1 || skuList.get(0).getGoodsSpu() == null
 				|| skuList.get(0).getStock() == null || skuList.get(0).getStock() < quantity) {

@@ -52,6 +52,9 @@ public class DeliveryTask extends Model<DeliveryTask> {
 	@Schema(description = "取货仓库地址快照")
 	private String warehouseAddress;
 
+	/** 明确的履约仓库快照；旧任务为空时由管理员在入波次前核定。 */
+	private String warehouseId;
+
 	@Schema(description = "收货人姓名")
 	private String recipientName;
 

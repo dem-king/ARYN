@@ -23,6 +23,18 @@ spring:
 
 # IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
 aryn:
+  ai:
+    key-id: ${AI_MASTER_KEY_ID:primary}
+    keys:
+      primary: ${AI_MASTER_KEY_PRIMARY:}
+    allowed-private-hosts: ${AI_ALLOWED_PRIVATE_HOSTS:}
+    runtime-tokens:
+      order: ${AI_RUNTIME_TOKEN_ORDER:}
+      product: ${AI_RUNTIME_TOKEN_PRODUCT:}
+      promotion: ${AI_RUNTIME_TOKEN_PROMOTION:}
+    daily-token-limit: ${AI_DAILY_TOKEN_LIMIT:1000000}
+    max-concurrent: ${AI_MAX_CONCURRENT:4}
+    max-task-calls: ${AI_MAX_TASK_CALLS:100}
   ip:
     enabled: ${ARYN_IP_ENABLED:true}
     fallback-http: ${ARYN_IP_FALLBACK_HTTP:true}

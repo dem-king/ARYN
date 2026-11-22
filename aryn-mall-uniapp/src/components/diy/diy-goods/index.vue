@@ -85,6 +85,17 @@ function cardDisplay(item: any): ListZonePrice {
   return zone.cardPriceOf(item, props.showData?.showOriginalPrice === true)
 }
 
+/**
+ * 营销标签行是否渲染（v-if 与价格区收边共用同一判据）。
+ * 有 chip 时价格上间距压到 6px：chip 自身行高留白已占 ~3px，
+ * 沿用默认 10px 会让 chip 到价格比 chip 到副标题还松。
+ */
+function hasInfoTagRow(item: any): boolean {
+  if (props.showData?.showSalesPrice !== true) return false
+  const display = cardDisplay(item)
+  return display.badgeKind === 'newbie' || Boolean(display.socialProofText) || Boolean(display.priceTagText)
+}
+
 function cardMainPrice(item: any): number {
   return cardDisplay(item).mainPrice
 }
@@ -168,11 +179,13 @@ const originalPriceStyle = computed(() => {
                   {{ stockHintText(item.stock) }}
                 </view>
                 <!--
-                  营销标签行：新人价=红橙渐变+星芒的专享钩子；社证=浅桃底热销 chip+数字加粗。
-                  独立在价格行上方，价格行只留身份价 tag（秒杀/会员/捡漏）+ 主价 + 划线。
+                  营销标签行：新人价=红橙渐变+星芒的专享钩子；社证=浅桃底热销 chip+数字加粗；
+                  近N天最低价=与社证同族的暖橙 chip（2026-11-15 并入本行）。
+                  三枚 chip 同字号/内边距/胶囊圆角，独立在价格行上方；价格行只留身份价 tag
+                  （秒杀/会员/捡漏）+ 主价 + 划线。
                 -->
                 <view
-                  v-if="showData.showSalesPrice && (cardDisplay(item).badgeKind === 'newbie' || cardDisplay(item).socialProofText)"
+                  v-if="hasInfoTagRow(item)"
                   class="goods-info-chip-row"
                 >
                   <view v-if="cardDisplay(item).badgeKind === 'newbie'" class="goods-info-chip goods-info-chip--newbie">
@@ -191,8 +204,13 @@ const originalPriceStyle = computed(() => {
                       {{ proofParts(item).after }}
                     </text>
                   </view>
+                  <!-- 近N天最低价：与社证同族 chip（浅桃底暖橙字 + 降价折线图标），服务端成文直渲染 -->
+                  <view v-if="cardDisplay(item).priceTagText" class="goods-info-chip price-tag">
+                    <text class="price-tag-icon" />
+                    <text>{{ cardDisplay(item).priceTagText }}</text>
+                  </view>
                 </view>
-                <view class="goods-info-price">
+                <view class="goods-info-price" :class="{ 'goods-info-price--tagged': hasInfoTagRow(item) }">
                   <view
                     v-if="showData.showSalesPrice" class="price-info"
                     :style="{ 'color': showData.salesPriceColor, 'fontSize': `${showData.salesPriceSize}px`, 'font-weight': showData.salesPriceStyle === '1' ? 'bold' : '' }"
@@ -204,11 +222,6 @@ const originalPriceStyle = computed(() => {
                       {{ cardBadgeText(item) }}
                     </text>
                     <price-text :value="cardMainPrice(item)" symbol="￥" />
-                    <!-- 近N天最低价：主价旁描边小标（固定红系不随主题，见需求文档视觉规范） -->
-                    <text v-if="cardDisplay(item).priceTagText" class="price-tag">
-                      <text class="price-tag-icon" />
-                      {{ cardDisplay(item).priceTagText }}
-                    </text>
                     <!--
                       划线价：会员价/捡漏价命中划当前售价；普通价由后台「商品原价」开关控制，
                       且只在原价高于售价时显示（存量商品原价多为 0，直接渲染会划出「￥0」）。
@@ -337,15 +350,16 @@ const originalPriceStyle = computed(() => {
             }
 
             /*
-             * 营销标签行：新人价钩子 + 热销社证 chip 并排，nowrap 裁切不堆叠。
-             * 视觉增强版（2026-11-08）：新人=红橙渐变星芒，社证=浅桃底数字加粗。
+             * 营销标签行：新人价钩子 + 热销社证 + 近N天最低价同排
+             * （2026-11-08 视觉增强；2026-11-15 最低价并入本行）。
+             * 三枚 chip 同字号/内边距/胶囊圆角；放不下时整枚换行，不裁字也不掉进价格行。
              * 【位置硬约束】标签行在模板里是 .goods-box-info 的直接子节点、在
              * .goods-info-price 之外，规则必须挂在本层——嵌进价格块会编译成
              * 后代选择器永远命中不了（首版标签「素」的根因即样式裸奔）。
              */
             .goods-info-chip-row {
               display: flex;
-              flex-wrap: nowrap;
+              flex-wrap: wrap;
               align-items: center;
               gap: 3px;
               overflow: hidden;
@@ -406,6 +420,11 @@ const originalPriceStyle = computed(() => {
               /* 加购按钮绝对定位在右上：价格行预留按钮列，最低价贴纸/划线价不会滑到按钮底下 */
               padding-right: 26px;
 
+              /* 有营销标签行时收边：chip→价格 7px，与其它三张卡同档 */
+              &.goods-info-price--tagged {
+                margin-top: 7px;
+              }
+
               &.goods-cell-3 {
                 padding-right: 20px;
               }
@@ -422,28 +441,21 @@ const originalPriceStyle = computed(() => {
                 white-space: nowrap;
               }
 
-              /* 近N天最低价贴纸：浅红实底+600 字重，px 体系随本卡（令牌见 goods-tag.scss） */
+              /*
+               * 近N天最低价：与社证同族的暖橙 chip（2026-11-15 收敛），px 体系随本卡。
+               * 基础度量复用 .goods-info-chip（9px/1.5），这里只补 hot 身份与图标排布。
+               */
               .price-tag {
-                display: inline-flex;
-                align-items: center;
+                @include goods-tag-hot;
                 gap: 1px;
-                flex-shrink: 0;
-                margin-left: 4px;
-                max-width: 100%;
-                overflow: hidden;
-                padding: 0 4px;
-                border-radius: 3px;
-                font-size: 10px;
-                line-height: 14px;
-                white-space: nowrap;
-                @include goods-tag-low;
+                padding: 1px 4px;
               }
 
               .price-tag-icon {
-                width: 8px;
-                height: 6px;
+                width: 9px;
+                height: 7px;
                 flex-shrink: 0;
-                @include goods-tag-low-icon;
+                @include goods-tag-hot-icon;
               }
 
               /* 划线原价：字号/颜色由装修配置内联覆盖，这里只给保底样式与删除线 */

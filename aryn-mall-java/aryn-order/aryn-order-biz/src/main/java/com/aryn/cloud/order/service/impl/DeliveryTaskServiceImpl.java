@@ -128,6 +128,9 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		applyInternalDeliverySnapshot(task, orderInfo);
 		DeliveryWarehouseConfig warehouseConfig = deliveryWarehouseConfigService.getConfig();
 		if (warehouseConfig != null) {
+			if (orderInfo.getFulfillmentWarehouseId() != null && !orderInfo.getFulfillmentWarehouseId().equals(warehouseConfig.getId()))
+				throw new ArynBusinessException("订单已核定其它仓库，请在履约工作台处理");
+			task.setWarehouseId(warehouseConfig.getId());
 			task.setWarehouseAddress(buildWarehouseAddress(warehouseConfig));
 		}
 		try {

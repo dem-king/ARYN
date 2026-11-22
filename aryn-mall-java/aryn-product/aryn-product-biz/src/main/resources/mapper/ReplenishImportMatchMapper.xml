@@ -35,6 +35,16 @@
         sku.`status` AS sku_status,
         sku.sales_price,
         sku.stock,
+        sku.sales_unit,
+        sku.base_dimension,
+        sku.base_unit,
+        sku.base_qty_per_sales_unit,
+        sku.quantity_precision,
+        sku.min_order_qty,
+        sku.step_qty,
+        sku.unit_spec_text,
+        sku.measurement_revision,
+
         sku.specs_arr,
         sku.create_time
     </sql>
@@ -114,6 +124,16 @@
         sku.`status` AS sku_status,
         sku.sales_price,
         sku.stock,
+        sku.sales_unit,
+        sku.base_dimension,
+        sku.base_unit,
+        sku.base_qty_per_sales_unit,
+        sku.quantity_precision,
+        sku.min_order_qty,
+        sku.step_qty,
+        sku.unit_spec_text,
+        sku.measurement_revision,
+
         sku.specs_arr,
         category_first.`name` AS category_first_name,
         category_second.`name` AS category_second_name,
@@ -141,6 +161,47 @@
             sku.id
         LIMIT #{limit}
     </select>
+    <select id="selectCatalogCursor" resultMap="replenishImportSkuRowMap">
+        SELECT
+        sku.id AS sku_id,
+        sku.spu_id AS spu_id,
+        spu.`name` AS `name`,
+        spu.`status` AS spu_status,
+        sku.`status` AS sku_status,
+        sku.sales_price,
+        sku.stock,
+        sku.sales_unit,
+        sku.base_dimension,
+        sku.base_unit,
+        sku.base_qty_per_sales_unit,
+        sku.quantity_precision,
+        sku.min_order_qty,
+        sku.step_qty,
+        sku.unit_spec_text,
+        sku.measurement_revision,
+
+        sku.specs_arr,
+        category_first.`name` AS category_first_name,
+        category_second.`name` AS category_second_name,
+        COALESCE(category_first.`sort`, 9999) AS category_first_sort,
+        COALESCE(category_second.`sort`, 9999) AS category_second_sort
+        FROM goods_sku sku
+        JOIN goods_spu spu
+            ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id
+               AND spu.del_flag = '0' AND spu.`status` = '1'
+        LEFT JOIN goods_category category_first
+            ON category_first.id = spu.category_first_id AND category_first.tenant_id = spu.tenant_id
+               AND category_first.del_flag = '0'
+        LEFT JOIN goods_category category_second
+            ON category_second.id = spu.category_second_id AND category_second.tenant_id = spu.tenant_id
+               AND category_second.del_flag = '0'
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND sku.`status` = '0'
+        <if test="cursor != null">AND sku.id &gt; #{cursor}</if>
+        ORDER BY sku.id
+        LIMIT #{limit}
+    </select>
 
     <!-- 目录真实总数：与 selectCatalogRows 同源同条件，供「模板只含前 N 项」如实告知 -->
     <select id="countCatalogRows" resultType="int">
@@ -154,4 +215,12 @@
           AND sku.`status` = '0'
     </select>
 
+    <select id="selectRowsByIdentifiers" resultMap="replenishImportSkuRowMap">
+        SELECT <include refid="skuRowColumns"/>, mapping.identifier_type, mapping.normalized_value AS identifier_value
+        <include refid="skuRowJoins"/>
+        JOIN product_sku_identifier mapping ON mapping.sku_id=sku.id AND mapping.tenant_id=sku.tenant_id
+        WHERE sku.tenant_id=#{tenantId} AND sku.del_flag='0' AND mapping.del_flag='0' AND mapping.status='APPROVED'
+          AND mapping.normalized_value IN
+        <foreach collection="values" item="value" open="(" separator="," close=")">#{value}</foreach>
+    </select>
 </mapper>

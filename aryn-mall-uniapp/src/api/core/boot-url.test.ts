@@ -71,6 +71,14 @@ describe('boot URL rewriting', () => {
     )
   })
 
+  it('routes persistent procurement and upload paths in both modes', () => {
+    for (const suffix of ['', '/draft-1/text', '/draft-1/excel', '/draft-1/items', '/draft-1/batches/batch-1/confirm', '/draft-1/batches/batch-1/rows/row-1']) {
+      const path = `/mall-order/app/procurement-drafts${suffix}`
+      expect(rewriteBootUrl(path, false)).toBe(path)
+      expect(rewriteBootUrl(path, true)).toBe(`/boot/app/procurement-drafts${suffix}`)
+    }
+  })
+
   it('does not rewrite disabled, absolute, or already rewritten URLs', () => {
     expect(rewriteBootUrl('/auth/toc-token/login', false)).toBe(
       '/auth/toc-token/login',
@@ -87,4 +95,11 @@ describe('boot URL rewriting', () => {
     expect(parseOpenBoot('TRUE')).toBe(true)
     expect(parseOpenBoot(undefined)).toBe(false)
   })
+})
+
+it('合送排程双模式路径保持订单域与查询参数', () => {
+  expect(rewriteBootUrl('/mall-order/app/delivery-groups/checkout?vesselId=v&vesselCallId=c', false)).toBe('/mall-order/app/delivery-groups/checkout?vesselId=v&vesselCallId=c')
+  expect(rewriteBootUrl('/mall-order/app/delivery-groups/checkout?vesselId=v&vesselCallId=c', true)).toBe('/boot/app/delivery-groups/checkout?vesselId=v&vesselCallId=c')
+  expect(rewriteBootUrl('/mall-order/app/delivery-groups/orders/own', false)).toBe('/mall-order/app/delivery-groups/orders/own')
+  expect(rewriteBootUrl('/mall-order/app/delivery-groups/orders/own', true)).toBe('/boot/app/delivery-groups/orders/own')
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPointsExchanges, getPointsRecordPage, redeemPointsExchange } from '@/api/user/points'
 import type { PointsExchangeItem, PointsRecord } from '@/api/user/points'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'

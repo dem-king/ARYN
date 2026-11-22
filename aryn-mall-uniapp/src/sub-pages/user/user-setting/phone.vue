@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { editPhone } from '@/sub-pages/api/user/user'
 import { sendSmsCode } from '@/api/upms/sms'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'

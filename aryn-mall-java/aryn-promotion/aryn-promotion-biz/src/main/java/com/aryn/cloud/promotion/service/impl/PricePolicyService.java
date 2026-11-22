@@ -18,7 +18,6 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,6 +57,56 @@ public class PricePolicyService {
 	@DubboReference
 	private com.aryn.cloud.user.api.remote.RemoteEnterpriseUserService remoteEnterpriseUserService;
 
+	/** 船舶成员校验（协议价船舶上下文越权防护）；非 final + @DubboReference（boot 启动兼容写法）。 */
+	@DubboReference
+	private com.aryn.cloud.vessel.api.remote.RemoteVesselService remoteVesselService;
+
+	/** 岸上主体成员校验（协议价企业上下文越权防护）；非 final + @DubboReference。 */
+	@DubboReference
+	private com.aryn.cloud.order.api.remote.RemoteOrderContextService remoteOrderContextService;
+
+	/**
+	 * 查价上下文净化（2026-11-15 审查修复：主体越权防护 + 免登兼容）。
+	 *
+	 * <p>未登录：清空主体上下文（只保留客群标签维度，游客无标签自然返空）；
+	 * 已登录：船舶/企业上下文逐一校验本人成员资格，非成员清空该维度（fail-closed，
+	 * 不阻断其余维度）。成交资格仍以下单链校验为准，本净化只防展示侧窥探他主体合同价。
+	 */
+	public void sanitizeSubjectContext(String tenantId, String userId, PolicyPriceQueryDTO query) {
+		if (query == null) {
+			return;
+		}
+		if (!StringUtils.hasText(userId)) {
+			query.setBuyerOrgId(null);
+			query.setVesselId(null);
+			return;
+		}
+		if (StringUtils.hasText(query.getVesselId())) {
+			boolean member = false;
+			try {
+				member = remoteVesselService.isVesselMember(tenantId, query.getVesselId(), userId);
+			}
+			catch (Exception ex) {
+				log.warn("协议价查价船舶成员校验失败，按非成员处理 vessel={} user={}", query.getVesselId(), userId, ex);
+			}
+			if (!member) {
+				query.setVesselId(null);
+			}
+		}
+		if (StringUtils.hasText(query.getBuyerOrgId())) {
+			boolean member = false;
+			try {
+				member = remoteOrderContextService.isUsableBuyerOrgMember(tenantId, userId, query.getBuyerOrgId());
+			}
+			catch (Exception ex) {
+				log.warn("协议价查价主体成员校验失败，按非成员处理 org={} user={}", query.getBuyerOrgId(), userId, ex);
+			}
+			if (!member) {
+				query.setBuyerOrgId(null);
+			}
+		}
+	}
+
 	/** 政策列表（管理端，含全部状态，del_flag 过滤由逻辑删除插件处理）。 */
 	public List<PricePolicy> list(String tenantId, String status, String keyword) {
 		return pricePolicyMapper.selectList(Wrappers.lambdaQuery(PricePolicy.class)
@@ -75,6 +124,12 @@ public class PricePolicyService {
 		return policy;
 	}
 
+	/** 写命令先锁主体，防人工编辑与活动包启用交错覆盖。 */
+	private PricePolicy writablePolicy(String tenantId, String id) {
+		return pricePolicyMapper.selectOne(Wrappers.lambdaQuery(PricePolicy.class)
+			.eq(PricePolicy::getTenantId, tenantId).eq(PricePolicy::getId, id).last("FOR UPDATE"));
+	}
+
 	/** 政策 SKU 明细（管理端编辑回显）。 */
 	public List<PricePolicyItem> listItems(String tenantId, String policyId) {
 		return pricePolicyItemMapper.selectList(Wrappers.lambdaQuery(PricePolicyItem.class)
@@ -90,14 +145,14 @@ public class PricePolicyService {
 		policy.setTenantId(tenantId);
 		validatePolicy(policy);
 		pricePolicyMapper.insert(policy);
-		upsertItems(tenantId, policy.getId(), items);
+		upsertItems(tenantId, policy.getId(), policy.getPriceMode(), items);
 		return policy;
 	}
 
 	/** 修改政策基础信息与明细（按唯一键 upsert 复用行，payload 外的存量明细逻辑删除）。 */
 	@Transactional(rollbackFor = Exception.class)
 	public PricePolicy update(String tenantId, String id, PricePolicy policy, List<PricePolicyItem> items) {
-		PricePolicy existing = get(tenantId, id);
+		PricePolicy existing = writablePolicy(tenantId, id);
 		if (existing == null) {
 			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("价格政策不存在");
 		}
@@ -109,7 +164,7 @@ public class PricePolicyService {
 		policy.setTenantId(tenantId);
 		validatePolicy(policy);
 		pricePolicyMapper.updateById(policy);
-		upsertItems(tenantId, id, items);
+		upsertItems(tenantId, id, policy.getPriceMode(), items);
 		return get(tenantId, id);
 	}
 
@@ -117,7 +172,7 @@ public class PricePolicyService {
 	 * 明细按唯一键 (tenant, policy, sku) upsert：新增插入、已有行复活（del_flag=0）并覆盖价格，
 	 * payload 外的存量明细逻辑删除（复用行，不物理删除，避免唯一键撞车）。
 	 */
-	private void upsertItems(String tenantId, String policyId, List<PricePolicyItem> items) {
+	private void upsertItems(String tenantId, String policyId, String priceMode, List<PricePolicyItem> items) {
 		List<PricePolicyItem> incoming = items == null ? List.of() : items.stream()
 			.filter(item -> StringUtils.hasText(item.getSkuId()))
 			.toList();
@@ -129,6 +184,7 @@ public class PricePolicyService {
 			}
 		}
 		for (PricePolicyItem item : incoming) {
+			validateItem(item, priceMode);
 			PricePolicyItem row = new PricePolicyItem();
 			row.setId(IdUtil.getSnowflakeNextIdStr());
 			row.setPolicyId(policyId);
@@ -144,13 +200,34 @@ public class PricePolicyService {
 		}
 	}
 
+	/** 明细价格校验（2026-11-15 审查修复：禁止 0 元/空价/非法折扣率入库）。 */
+	private void validateItem(PricePolicyItem item, String priceMode) {
+		if (PricePolicy.MODE_FIXED_PRICE.equals(priceMode)) {
+			if (item.getPolicyPrice() == null || item.getPolicyPrice().signum() <= 0) {
+				throw new com.aryn.cloud.common.security.handler.ArynBusinessException(
+					"SKU[" + item.getSkuId() + "]协议固定价必须大于 0");
+			}
+		}
+		else if (PricePolicy.MODE_RATE.equals(priceMode)) {
+			if (item.getPolicyRate() == null || item.getPolicyRate().signum() <= 0
+					|| item.getPolicyRate().compareTo(BigDecimal.ONE) > 0) {
+				throw new com.aryn.cloud.common.security.handler.ArynBusinessException(
+					"SKU[" + item.getSkuId() + "]协议折扣率必须在 (0,1] 区间");
+			}
+		}
+		if (item.getMinQty() != null && item.getMinQty() < 1) {
+			throw new com.aryn.cloud.common.security.handler.ArynBusinessException(
+				"SKU[" + item.getSkuId() + "]起订量必须为正整数");
+		}
+	}
+
 	/**
 	 * 发布/停用：status 在 0草稿/2停用 ↔ 1生效 间切换。
 	 * 发布校验：明细非空、时间窗合法；生效中的政策不可修改基础信息（合同稳定性）。
 	 */
 	@Transactional(rollbackFor = Exception.class)
 	public PricePolicy changeStatus(String tenantId, String id, String targetStatus) {
-		PricePolicy existing = get(tenantId, id);
+		PricePolicy existing = writablePolicy(tenantId, id);
 		if (existing == null) {
 			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("价格政策不存在");
 		}
@@ -177,7 +254,7 @@ public class PricePolicyService {
 	/** 逻辑删除政策及其明细（明细复用行，禁止物理删除）。 */
 	@Transactional(rollbackFor = Exception.class)
 	public void delete(String tenantId, String id) {
-		PricePolicy existing = get(tenantId, id);
+		PricePolicy existing = writablePolicy(tenantId, id);
 		if (existing == null) {
 			return;
 		}
@@ -271,9 +348,15 @@ public class PricePolicyService {
 		if (policies.isEmpty()) {
 			return List.of();
 		}
+		Set<String> poolIds = policyPoolIds(tenantId, buyerOrgId, vesselId);
 		Set<String> userTagIds = null;
 		List<PricePolicy> matched = new ArrayList<>(policies.size());
 		for (PricePolicy policy : policies) {
+			if (poolIds.contains(policy.getId())) {
+				// 企业权益「协议价政策池」（benefit_type=3）：等级挂载的政策自动套用
+				matched.add(policy);
+				continue;
+			}
 			String applyType = policy.getApplyType();
 			if (PricePolicy.APPLY_BUYER_ORG.equals(applyType)) {
 				if (containsValue(policy.getApplyValue(), buyerOrgId)) {
@@ -312,20 +395,44 @@ public class PricePolicyService {
 		}
 	}
 
+	/**
+	 * 主体企业等级挂载的协议价政策池（benefit_type=3，方案 §5.2「价格政策按等级自动套用」）。
+	 * 船舶/企业上下文各查一次权益聚合取并集；查询失败按空池（fail-closed，不误放合同价）。
+	 */
+	private Set<String> policyPoolIds(String tenantId, String buyerOrgId, String vesselId) {
+		Set<String> poolIds = new java.util.HashSet<>();
+		if (StringUtils.hasText(vesselId)) {
+			collectPoolIds(poolIds, tenantId,
+					com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_VESSEL, vesselId);
+		}
+		if (StringUtils.hasText(buyerOrgId)) {
+			collectPoolIds(poolIds, tenantId,
+					com.aryn.cloud.user.api.constant.EnterpriseMemberConstants.SUBJECT_BUYER_ORG, buyerOrgId);
+		}
+		return poolIds;
+	}
+
+	private void collectPoolIds(Set<String> poolIds, String tenantId, String subjectType, String subjectId) {
+		try {
+			com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO benefits = remoteEnterpriseUserService
+				.getSubjectBenefits(tenantId, subjectType, subjectId);
+			if (benefits != null && !CollectionUtils.isEmpty(benefits.getPolicyPoolIds())) {
+				poolIds.addAll(benefits.getPolicyPoolIds());
+			}
+		}
+		catch (Exception ex) {
+			log.warn("协议价政策池查询失败，按空池处理 subject={}:{}", subjectType, subjectId, ex);
+		}
+	}
+
 	private boolean containsValue(String applyValue, String value) {
 		return StringUtils.hasText(applyValue) && StringUtils.hasText(value)
 				&& Arrays.asList(applyValue.split(",")).contains(value);
 	}
 
 	private BigDecimal resolvePolicyPrice(PricePolicyItem item, String priceMode, BigDecimal salesPrice) {
-		if (PricePolicy.MODE_FIXED_PRICE.equals(priceMode) && item.getPolicyPrice() != null) {
-			return item.getPolicyPrice();
-		}
-		if (PricePolicy.MODE_RATE.equals(priceMode) && item.getPolicyRate() != null
-				&& item.getPolicyRate().signum() > 0) {
-			return salesPrice.multiply(item.getPolicyRate()).setScale(2, RoundingMode.DOWN);
-		}
-		return null;
+		// 与引擎/dry-run 同源（固定价空/非正数防护、折扣率上限 1）
+		return PolicyPriceResolver.resolve(item, priceMode, salesPrice);
 	}
 
 	/** SKU 实时售价（划线基准与折扣率折算）；查询失败按空处理（展示侧静默，成交侧走引擎）。 */
@@ -412,7 +519,9 @@ public class PricePolicyService {
 					&& price.compareTo(sku.getCostPrice()) < 0) {
 				verdicts.add("COST_RISK");
 			}
-			String counterparty = null;
+			// 同 SKU 多政策冲突全量解释（2026-11-15 审查修复：不再遇首个冲突即停）
+			List<String> shadowedBy = new ArrayList<>();
+			List<String> shadows = new ArrayList<>();
 			for (PricePolicyItem otherItem : otherItemsBySku.getOrDefault(item.getSkuId(), List.of())) {
 				PricePolicy other = otherPolicyById.get(otherItem.getPolicyId());
 				if (other == null) {
@@ -426,17 +535,23 @@ public class PricePolicyService {
 				boolean otherWins = otherPriority > ownPriority
 						|| (otherPriority == ownPriority && otherPrice.compareTo(price) < 0);
 				if (otherWins) {
-					verdicts.add("SHADOWED");
-					counterparty = other.getPolicyName();
-					break;
+					shadowedBy.add(other.getPolicyName());
+					continue;
 				}
 				if (ownPriority > otherPriority
 						|| (ownPriority == otherPriority && price.compareTo(otherPrice) < 0)) {
-					verdicts.add("SHADOWS_OTHER");
-					counterparty = other.getPolicyName();
-					break;
+					shadows.add(other.getPolicyName());
 				}
 			}
+			if (!shadowedBy.isEmpty()) {
+				verdicts.add("SHADOWED");
+			}
+			if (!shadows.isEmpty()) {
+				verdicts.add("SHADOWS_OTHER");
+			}
+			List<String> counterparties = new ArrayList<>(shadowedBy);
+			counterparties.addAll(shadows);
+			String counterparty = counterparties.isEmpty() ? null : String.join("、", counterparties);
 			if (verdicts.isEmpty()) {
 				verdicts.add("OK");
 			}

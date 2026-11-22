@@ -14,7 +14,7 @@
  */
 import type { LoginSessionDevice } from '@/api/session-devices'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useUserLogout } from '@/composables/useUserLogout'
 import {

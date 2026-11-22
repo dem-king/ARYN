@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getByOrderNo as getOrderInfoByNo } from '@/api/order/orderInfo'
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'

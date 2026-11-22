@@ -55,6 +55,10 @@ public class ReplenishCatalogRowVO implements Serializable {
 	@Schema(description = "库存")
 	private Integer stock;
 
+	private Integer moq;
+	private Integer stepQty;
+	private com.aryn.cloud.product.api.support.ProductMeasurementRules.Measurement measurement;
+
 	@Schema(description = "售价")
 	private BigDecimal salesPrice;
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GoodsSocialBubble } from '@/api/product/spu'
+import type { GoodsAttrTagPayload } from '@/api/product/attr-tags'
 import type { AppSeckillGoodsVO } from '@/api/promotion'
 import type { ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
@@ -10,20 +11,21 @@ import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 import PriceText from '@/components/price-text/index.vue'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { useI18n } from '@/sub-pages/locales'
 import { formatStripAmount } from '@/utils/discount-price'
 import { resolveDeliveryRow } from '@/utils/goods-purchase'
+import { COLD_CHAIN_ICON_SRC, resolveServiceTags, SERVICE_TAG_ICON_NAMES, SERVICE_TAG_LABEL_KEYS } from '@/utils/goods-service-tags'
 import { stockHintText } from '@/utils/stock-display'
 import GoodsAttrTags from './GoodsAttrTags.vue'
 
 interface Props {
   goodsSpu: any
-  couponList: Array<any>
   /** 规格行视图：父级在注入「默认」占位规格前用 resolvePurchaseDecision/resolveSpecRow 算好 */
   specRow: SpecRowView
+  showShipArrangementSeparately?: boolean
   address: any
   /** 当前 SKU 的秒杀信息；null 表示无进行中的秒杀 */
   seckillInfo?: AppSeckillGoodsVO | null
@@ -58,13 +60,26 @@ interface Props {
    * 仅次于协议价；null=无进行中特供。
    */
   calendarSpecialDisplay?: { originalPrice: null | number, price: number } | null
+  /**
+   * 阶梯价按当前件数命中的单价（2026-11-15）：父级用共享 zone-price 判定胜出后下发；
+   * null=未命中/被更低价接管。卡片不算阶梯价，只有商详按件数取档。
+   */
+  ladderDisplayPrice?: null | number
+  /** 当前 SKU 的阶梯档位表（minQty 升序）：商详「买 N 件单价 X」表格展示 */
+  ladderTiers?: Array<{ minQty: number, unitPrice: number }>
+  ladderProgress?: string
+  /** 协议起订量提示：件数 < minQty 时协议价不生效，出「协议价 N 件起」；null=不提示 */
+  policyMinQtyHint?: null | number
+  /** 特供余量（件数）：特供胜出时展示「档期供应·余量 N」；null=不限量/未命中 */
+  specialRemainingQuota?: null | number
   /** 口碑气泡（详情接口随 goodsSpu.socialBubble 下发）；null=未达门槛，整颗不渲染 */
   socialBubble?: GoodsSocialBubble | null
+  /** 首屏采购标签：由父级按 SKU/params 计算，至少 2 个时才替代运营配置的 attrTags */
+  purchaseTags?: GoodsAttrTagPayload[] | null
 }
 
 interface Emits {
   (e: 'swiper', obj: any): void
-  (e: 'showCoupon'): void
   (e: 'openSkuPopup', value: number): void
   (e: 'toAddress'): void
   (e: 'collect'): void
@@ -202,15 +217,17 @@ function onBubbleTap() {
 }
 
 /**
- * 价格区主价：协议价 > 档期特供 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价
- * （与后端 OrderPriceComputeService 的「协议价 > 档期特供 > 拼团 > 秒杀 > 会员价 >
- * 新人价 > 限时折扣 > 原价」同向，前端只覆盖这个页面能拿到的层级；拼团有独立会场不进商详）。
+ * 价格区主价：父级已用共享 `utils/zone-price` 判定唯一胜出层（协议价 > 秒杀 >
+ * min(阶梯价@件数, 特供, 会员, 出清) > 新人严格更低 > 售价），各 display 互斥下发，
+ * 这里按同一顺序取值即可，不再重复判定优先级。
  */
 const mainPrice = computed(() => {
   if (props.policyDisplay)
     return props.policyDisplay.price
   if (props.calendarSpecialDisplay)
     return props.calendarSpecialDisplay.price
+  if (props.ladderDisplayPrice != null)
+    return props.ladderDisplayPrice
   if (props.seckillInfo)
     return props.seckillInfo.seckillPrice
   if (props.memberDisplay.showMemberPrice)
@@ -234,10 +251,12 @@ const mainPrice = computed(() => {
  * - 无活动：沿用既有「售价 < 原价」的划线口径（与 diy/price-display 同源）。
  */
 const strikePrice = computed(() => {
-  // 协议价/档期特供：划当前售价（后端口径：基于 salesPrice 降，不划商品原价）
+  // 协议价/档期特供/阶梯价：划当前售价（后端口径：基于 salesPrice 降，不划商品原价）
   if (props.policyDisplay)
     return props.goodsSpu?.salesPrice
   if (props.calendarSpecialDisplay)
+    return props.goodsSpu?.salesPrice
+  if (props.ladderDisplayPrice != null)
     return props.goodsSpu?.salesPrice
   if (props.seckillInfo)
     return props.goodsSpu?.salesPrice
@@ -272,6 +291,23 @@ const savingAmount = computed(() => {
 const introductionHtml = computed(() =>
   String(props.goodsSpu?.introduction || '').trim(),
 )
+
+/**
+ * 服务承诺：商品级 `service_tags` 下发 code，端上出文案；未配置/全非法时
+ * 回退「正品保障 / 破损包赔 / 可开发票」，旧商品也有承诺行。
+ */
+const promiseTags = computed(() => resolveServiceTags(props.goodsSpu?.serviceTags))
+
+/**
+ * 首屏属性条的数据选择：
+ * 采购事实至少 2 条时优先展示「储存/规格/箱规/产地」，把 B2B 决策信息前置；
+ * 数据不足（新商品尚未补参数）则回退运营配置的 attrTags，不留空块。
+ */
+const displayAttrTags = computed(() => {
+  const purchaseTags = Array.isArray(props.purchaseTags) ? props.purchaseTags : []
+  return purchaseTags.length >= 2 ? purchaseTags : props.goodsSpu?.attrTags
+})
+
 
 /**
  * 副标题降级为「无卖点时的兜底短描述」，与卖点富文本不并排展示：
@@ -312,8 +348,14 @@ const memberGuideText = computed(() => {
   return t('product.memberOnly', { price: formatStripAmount(props.memberDisplay.memberPrice) })
 })
 
+const showB2bPriceStrip = computed(() =>
+  Boolean(props.policyMinQtyHint)
+  || props.specialRemainingQuota != null
+  || Boolean(props.ladderTiers?.length),
+)
+
 /**
- * 价格区下方是否存在活动说明条（秒杀/会员价/新人价/限时折扣）。
+ * 价格区下方是否存在活动说明条。
  *
  * 价格渐变条在手机端写死 `h-72px`（比「主价 + 划线价」两行内容高出约 25px），
  * 这段余量原本靠标题卡的 `margin-top: -32px` 上提盖掉。有活动条时标题卡按
@@ -321,7 +363,8 @@ const memberGuideText = computed(() => {
  * 间隔明显变大」。因此有条时让价格条高度跟随内容，余量从源头消掉。
  */
 const hasPriceStrip = computed(() =>
-  Boolean(props.seckillInfo)
+  showB2bPriceStrip.value
+  || Boolean(props.seckillInfo)
   || Boolean(memberGuideText.value)
   || Boolean(newbieLimitText.value || props.newbieDisplay.ineligibleText)
   || props.discountDisplay.showDiscountPrice,
@@ -414,6 +457,7 @@ const deliveryRow = computed(() => resolveDeliveryRow({
   fixedFreightPrice: props.goodsSpu?.fixedFreightPrice,
   addressText: formatAddressText(props.address),
 }))
+const showDeliveryRow = computed(() => deliveryRow.value.visible && !props.showShipArrangementSeparately)
 
 /** 配送行主文案：共享层负责口径判定（visible），文案在这里按当前语言渲染 */
 const deliveryText = computed(() => {
@@ -449,10 +493,6 @@ function formatAddressText(address: any) {
 
 function handleSwiper(obj: any) {
   emit('swiper', obj)
-}
-
-function showCoupon() {
-  emit('showCoupon')
 }
 
 function openSkuPopup(value: number) {
@@ -512,8 +552,10 @@ defineExpose({
           height="750rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
           @click="handleSwiper" @change="onSwiperChange"
         />
-        <view v-if="imageCount > 1" class="goods-swiper__counter">
-          {{ currentImage + 1 }}/{{ imageCount }}
+        <view class="goods-swiper__actions">
+          <view v-if="imageCount > 1" class="goods-swiper__counter">
+            {{ currentImage + 1 }}/{{ imageCount }}
+          </view>
         </view>
         <!-- 口碑气泡：社证/好评率服务端成文，点击跳评价区；压图浮层用固定深色（与页码角标同惯例） -->
         <view
@@ -543,7 +585,7 @@ defineExpose({
         </view>
       </view>
     </view>
-    <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的右栏（价格条 → 优惠/规格/配送） -->
+    <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的右栏（价格条 → 规格/配送） -->
     <view class="goods-body">
       <view
         class="goods-price-bar relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
@@ -564,6 +606,9 @@ defineExpose({
               </text>
               <text v-if="calendarSpecialDisplay" class="special-badge">
                 {{ t('product.calendarSpecialPrice') }}
+              </text>
+              <text v-if="ladderDisplayPrice != null" class="special-badge">
+                {{ t('product.ladderPrice') }}
               </text>
               <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
               <text v-if="memberDisplay.showMemberPrice" class="member-badge">
@@ -606,6 +651,29 @@ defineExpose({
               </view>
             </view>
           </view>
+        </view>
+      </view>
+      <!-- B2B 价格说明条：协议起订量提示 / 特供余量 / 阶梯档位表（与成交口径同源） -->
+      <view v-if="showB2bPriceStrip" class="b2b-price-strip">
+        <text v-if="policyMinQtyHint" class="b2b-price-hint">
+          {{ t('product.policyMinQtyHint', { count: policyMinQtyHint }) }}
+        </text>
+        <text v-if="specialRemainingQuota != null" class="b2b-price-hint">
+          {{ t('product.calendarSpecialQuota', { count: specialRemainingQuota }) }}
+        </text>
+        <view v-if="ladderTiers && ladderTiers.length" class="b2b-ladder-table">
+          <text class="b2b-ladder-title">
+            {{ t('product.ladderTableTitle') }}
+          </text>
+          <view v-for="tier in ladderTiers" :key="tier.minQty" class="b2b-ladder-row">
+            <text>{{ t('product.ladderTierQty', { count: tier.minQty }) }}</text>
+            <text class="b2b-ladder-price">
+              ￥{{ tier.unitPrice }}
+            </text>
+          </view>
+          <text v-if="ladderProgress" class="b2b-price-hint">
+            {{ ladderProgress }}
+          </text>
         </view>
       </view>
       <!-- 秒杀条：有进行中的秒杀才展示；已抢完/已结束仅提示，不影响加购 -->
@@ -696,7 +764,7 @@ defineExpose({
         库存提示之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
         首屏与改动前完全一致。
       -->
-        <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
+        <GoodsAttrTags :attr-tags="displayAttrTags" />
         <!--
         商详首屏卖点：运营可配的白名单富文本，支持逐商品配色，
         紧跟在属性卡之后；为空时整块不渲染（旧数据与未配置卖点一致）。
@@ -716,43 +784,37 @@ defineExpose({
             {{ stockHint }}
           </text>
         </view>
+        <!--
+        服务承诺：领券中心下线、船供资料卡退场后，价格与评价之间少了一层
+        「敢不敢下单」的回答。商品级配置（冷链/破损包赔/开票/正品），
+        未配置时回退全局三项；只出文字与勾，不带价格与包邮承诺。
+      -->
+        <view class="goods-title-card__promises">
+          <view v-for="code in promiseTags" :key="code" class="goods-title-card__promise">
+            <image
+              v-if="code === 'cold_chain'"
+              class="goods-title-card__promise-icon"
+              :src="COLD_CHAIN_ICON_SRC"
+              mode="aspectFit"
+            />
+            <wd-icon v-else :name="SERVICE_TAG_ICON_NAMES[code]" size="14px" color="#16a34a" />
+            <text>{{ t(`product.promise.${SERVICE_TAG_LABEL_KEYS[code]}`) }}</text>
+          </view>
+        </view>
       </view>
-      <!-- 优惠/规格/发货行共用一张白卡：三行都可能被隐藏（无券、单规格无规格值、包邮商品），
-         全隐时整卡不渲染；分隔线按「非末行才带底边框」动态归属，避免末行留悬空线 -->
+      <!-- 规格/配送任一可见时渲染白卡，仅两行同时可见时显示分隔线 -->
       <view
-        v-if="(couponList && couponList.length > 0) || specRow.visible || deliveryRow.visible"
+        v-if="specRow.visible || showDeliveryRow"
         class="goods-cells mx-3 my-2 rounded-xl p-3 bg-white dark:bg-[var(--wot-dark-background2)]"
       >
         <view class="overflow-hidden rounded-lg">
-          <view
-            v-if="couponList && couponList.length > 0"
-            :class="cellClass(specRow.visible || deliveryRow.visible)"
-            hover-class="goods-cell--pressed"
-            @click="showCoupon"
-          >
-            <view class="goods-cell__label w-80rpx flex-shrink-0 text-28rpx text-gray-800">
-              {{ t('product.discounts') }}
-            </view>
-            <view class="goods-cell__value mx-5 flex-1 text-26rpx text-gray-600">
-              <view class="line-clamp-1 flex">
-                <view v-for="(item, index) in couponList.slice(0, 3)" :key="index" class="coupons_css">
-                  {{ item.couponName }}
-                  <view class="leftdot" />
-                  <view class="rightdot" />
-                </view>
-              </view>
-            </view>
-            <view class="flex-shrink-0 text-gray-400">
-              <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
-            </view>
-          </view>
           <!--
           规格行：多规格是「选择规格」入口；单规格显示真实规格值（没有规格值时整行隐藏，
           规格信息在商品名/船供箱规里），点击只调数量——弹层对单规格不渲染规格选择区。
         -->
           <view
             v-if="specRow.visible"
-            :class="cellClass(deliveryRow.visible)"
+            :class="cellClass(showDeliveryRow)"
             hover-class="goods-cell--pressed"
             @click="openSkuPopup(2)"
           >
@@ -767,7 +829,7 @@ defineExpose({
             </view>
           </view>
           <view
-            v-if="deliveryRow.visible"
+            v-if="showDeliveryRow"
             class="goods-cell flex items-center py-3"
             :hover-class="deliveryRow.tappable ? 'goods-cell--pressed' : 'none'"
             @click="onDeliveryRowTap"
@@ -795,11 +857,18 @@ defineExpose({
 .goods-swiper {
   position: relative;
 
-  // 与参考商详一致：页码常驻右下，图片再少也能一眼看到总张数
-  &__counter {
+  // 图集右下角只保留页码；商品档案入口已移到参数卡头部，避免压图与重复
+  &__actions {
     position: absolute;
     right: 24rpx;
-    bottom: 44rpx;
+    bottom: 24rpx;
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+  }
+
+  // 与参考商详一致：页码常驻右下，图片再少也能一眼看到总张数
+  &__counter {
     padding: 4rpx 16rpx;
     border-radius: 999rpx;
     background: rgb(0 0 0 / 34%);
@@ -808,16 +877,17 @@ defineExpose({
     line-height: 1.5;
   }
 
-  // 口碑气泡：悬浮在左上角（fixed），滚出图集区也不消失；top 让出自绘顶栏（状态栏 + 44px 栏高）。
-  // 注意：若祖先链出现 transform/filter 包含块，fixed 会退化成相对该祖先定位，验收时要滚动确认。
+
+  // 口碑气泡：贴在图集左上角随图滚动（absolute），不再 fixed 压住下方标题/参数。
+  // top 让出自绘顶栏（状态栏 + 44px 栏高），与图集一起下移。
   &__bubble {
-    position: fixed;
+    position: absolute;
     top: calc(var(--goods-nav-offset, var(--status-bar-height, 0px)) + 44px + 12rpx);
     left: 20rpx;
     z-index: 1;
     display: flex;
     align-items: center;
-    max-width: 62%;
+    max-width: 56%;
     padding: 8rpx 20rpx 8rpx 10rpx;
     border-radius: 999rpx;
     background: rgb(17 17 17 / 55%);
@@ -864,15 +934,13 @@ defineExpose({
   }
 }
 
-// keyframes 必须在 <style> 块内（写在块外会被 SFC 静默丢弃）
+// keyframes 必须在样式块内（写在块外会被 SFC 静默丢弃）
 @keyframes goods-bubble-pop {
   from {
-    opacity: 0;
-    transform: translateY(-10rpx) scale(0.85);
+    transform: translateY(-10rpx) scale(0.9);
   }
 
   to {
-    opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
@@ -905,8 +973,10 @@ defineExpose({
   // 卖点段落：与属性卡之间用细分隔线收口，字号/行高按「一段可读文案」给，
   // 颜色由运营配置的行内样式决定；未配色时落在外层的次级文本色上（弱于标题正文）。
   &__intro {
+    max-height: 50px;
     margin-top: 16rpx;
     padding-top: 16rpx;
+    overflow: hidden;
     border-top: 1rpx solid var(--app-border);
     font-size: 26rpx;
     line-height: 1.9;
@@ -949,7 +1019,46 @@ defineExpose({
   }
 }
 
-// 秒杀条：紧贴价格渐变区下方，展示倒计时与限购信息
+.b2b-price-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin: -20rpx 16rpx 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: #fff7ed;
+
+  .b2b-price-hint {
+    font-size: 24rpx;
+    color: #9a3412;
+  }
+
+  .b2b-ladder-table {
+    display: flex;
+    flex-direction: column;
+    gap: 4rpx;
+
+    .b2b-ladder-title {
+      font-size: 24rpx;
+      font-weight: 600;
+      color: #9a3412;
+    }
+
+    .b2b-ladder-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 24rpx;
+      color: #7c2d12;
+
+      .b2b-ladder-price {
+        font-weight: 600;
+      }
+    }
+  }
+}
+
 .seckill-strip {
   position: relative;
   z-index: 1;
@@ -1184,52 +1293,12 @@ defineExpose({
   }
 }
 
-.coupons_css {
-  height: 32upx;
-  position: relative;
-  margin-right: 20upx;
-  margin-bottom: 2rpx;
-  text-align: center;
-  line-height: 32upx;
-  padding: 0 14upx;
-  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
-  border-radius: 10upx;
-  font-size: 22upx;
-  color: var(--wot-color-theme-primary, #ff2237);
-}
-
-.leftdot {
-  position: absolute;
-  top: 13upx;
-  left: -3upx;
-  width: 6upx;
-  height: 10upx;
-  border-top-right-radius: 20upx;
-  border-bottom-right-radius: 20upx;
-  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
-  background-color: var(--app-card);
-  border-left: 0;
-}
-
-.rightdot {
-  position: absolute;
-  top: 13upx;
-  right: -3upx;
-  width: 6upx;
-  height: 10upx;
-  border-top-left-radius: 20upx;
-  border-bottom-left-radius: 20upx;
-  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
-  background-color: var(--app-card);
-  border-right: 0;
-}
-
 /**
  * ===== 折叠屏 / 平板展开态：商详首屏双栏（仅微信小程序，窗口宽 ≥600px） =====
  *
  * 为什么单独一段：rpx 以「窗口宽 = 750rpx」为基准，折叠屏展开到 ~700px 时手机端那套
  * 尺寸会等比放大约 1.8 倍——图集被拉高、正文变成 26px、横向全是空白，「铺满」不等于
- * 好用。本段用 px 重建平板密度：左列图集 46%（吸顶），右列价格/标题/优惠/规格/配送
+ * 好用。本段用 px 重建平板密度：左列图集 46%（吸顶），右列价格/标题/规格/配送
  * 保底 300px（验收 A6）。
  *
  * 三条硬约束：
@@ -1296,9 +1365,13 @@ defineExpose({
     height: 100%;
   }
 
-  .goods-swiper__counter {
+  .goods-swiper__actions {
     right: 12px;
     bottom: 12px;
+    gap: 4px;
+  }
+
+  .goods-swiper__counter {
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 11px;
@@ -1329,7 +1402,7 @@ defineExpose({
     font-size: 11px;
   }
 
-  /* 右栏：价格条 → 活动条 → 标题卡 → 优惠/规格/配送，纵向 12px 节奏 */
+  /* 右栏：价格条 → 活动条 → 标题卡 → 规格/配送，纵向 12px 节奏 */
   .goods-body {
     display: flex;
     flex-direction: column;
@@ -1365,6 +1438,7 @@ defineExpose({
   }
 
   /* 活动说明条：手机端用负 margin 上移咬住价格条，宽屏改由 .goods-body 的 gap 控间距 */
+  .b2b-price-strip,
   .seckill-strip,
   .newbie-strip,
   .member-strip,
@@ -1478,7 +1552,7 @@ defineExpose({
     font-size: 13px !important;
   }
 
-  /* 优惠/规格/配送列表：外层 Uno mx-3 / my-2 / p-3 / rounded-xl 注入在本段之后且同权，
+  /* 规格/配送列表：外层 Uno mx-3 / my-2 / p-3 / rounded-xl 注入在本段之后且同权，
      必须 !important；标签列宽/内容列外边距/字号这几个工具类同理 */
   .goods-cells {
     margin: 0 !important;
@@ -1504,35 +1578,45 @@ defineExpose({
     margin-right: 8px !important;
     font-size: 13px !important;
   }
-
-  /* 优惠券 chip 用的是手机端那套等比尺寸（不是 Uno 工具类，不受宽度断点约束），
-     展开态同样会放大约 1.8 倍；右栏只有 ~300px 宽时三枚 chip 会被行内裁切。
-     这里按平板密度重写，两端的半圆缺口（leftdot/rightdot）同步缩放 */
-  .coupons_css {
-    height: 20px;
-    margin-right: 8px;
-    margin-bottom: 0;
-    padding: 0 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    line-height: 20px;
-  }
-
-  .leftdot,
-  .rightdot {
-    width: 4px;
-    height: 6px;
-  }
-
-  .leftdot {
-    top: 7px;
-    left: -2px;
-  }
-
-  .rightdot {
-    top: 7px;
-    right: -2px;
-  }
 }
 /* #endif */
+</style>
+
+<style scoped>
+/**
+ * 服务承诺行：按可用宽度等分铺开，勾与文字在各自格内居中；
+ * 勾用绿色、文字用次级文本色，不抢价格的视觉权重。
+ */
+.goods-title-card__promises {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #faf8f5;
+}
+
+.wot-theme-dark .goods-title-card__promises {
+  background: var(--app-card-2);
+}
+
+.goods-title-card__promise {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--app-text-2);
+}
+
+.goods-title-card__promise-icon {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
 </style>

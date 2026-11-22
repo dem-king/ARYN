@@ -19,8 +19,9 @@ import java.util.List;
 /**
  * C 端采购档期与档期特供（档期楼层/特供会场）。
  *
- * <p><b>需登录</b>：档期特供是限量运营资源，楼层面向登录客群展示（未登录网关层拦截，
- * 不进免登白名单）；展示口径与成交试算同源（活动窗 + 档期窗 + 剩余限量）。
+ * <p><b>免登可访问</b>（方案 §11.7 双端白名单，2026-11-15 审查修复）：档期与特供价
+ * 是全局公开价格层，游客可见；展示口径与成交试算同源（活动窗 + 档期窗 + 剩余限量
+ * + 场景/船舶圈定过滤），限量耗尽前置剔除。
  *
  * @author aryn
  * @since 2026/11/14
@@ -40,11 +41,14 @@ public class AppTradeCalendarController {
 		return Result.success(promoCalendarService.effectiveCalendars(ArynTenantContextHolder.getTenantId()));
 	}
 
-	@Operation(summary = "档期特供列表（calendarId 为空=全部生效档期）")
+	@Operation(summary = "档期特供列表（calendarId 为空=全部生效档期；按场景/船舶圈定过滤）")
 	@GetMapping("/specials")
 	public Result<List<AppCalendarSpecialVO>> specials(
-			@RequestParam(value = "calendarId", required = false) String calendarId) {
-		return Result.success(promoCalendarService.specials(ArynTenantContextHolder.getTenantId(), calendarId));
+			@RequestParam(value = "calendarId", required = false) String calendarId,
+			@RequestParam(value = "purchaseScene", required = false) String purchaseScene,
+			@RequestParam(value = "vesselId", required = false) String vesselId) {
+		return Result.success(promoCalendarService.specials(ArynTenantContextHolder.getTenantId(), calendarId,
+				purchaseScene, vesselId));
 	}
 
 }

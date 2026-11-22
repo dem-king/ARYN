@@ -4,12 +4,9 @@ import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 
 import { getFrequentPurchase } from '@/api/order/orderInfo'
-import { getQuickCartInfo } from '@/api/product/spu'
 import hrNavbar from '@/components/hr-navbar/index.vue'
-import { useCartDestination } from '@/composables/useCartDestination'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useAuthStore } from '@/store/authStore'
-import { resolveQuantityRuleForSku } from '@/utils/quick-cart'
 import { Local } from '@/utils/storage'
 
 const { handlePageScroll } = useFrostedNavbar()
@@ -22,7 +19,6 @@ definePage({
   },
 })
 
-const { submitCartAdd } = useCartDestination()
 const { t } = useI18n()
 const authStore = useAuthStore()
 
@@ -64,32 +60,8 @@ function goLogin() {
  * **查不到就不传规则**（弹层只问去向、数量按历史值）——「再来一份」在缺资料时
  * 仍要可用，不能因为一次增强查询失败就拦住加购。查询异常同样静默降级。
  */
-async function handleAddToCart(item: any) {
-  const quantity = item.totalQuantity && item.totalQuantity > 0 ? item.totalQuantity : 1
-  let rule = null
-  if (item.spuId) {
-    try {
-      rule = resolveQuantityRuleForSku(await getQuickCartInfo(String(item.spuId)), item.skuId)
-    }
-    catch {
-      rule = null
-    }
-  }
-  try {
-    await submitCartAdd(
-      {
-        skuId: item.skuId,
-        quantity,
-        spuId: item.spuId,
-        addType: '2',
-        goodsName: item.spuName,
-      },
-      { rule },
-    )
-  }
-  catch {
-    // 请求异常已由统一拦截器提示
-  }
+function handleAddToCart(item: any) {
+  uni.navigateTo({ url: `/sub-pages/order/procurement/index?sourceType=FREQUENT&skuId=${encodeURIComponent(item.skuId)}` })
 }
 
 // 常购清单是需登录页面：购物车空态的裸 `uni.navigateTo` 会绕过 router 守卫，

@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-14
+-- 生成日期: 2026-11-22
 
 -- ============================================================================
 -- 创建数据库
@@ -51,6 +51,10 @@ DROP TABLE IF EXISTS `product_import_error`;
 DROP TABLE IF EXISTS `product_change_log`;
 DROP TABLE IF EXISTS `product_import_row`;
 DROP TABLE IF EXISTS `promotion_activity`;
+DROP TABLE IF EXISTS `campaign_publish_operation`;
+DROP TABLE IF EXISTS `campaign_generation_job`;
+DROP TABLE IF EXISTS `campaign_draft`;
+DROP TABLE IF EXISTS `campaign_simulation`;
 DROP TABLE IF EXISTS `promotion_lock`;
 DROP TABLE IF EXISTS `clearance_rule`;
 DROP TABLE IF EXISTS `mall_zone_setting`;
@@ -123,6 +127,28 @@ DROP TABLE IF EXISTS `enterprise_growth`;
 DROP TABLE IF EXISTS `enterprise_level_binding`;
 DROP TABLE IF EXISTS `enterprise_credit_account`;
 DROP TABLE IF EXISTS `enterprise_statement`;
+-- B2B 审查修复新建表（243b2b_review_fix_schema_incremental.sql；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `enterprise_growth_ledger`;
+DROP TABLE IF EXISTS `enterprise_statement_item`;
+DROP TABLE IF EXISTS `catalog_vector_generation`;
+DROP TABLE IF EXISTS `catalog_vector_item`;
+DROP TABLE IF EXISTS `catalog_vector_state`;
+DROP TABLE IF EXISTS `product_sku_identifier`;
+DROP TABLE IF EXISTS `procurement_draft`;
+DROP TABLE IF EXISTS `procurement_source_batch`;
+DROP TABLE IF EXISTS `procurement_draft_row`;
+DROP TABLE IF EXISTS `procurement_contribution`;
+DROP TABLE IF EXISTS `delivery_group`;
+DROP TABLE IF EXISTS `delivery_group_order_link`;
+DROP TABLE IF EXISTS `delivery_group_operation`;
+-- AI平台配置（仅全量初始化重建；增量脚本不删除数据）
+DROP TABLE IF EXISTS `ai_usage_budget`;
+DROP TABLE IF EXISTS `ai_config_version`;
+DROP TABLE IF EXISTS `ai_credential_version`;
+DROP TABLE IF EXISTS `ai_runtime_state`;
+DROP TABLE IF EXISTS `ai_capability_test`;
+DROP TABLE IF EXISTS `ai_config_operation`;
+DROP TABLE IF EXISTS `ai_call_log`;
 -- 企业等级/权益种子幂等守卫（239enterprise_level_seed.sql 新建数据；全量重建时随表清理）
 USE aryn_boot;
 
@@ -34037,5 +34063,1510 @@ WHERE `id` IN ('2120000000000000004', '2120000000000000005') AND `del_flag` = '0
 
 -- 自检（执行后人工核对）
 -- SELECT id, level_name, condition_value, status FROM member_level ORDER BY sort_order;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- B2B 审查修复：特供退款回补幂等列/成长值台账/对账明细表
+-- Source: db/boot/243b2b_review_fix_schema_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- B2B 活动与会员体系审查修复 — 结构增量（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-15 代码审查修复，配套 236 号基础层脚本）：
+--   1. promotion_lock 增 refunded_quota_units：档期特供退款按锁回补限量的幂等闸门
+--      （CalendarSpecialRefundHandler 原子累计，MQ 重复投递不重复回补）；
+--   2. enterprise_growth_ledger：企业成长值事件幂等台账（完成累计按 orderId、
+--      退款回扣按 refundNo 唯一），修复 MQ 重复投递重复累计问题；
+--   3. enterprise_statement_item：对账单明细表（方案 §6 账期预留，236 漏建，
+--      本期只建表不启用）；
+--   4. 注释口径修正：price_policy_item.min_qty 参与计价校验（起订量门槛）；
+--      promotion_snapshot.activity_type 补 12 档期特供。
+--
+-- 口径：新表含 tenant_id，登记进 hx.tenant.tables（boot application.yml 已同步；
+--       cloud 见 259 号脚本 Nacos 登记）。
+-- 幂等：CREATE TABLE IF NOT EXISTS + information_schema 判断 + PREPARE 动态执行；
+--       可重复执行，不删除存量业务数据。
+-- 关联：cloud 模式对应 259b2b_review_fix_schema_incremental.sql。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------------------------------------------------------
+-- 1. promotion_lock：档期特供退款回补幂等列
+-- ----------------------------------------------------------------------------
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock' AND COLUMN_NAME = 'refunded_quota_units');
+SET @ddl = IF(@col_exists = 0,
+  'ALTER TABLE `promotion_lock` ADD COLUMN `refunded_quota_units` int NOT NULL DEFAULT 0 COMMENT ''档期特供已按退款回补的限量件数（原子累计防重；其余活动恒0）'' AFTER `release_reason`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ----------------------------------------------------------------------------
+-- 2. 企业成长值事件幂等台账
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `enterprise_growth_ledger` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `biz_type` char(2) NOT NULL COMMENT '业务类型：1订单完成累计 2退款回扣',
+  `biz_no` varchar(64) NOT NULL COMMENT '业务号：完成=orderId，退款=refundNo（幂等唯一键）',
+  `subject_type` char(2) NOT NULL COMMENT '主体类型：1岸上企业 2船舶',
+  `subject_id` varchar(32) NOT NULL COMMENT '主体ID（buyer_org_id / vessel_id）',
+  `period` varchar(7) NOT NULL COMMENT '归属月份 yyyy-MM（按订单完成时间）',
+  `amount` decimal(14,2) NOT NULL COMMENT '本次变动金额（元，恒正；方向由 biz_type 决定）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '修改时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_growth_ledger_biz` (`tenant_id`,`biz_type`,`biz_no`),
+  KEY `idx_growth_ledger_subject` (`tenant_id`,`subject_type`,`subject_id`,`period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业成长值事件幂等台账';
+
+-- ----------------------------------------------------------------------------
+-- 3. 对账单明细（账期预留，只建表不启用）
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `enterprise_statement_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `statement_id` varchar(32) NOT NULL COMMENT '对账单ID（enterprise_statement.id）',
+  `order_id` varchar(32) DEFAULT NULL COMMENT '关联订单ID（出账/退款明细）',
+  `order_no` varchar(64) DEFAULT NULL COMMENT '关联订单号',
+  `biz_type` char(2) NOT NULL COMMENT '明细类型：1订单出账 2回款核销 3调整',
+  `amount` decimal(14,2) NOT NULL COMMENT '明细金额（元，恒正；方向由 biz_type 决定）',
+  `biz_time` datetime DEFAULT NULL COMMENT '业务发生时间',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '修改时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_statement_item_statement` (`tenant_id`,`statement_id`),
+  KEY `idx_statement_item_order` (`tenant_id`,`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='企业对账单明细（账期预留）';
+
+-- ----------------------------------------------------------------------------
+-- 4. 注释口径修正（MODIFY 幂等：重复执行结果一致）
+-- ----------------------------------------------------------------------------
+ALTER TABLE `price_policy_item`
+  MODIFY COLUMN `min_qty` int NOT NULL DEFAULT 1 COMMENT '协议起订量（件）：购买件数未达时协议价不生效，C端展示「N件起」';
+
+ALTER TABLE `promotion_snapshot`
+  MODIFY COLUMN `activity_type` char(2) NOT NULL COMMENT '活动类型：1优惠券 2满减 3折扣 4阶梯价 5买赠 6首单复购 7船供整船优惠 8协议价 12档期特供';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ---------------------------------------------------------------------------
+-- 自检（执行后人工核对）
+-- ---------------------------------------------------------------------------
+-- SELECT COLUMN_NAME FROM information_schema.COLUMNS
+--  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='promotion_lock' AND COLUMN_NAME='refunded_quota_units';
+-- SHOW TABLES LIKE 'enterprise_growth_ledger';
+-- SHOW TABLES LIKE 'enterprise_statement_item';
+
+-- ============================================================================
+-- 首页轮播图与公告换新：11.15-11.30 档期
+-- Source: db/boot/245home_banner_notice_1115_incremental.sql
+-- ============================================================================
+-- 首页轮播图/公告/券楼层换新：11.15-11.30 档期（Boot 单体模式）
+-- 目标库：aryn_boot（装修、营销活动、素材同库）
+-- 背景（2026-11-15）：
+--   原首页轮播 7 张、公告栏 5 条、券楼层标题全部是双 11 主题。其中「11.1-11.15 囤货节」
+--   「10.15-10.31 整船满减」两张档期已过，公告里还挂着已下线的秒杀、拼团入口，不能再挂在首页。
+--   11.15 零点起系统内已上线新一期档期活动（promotion_activity，状态=进行中，2026-11-15 ~ 2026-11-30）：
+--     9000000000000000301 整箱囤货·按件数阶梯价（满 5 件 / 满 10 件两档单价）
+--     9000000000000000302 整船备货·满量优惠（满1000减60 / 满3000减200 / 满50件减100，单笔封顶减300）
+--     9000000000000000303 每周爆款·档期特供
+--     9000000000000000304 满额赠礼（满 299 赠 2 份，赠品为 100%椰子水 1L/盒）
+--   本脚本做四件事：
+--     1) 首页 swiper-banner 的 7 张旧图换成与上述活动一一对应的 4 张新图（第 4 张为椰子水赠礼）；
+--     2) notice 公告栏标头由「双11」改为「新档期」，5 条滚动文案换成 11.15-11.30 档期内容，
+--        并把跳转从不存在的秒杀/拼团页改到船供专区、商品列表、限时折扣；
+--     3) coupon-ladder 券楼层标题由「双11满减狂欢」改为「满减券包」，角标由「双11限量」改为
+--        「限时领取」（该组件卡片只展示门槛与面额，不展示券名，因此无需改 coupon_info）；
+--     4) 满额赠礼活动原挂的赠品 SKU 是「烟台大樱桃」（10740000000000000201），
+--        与活动名「椰子水」不符，改为「100%椰子水 1L/盒」（10740000000000000225）×2。
+--   其余装修组件（搜索栏、金刚区、档期活动条、新人楼层、券领取条、商品页签等）一律不动。
+-- C 端读取说明：
+--   AppPageDesignController(/app/pagedesign) 读的是 page_design_version 发布快照
+--   （page_design.published_version_id 指向的那条记录），不是 page_design.page_content 草稿；
+--   因此本脚本同时新建发布版本 80，并把发布指针切过去，只改草稿不会对 C 端生效。
+-- 幂等：素材与版本 INSERT 均带 NOT EXISTS 守卫，UPDATE 可重复执行，不 DROP / TRUNCATE 任何存量数据。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 素材中心登记（默认分组 -1，与历史首页 banner 一致） ----------
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000021','1','-1','档期1115 整船备货满量优惠 banner.jpg','/boot/file/local/1590229800633634816/0b7da54b-462f-40dc-a58b-724cee7332a7.jpg',383886,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000021');
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000022','1','-1','档期1115 整箱囤货阶梯价 banner.jpg','/boot/file/local/1590229800633634816/5a373640-b51c-4303-a883-14bf0d4e37a0.jpg',474721,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000022');
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000023','1','-1','档期1115 每周爆款档期特供 banner.jpg','/boot/file/local/1590229800633634816/d39a0f32-c743-475f-a0d3-a8dd889dd94a.jpg',362412,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000023');
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000024','1','-1','档期1115 满299赠椰子水 banner.jpg','/boot/file/local/1590229800633634816/edaeaaf3-1f92-4daa-9b62-8d03837f4f35.jpg',336744,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000024');
+
+-- ---------- 2. 新建发布版本 80（幂等） ----------
+INSERT INTO `page_design_version`
+(`id`,`page_design_id`,`version_no`,`schema_version`,`page_name`,`page_type`,`page_content`,`publish_remark`,`publish_by`,`published_at`,`create_by`,`create_time`,`del_flag`,`tenant_id`)
+SELECT '2126111500000000080','2105298015641964546',80,3,'悦航购','1','{"page":{"share":{"title":"","imageUrl":"","description":""},"navigation":{"title":"","visible":true,"textColor":"#ffffff","scrollEffect":{"blur":true,"mode":"fade","surface":"frosted","distance":140,"surfaceColor":""},"textColorAuto":true,"backgroundMode":"followFirstSection","backgroundColor":"#ffffff"},"backgroundColor":"rgb(251, 94, 94)","backgroundImage":"","followMallTheme":true,"enablePullDownRefresh":true},"sections":[{"id":"section-brand","name":"品牌区","type":"default","style":{"radius":0,"sticky":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"condition":"always","backgroundColor":"","backgroundImage":"","horizontalScroll":false,"backgroundGradient":{"endColor":"rgb(238, 243, 251)","direction":"to bottom","startColor":"rgb(244, 75, 75)"}},"components":[{"id":"m_6f3hp-ZGwXpvr5wZXof","type":"search-bar","props":{"style":"1","height":36,"sticky":true,"bgColor":"rgb(255, 255, 255)","hotWords":"","showScan":false,"textAlign":"left","commonStyle":{"bgPicUrl":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"placeholder":"搜索商品","borderRadius":16,"backgroundColor":"#ffffff"},"version":1},{"id":"2IvecuLH_oqxGPa1ssChb","type":"swiper-banner","props":{"height":160,"interval":3500,"imageList":[{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/0b7da54b-462f-40dc-a58b-724cee7332a7.jpg","link":{"name":"船供专区","url":"/sub-pages/product/ship-supply/index"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/5a373640-b51c-4303-a883-14bf0d4e37a0.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/d39a0f32-c743-475f-a0d3-a8dd889dd94a.jpg","link":{"name":"限时折扣","url":"/pages/promotion/discount"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/edaeaaf3-1f92-4daa-9b62-8d03837f4f35.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}}],"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"borderRadius":9,"indicatorDots":false,"indicatorColor":"rgba(255, 255, 255, 0.3)","indicatorActiveColor":"rgb(51, 159, 248)"},"version":1},{"id":"pzY0iPxxIpZYtl74o-Q1G","type":"tab-nav","props":{"type":"3","imgSize":56,"navList":[{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000001","categorySecondId":""},"targetId":"9710000000000000001"},"title":"时令鲜果"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000002","categorySecondId":""},"targetId":"9710000000000000002"},"title":"新鲜蔬菜"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000003","categorySecondId":""},"targetId":"9710000000000000003"},"title":"肉禽蛋品"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000026","categorySecondId":""},"targetId":"9710000000000000026"},"title":"海鲜水产"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000004","categorySecondId":""},"targetId":"9710000000000000004"},"title":"面食早点"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000005","categorySecondId":""},"targetId":"9710000000000000005"},"title":"速冻美食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000008","categorySecondId":""},"targetId":"9710000000000000008"},"title":"乳品冷饮"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000009","categorySecondId":""},"targetId":"9710000000000000009"},"title":"水饮饮料"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000011","categorySecondId":""},"targetId":"9710000000000000011"},"title":"酒水酒类"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000013","categorySecondId":""},"targetId":"9710000000000000013"},"title":"冲调热饮"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000006","categorySecondId":""},"targetId":"9710000000000000006"},"title":"本周上新"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000014","categorySecondId":""},"targetId":"9710000000000000014"},"title":"烧烤火锅"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000015","categorySecondId":""},"targetId":"9710000000000000015"},"title":"熟食卤味"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000016","categorySecondId":""},"targetId":"9710000000000000016"},"title":"罐头食品"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000018","categorySecondId":""},"targetId":"9710000000000000018"},"title":"休闲零食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000019","categorySecondId":""},"targetId":"9710000000000000019"},"title":"面包糕点"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000020","categorySecondId":""},"targetId":"9710000000000000020"},"title":"方便速食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000021","categorySecondId":""},"targetId":"9710000000000000021"},"title":"个护清洁"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000022","categorySecondId":""},"targetId":"9710000000000000022"},"title":"家居日用"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000023","categorySecondId":""},"targetId":"9710000000000000023"},"title":"文具运动"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000024","categorySecondId":""},"targetId":"9710000000000000024"},"title":"数码家电"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000025","categorySecondId":""},"targetId":"9710000000000000025"},"title":"劳保用品"}],"showNum":5,"pageRows":3,"fontColor":"#303133","imgRadius":28,"scrollShow":false,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":10,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":12,"styleBottomPadding":0},"displayMode":"pager","indicatorDots":true,"indicatorColor":"rgba(0, 0, 0, 0.2)","indicatorActiveColor":"#07c160"},"version":1}]},{"id":"section-content","name":"内容区","type":"default","style":{"radius":0,"sticky":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"condition":"always","backgroundColor":"","backgroundImage":"","horizontalScroll":false},"components":[{"id":"TradeCal0300Op9rTfhK0kA1","type":"trade-calendar","props":{"count":10,"title":"","dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"version":1},{"id":"86CUWeOp9rTfhK0kcwUG3","type":"activity-strip","props":{"count":3,"columns":3,"dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"version":1},{"id":"ZkVTKHcbCkG3g0KVbcGg5","type":"newbie-floor","props":{"count":6,"title":"新人专享","showTag":true,"interval":3000,"mainColor":"","autoScroll":true,"dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":6,"styleLtRadius":6,"styleRbRadius":6,"styleRtRadius":6,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"hide","showCountdown":true,"invalidStrategy":"hide"},"version":1},{"id":"cr_cFyjWqZxZnmFyouwu1","type":"notice","props":{"color":"rgba(100, 101, 102, 1)","speed":50,"bgColor":"#fff8e6","content":"欢迎光临","titleUrl":"","direction":"vertical","iconColor":"#ff9900","textColor":"#5a3c14","titleSize":18,"titleText":"新档期","titleType":"","titleColor":"","titleStyle":"0","commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"contentList":[{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"11.15-11.30 新档期开仓：整船备货满1000减60、满3000减200，单笔封顶减300"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"整箱囤货按件数阶梯价：满5件一档价，满10件再降一档"},{"url":"","link":{"path":"/pages/promotion/discount","type":"custom","params":{}},"type":0,"content":"每周爆款档期特供，每周上新一批，数量有限先到先得"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"满299赠椰子水2份，满额即赠、送完即止"},{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"整船备货满50件再减100，船供整单更划算"}]},"version":1},{"id":"rp-2102572931049308162","type":"replenish-card","props":{"count":1,"title":"今日补给单","dataSource":{"mode":"current-tenant"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":12,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":12,"styleBottomPadding":12},"showPreview":true,"showBatchAdd":true,"emptyStrategy":"placeholder","invalidStrategy":"hide"},"version":1},{"id":"rTorpbiAQzAEtoMlvQpg3","type":"coupon-receive","props":{"showNum":10,"showStyle":"1","dataSource":{"mode":"automatic","targetIds":[]},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"showReceiveBtn":true},"version":1},{"id":"m_double11_coupon_ladder","type":"coupon-ladder","props":{"title":"满减券包","ctaLink":{"path":"/sub-pages/promotion/coupon/coupon-list/index","type":"custom","params":{}},"ctaText":"去领券中心","showNum":3,"version":1,"noteText":"","subtitle":"先领券 · 后加购 · 下单自动抵扣","badgeText":"限时领取","dataSource":{"mode":"automatic","targetIds":[]},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":12,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":12,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"showClaimBtn":true},"version":1},{"id":"SKuTWucXqsQRNiYnYeXWD","type":"goods-tabs","props":{"tabs":[{"id":"recommend","title":"热门商品","dataSource":{"mode":"automatic","sort":"sales","cacheTtl":0,"targetIds":[],"categoryId":""}},{"id":"bargain","title":"超值特惠","dataSource":{"mode":"automatic","sort":"clearance","cacheTtl":0,"targetIds":[],"categoryId":"","bargainRate":1.3}},{"id":"member","title":"尊享专区","dataSource":{"mode":"automatic","sort":"member_price","cacheTtl":0,"targetIds":[],"categoryId":""},"memberBanner":{"enabled":true}}],"count":10,"columns":2,"showPrice":true,"showSales":true,"stickyTabs":true,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"placeholder","invalidStrategy":"hide","showOriginalPrice":true},"version":1}]}],"schemaVersion":3}','首页轮播/公告/券楼层换为 11.15-11.30 档期内容','system',NOW(),'system',NOW(),'0','1590229800633634816' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_version` WHERE `id`='2126111500000000080');
+
+-- ---------- 草稿与发布指针同步到新版本 ----------
+UPDATE `page_design`
+SET `page_content` = '{"page":{"share":{"title":"","imageUrl":"","description":""},"navigation":{"title":"","visible":true,"textColor":"#ffffff","scrollEffect":{"blur":true,"mode":"fade","surface":"frosted","distance":140,"surfaceColor":""},"textColorAuto":true,"backgroundMode":"followFirstSection","backgroundColor":"#ffffff"},"backgroundColor":"rgb(251, 94, 94)","backgroundImage":"","followMallTheme":true,"enablePullDownRefresh":true},"sections":[{"id":"section-brand","name":"品牌区","type":"default","style":{"radius":0,"sticky":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"condition":"always","backgroundColor":"","backgroundImage":"","horizontalScroll":false,"backgroundGradient":{"endColor":"rgb(238, 243, 251)","direction":"to bottom","startColor":"rgb(244, 75, 75)"}},"components":[{"id":"m_6f3hp-ZGwXpvr5wZXof","type":"search-bar","props":{"style":"1","height":36,"sticky":true,"bgColor":"rgb(255, 255, 255)","hotWords":"","showScan":false,"textAlign":"left","commonStyle":{"bgPicUrl":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"placeholder":"搜索商品","borderRadius":16,"backgroundColor":"#ffffff"},"version":1},{"id":"2IvecuLH_oqxGPa1ssChb","type":"swiper-banner","props":{"height":160,"interval":3500,"imageList":[{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/0b7da54b-462f-40dc-a58b-724cee7332a7.jpg","link":{"name":"船供专区","url":"/sub-pages/product/ship-supply/index"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/5a373640-b51c-4303-a883-14bf0d4e37a0.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/d39a0f32-c743-475f-a0d3-a8dd889dd94a.jpg","link":{"name":"限时折扣","url":"/pages/promotion/discount"}},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/edaeaaf3-1f92-4daa-9b62-8d03837f4f35.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}}],"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"borderRadius":9,"indicatorDots":false,"indicatorColor":"rgba(255, 255, 255, 0.3)","indicatorActiveColor":"rgb(51, 159, 248)"},"version":1},{"id":"pzY0iPxxIpZYtl74o-Q1G","type":"tab-nav","props":{"type":"3","imgSize":56,"navList":[{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000001","categorySecondId":""},"targetId":"9710000000000000001"},"title":"时令鲜果"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000002","categorySecondId":""},"targetId":"9710000000000000002"},"title":"新鲜蔬菜"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000003","categorySecondId":""},"targetId":"9710000000000000003"},"title":"肉禽蛋品"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000026","categorySecondId":""},"targetId":"9710000000000000026"},"title":"海鲜水产"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000004","categorySecondId":""},"targetId":"9710000000000000004"},"title":"面食早点"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000005","categorySecondId":""},"targetId":"9710000000000000005"},"title":"速冻美食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000008","categorySecondId":""},"targetId":"9710000000000000008"},"title":"乳品冷饮"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000009","categorySecondId":""},"targetId":"9710000000000000009"},"title":"水饮饮料"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000011","categorySecondId":""},"targetId":"9710000000000000011"},"title":"酒水酒类"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000013","categorySecondId":""},"targetId":"9710000000000000013"},"title":"冲调热饮"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000006","categorySecondId":""},"targetId":"9710000000000000006"},"title":"本周上新"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000014","categorySecondId":""},"targetId":"9710000000000000014"},"title":"烧烤火锅"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000015","categorySecondId":""},"targetId":"9710000000000000015"},"title":"熟食卤味"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000016","categorySecondId":""},"targetId":"9710000000000000016"},"title":"罐头食品"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000018","categorySecondId":""},"targetId":"9710000000000000018"},"title":"休闲零食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000019","categorySecondId":""},"targetId":"9710000000000000019"},"title":"面包糕点"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000020","categorySecondId":""},"targetId":"9710000000000000020"},"title":"方便速食"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000021","categorySecondId":""},"targetId":"9710000000000000021"},"title":"个护清洁"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000022","categorySecondId":""},"targetId":"9710000000000000022"},"title":"家居日用"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000023","categorySecondId":""},"targetId":"9710000000000000023"},"title":"文具运动"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000024","categorySecondId":""},"targetId":"9710000000000000024"},"title":"数码家电"},{"url":"https://roulette-workplace-nav-victorian.trycloudflare.com/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000025","categorySecondId":""},"targetId":"9710000000000000025"},"title":"劳保用品"}],"showNum":5,"pageRows":3,"fontColor":"#303133","imgRadius":28,"scrollShow":false,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":10,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":12,"styleBottomPadding":0},"displayMode":"pager","indicatorDots":true,"indicatorColor":"rgba(0, 0, 0, 0.2)","indicatorActiveColor":"#07c160"},"version":1}]},{"id":"section-content","name":"内容区","type":"default","style":{"radius":0,"sticky":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"condition":"always","backgroundColor":"","backgroundImage":"","horizontalScroll":false},"components":[{"id":"TradeCal0300Op9rTfhK0kA1","type":"trade-calendar","props":{"count":10,"title":"","dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"version":1},{"id":"86CUWeOp9rTfhK0kcwUG3","type":"activity-strip","props":{"count":3,"columns":3,"dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"version":1},{"id":"ZkVTKHcbCkG3g0KVbcGg5","type":"newbie-floor","props":{"count":6,"title":"新人专享","showTag":true,"interval":3000,"mainColor":"","autoScroll":true,"dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":6,"styleLtRadius":6,"styleRbRadius":6,"styleRtRadius":6,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"hide","showCountdown":true,"invalidStrategy":"hide"},"version":1},{"id":"cr_cFyjWqZxZnmFyouwu1","type":"notice","props":{"color":"rgba(100, 101, 102, 1)","speed":50,"bgColor":"#fff8e6","content":"欢迎光临","titleUrl":"","direction":"vertical","iconColor":"#ff9900","textColor":"#5a3c14","titleSize":18,"titleText":"新档期","titleType":"","titleColor":"","titleStyle":"0","commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"contentList":[{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"11.15-11.30 新档期开仓：整船备货满1000减60、满3000减200，单笔封顶减300"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"整箱囤货按件数阶梯价：满5件一档价，满10件再降一档"},{"url":"","link":{"path":"/pages/promotion/discount","type":"custom","params":{}},"type":0,"content":"每周爆款档期特供，每周上新一批，数量有限先到先得"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"满299赠椰子水2份，满额即赠、送完即止"},{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"整船备货满50件再减100，船供整单更划算"}]},"version":1},{"id":"rp-2102572931049308162","type":"replenish-card","props":{"count":1,"title":"今日补给单","dataSource":{"mode":"current-tenant"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":12,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":12,"styleBottomPadding":12},"showPreview":true,"showBatchAdd":true,"emptyStrategy":"placeholder","invalidStrategy":"hide"},"version":1},{"id":"rTorpbiAQzAEtoMlvQpg3","type":"coupon-receive","props":{"showNum":10,"showStyle":"1","dataSource":{"mode":"automatic","targetIds":[]},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"showReceiveBtn":true},"version":1},{"id":"m_double11_coupon_ladder","type":"coupon-ladder","props":{"title":"满减券包","ctaLink":{"path":"/sub-pages/promotion/coupon/coupon-list/index","type":"custom","params":{}},"ctaText":"去领券中心","showNum":3,"version":1,"noteText":"","subtitle":"先领券 · 后加购 · 下单自动抵扣","badgeText":"限时领取","dataSource":{"mode":"automatic","targetIds":[]},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":12,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":12,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"showClaimBtn":true},"version":1},{"id":"SKuTWucXqsQRNiYnYeXWD","type":"goods-tabs","props":{"tabs":[{"id":"recommend","title":"热门商品","dataSource":{"mode":"automatic","sort":"sales","cacheTtl":0,"targetIds":[],"categoryId":""}},{"id":"bargain","title":"超值特惠","dataSource":{"mode":"automatic","sort":"clearance","cacheTtl":0,"targetIds":[],"categoryId":"","bargainRate":1.3}},{"id":"member","title":"尊享专区","dataSource":{"mode":"automatic","sort":"member_price","cacheTtl":0,"targetIds":[],"categoryId":""},"memberBanner":{"enabled":true}}],"count":10,"columns":2,"showPrice":true,"showSales":true,"stickyTabs":true,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"placeholder","invalidStrategy":"hide","showOriginalPrice":true},"version":1}]}],"schemaVersion":3}',
+    `published_version_id` = '2126111500000000080',
+    `published_at` = NOW(),
+    `draft_revision` = `draft_revision` + 1,
+    `update_by` = 'system'
+WHERE `id` = '2105298015641964546' AND `page_type` = '1';
+
+-- ---------- 满额赠礼赠品对齐椰子水 ----------
+UPDATE `promotion_activity`
+SET `rules` = '{"minAmount":299,"gifts":[{"skuId":"10740000000000000225","quantity":2}]}',
+    `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '9000000000000000304';
+
+-- ============================================================================
+-- B2B 价格政策示例数据（船队框架/酒水专项/快消折扣/续签草案）
+-- Source: db/boot/246b2b_price_policy_seed.sql
+-- ============================================================================
+-- B2B 价格政策（协议价）示例数据 — Boot 单体模式
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-15 运营配置回填）：
+--   价格政策页（营销管理 → 价格政策）此前只有已被 242 号脚本逻辑删除的 E2E 政策，
+--   列表为空。本脚本按当前在营船队（悦航1/2/6/7号）与真实在售 SKU 补四类示例政策，
+--   覆盖协议价的全部价格形态与生命周期状态，便于运营直接改价复用：
+--     · 401 船队年度框架协议价（固定价，4 艘在营船通用，覆盖劳保/日用/速食 12 个 SKU）
+--     · 402 悦航1号·酒水专项协议价（固定价，单船专项，优先级高于框架价）
+--     · 403 船队快消品补充协议（94 折，水饮/纸品/个护/零食，优先级低于框架价）
+--     · 404 悦航2号·2027 年度协议价（草稿，演示「保存草稿 → 预检 → 发布」流程）
+--
+-- 口径（与后端一致，见 PricePolicyService / PromotionEngineServiceImpl#applyPolicyPrices）：
+--   · 协议价是最高优先级价格层，命中 SKU 锁定成交基价，阶梯价/档期特供/会员价不覆盖；
+--   · 同 SKU 多政策：priority 取大，同级取低价；协议价 ≥ 售价视为倒挂不落价；
+--   · min_qty 为起订量门槛（未达件数协议价不生效），示例按劳保批量/酒水成箱给的保守值；
+--   · apply_type=1 采购主体：当前库无 buyer_org 档案，本脚本不造主体维度数据；
+--     apply_type=3 客群标签：member_tag 为空，同样不造标签维度数据（建好档案后可另补）。
+--
+-- 幂等：INSERT IGNORE，可重复执行；不改动、不删除任何存量数据（含 E2E/档期活动）。
+-- 关联：cloud 模式对应 263b2b_price_policy_seed.sql（aryn_promotion 库同数据）。
+-- 避开：2026-11 档期特供的樱桃/葡萄/汾酒 SKU、阶梯价婴儿水/每日坚果/牛腩块、
+--       买赠椰子水与 10 个捡漏临期 SKU，防止协议价压制正在跑的让利活动。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------------------------------------------------------
+-- 1. 价格政策主表：4 条（3 条生效 + 1 条草稿）
+-- ----------------------------------------------------------------------------
+INSERT IGNORE INTO `price_policy`
+  (`id`, `policy_name`, `apply_type`, `apply_value`, `price_mode`, `priority`,
+   `start_time`, `end_time`, `status`, `remark`, `tenant_id`,
+   `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('9000000000000000401', '船队年度框架协议价（2026）', '2',
+   '9610000000000000001,2103508664569847809,2109212801693229057,2111813943574740994',
+   '1', 10, '2026-01-01 00:00:00', '2026-12-31 23:59:59', '1',
+   '悦航1/2/6/7号四艘在营船年度框架，劳保/日用/速食高频补给固定价，按年签约',
+   '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000402', '悦航1号·酒水专项协议价', '2',
+   '9610000000000000001',
+   '1', 15, '2026-11-01 00:00:00', '2027-10-31 23:59:59', '1',
+   '悦航1号招待/节庆酒水专项固定价，单船签署，优先级高于船队框架价',
+   '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000403', '船队快消品补充协议（94折）', '2',
+   '9610000000000000001,2103508664569847809,2109212801693229057,2111813943574740994',
+   '2', 5, '2026-11-15 00:00:00', '2027-11-14 23:59:59', '1',
+   '水饮/纸品/个护/零食对售价 94 折，作为框架价之外的快消补充价，优先级低于框架价',
+   '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000404', '悦航2号·2027年度协议价（待签）', '2',
+   '2103508664569847809',
+   '1', 10, '2027-01-01 00:00:00', '2027-12-31 23:59:59', '0',
+   '2027 年度续签草案，酒水为主；签约完成后在列表页执行「发布」生效',
+   '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0');
+
+-- ----------------------------------------------------------------------------
+-- 2. 政策 SKU 明细
+-- ----------------------------------------------------------------------------
+-- 2.1 401 船队年度框架协议价：劳保 8 + 日用 3 + 速食 1（固定价，均高于成本）
+INSERT IGNORE INTO `price_policy_item`
+  (`id`, `policy_id`, `spu_id`, `sku_id`, `policy_price`, `policy_rate`, `min_qty`,
+   `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('9000000000000000451', '9000000000000000401', '9740000000000000193', '9750000000000000193', 79.00, NULL, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000452', '9000000000000000401', '9740000000000000197', '9750000000000000197', 79.00, NULL, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000453', '9000000000000000401', '9740000000000000302', '10740000000000000302', 79.00, NULL, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000454', '9000000000000000401', '9740000000000000200', '9750000000000000200', 31.90, NULL, 5,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000455', '9000000000000000401', '9740000000000000194', '9750000000000000194', 17.90, NULL, 10, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000456', '9000000000000000401', '9740000000000000196', '9750000000000000196', 26.90, NULL, 5,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000457', '9000000000000000401', '9740000000000000195', '9750000000000000195', 22.90, NULL, 5,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000458', '9000000000000000401', '9740000000000000299', '10740000000000000299', 13.90, NULL, 10, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000459', '9000000000000000401', '9740000000000000168', '9750000000000000168', 35.90, NULL, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000460', '9000000000000000401', '9740000000000000161', '9750000000000000161', 35.90, NULL, 3,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000461', '9000000000000000401', '9740000000000000165', '9750000000000000165', 20.50, NULL, 5,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000462', '9000000000000000401', '9740000000000000155', '9750000000000000155', 35.90, NULL, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0');
+
+-- 2.2 402 悦航1号·酒水专项协议价：白酒 3 + 红酒 1 + 啤酒 1（固定价）
+INSERT IGNORE INTO `price_policy_item`
+  (`id`, `policy_id`, `spu_id`, `sku_id`, `policy_price`, `policy_rate`, `min_qty`,
+   `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('9000000000000000481', '9000000000000000402', '9740000000000000084', '9750000000000000084', 158.00, NULL, 2, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000482', '9000000000000000402', '97700000000000000112', '97800000000000000112', 118.00, NULL, 2, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000483', '9000000000000000402', '9740000000000000244', '10740000000000000244', 90.00, NULL, 3,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000484', '9000000000000000402', '9740000000000000086', '9750000000000000086', 64.90, NULL, 3,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000485', '9000000000000000402', '9740000000000000083', '9750000000000000083', 83.90, NULL, 1,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0');
+
+-- 2.3 403 船队快消品补充协议：94 折（折扣率对售价，跳过框架价已覆盖 SKU）
+INSERT IGNORE INTO `price_policy_item`
+  (`id`, `policy_id`, `spu_id`, `sku_id`, `policy_price`, `policy_rate`, `min_qty`,
+   `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('9000000000000000471', '9000000000000000403', '9740000000000000065', '9750000000000000065', NULL, 0.9400, 1,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000472', '9000000000000000403', '9740000000000000049', '9750000000000000049', NULL, 0.9400, 1,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000473', '9000000000000000403', '9740000000000000090', '9750000000000000090', NULL, 0.9400, 1,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000474', '9000000000000000403', '9740000000000000052', '9750000000000000052', NULL, 0.9400, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000475', '9000000000000000403', '9740000000000000162', '9750000000000000162', NULL, 0.9400, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000476', '9000000000000000403', '9740000000000000283', '10740000000000000283', NULL, 0.9400, 2,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000477', '9000000000000000403', '9740000000000000144', '9750000000000000144', NULL, 0.9400, 3,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000478', '9000000000000000403', '9740000000000000153', '9750000000000000153', NULL, 0.9400, 3,  '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0');
+
+-- 2.4 404 悦航2号·2027年度协议价（草稿）：酒水 6（固定价，发布后方生效）
+INSERT IGNORE INTO `price_policy_item`
+  (`id`, `policy_id`, `spu_id`, `sku_id`, `policy_price`, `policy_rate`, `min_qty`,
+   `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+VALUES
+  ('9000000000000000491', '9000000000000000404', '9740000000000000081', '9750000000000000081', 45.90, NULL, 2, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000492', '9000000000000000404', '9740000000000000082', '9750000000000000082', 39.90, NULL, 2, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000493', '9000000000000000404', '97700000000000000111', '97800000000000000111', 35.90, NULL, 2, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000494', '9000000000000000404', '97700000000000000106', '97800000000000000106', 32.90, NULL, 3, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000495', '9000000000000000404', '97700000000000000101', '97800000000000000101', 27.90, NULL, 3, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0'),
+  ('9000000000000000496', '9000000000000000404', '97700000000000000104', '97800000000000000104', 26.90, NULL, 3, '1590229800633634816', 'ops', NOW(), 'ops', NOW(), '0');
+
+-- 自检（执行后人工核对）
+-- SELECT id, policy_name, apply_type, price_mode, priority, status, start_time, end_time
+--  FROM price_policy WHERE id LIKE '90000000000000004%' AND del_flag='0';  -- 期望 4 条
+-- SELECT policy_id, COUNT(*) FROM price_policy_item
+--  WHERE policy_id LIKE '90000000000000004%' AND del_flag='0'
+--  GROUP BY policy_id;  -- 期望 401=12 / 402=5 / 403=8 / 404=6
+-- 倒挂自检（协议价应全部低于当前售价）：
+-- SELECT i.sku_id, i.policy_price, s.sales_price
+--  FROM price_policy_item i JOIN goods_sku s ON s.id=i.sku_id
+--  WHERE i.policy_id LIKE '90000000000000004%' AND i.del_flag='0'
+--    AND i.policy_price IS NOT NULL AND i.policy_price >= s.sales_price;  -- 期望 0 行
+
+-- ============================================================================
+-- P0 收口审查修正：恢复优惠券管理入口/补停两个过期调度
+-- Source: db/boot/244p0_marketing_retire_patch.sql
+-- ============================================================================
+-- ============================================================================
+-- P0 存量收口审查修正（Boot 单体模式）
+--
+-- 目标库：aryn_boot（菜单）+ aryn_boot_job（调度）
+-- 背景（2026-11-15 代码审查修复，配套 234/235 号 P0 脚本）：
+--   1. 恢复优惠券管理入口：方案 §2.1/§9 口径是「下线领券中心，保留定向发放
+--      （企业满减券、个人权益券）」，234 号脚本把整个优惠券目录（含优惠券管理、
+--      用户领券记录）逻辑删除，定向发券失去入口。本脚本恢复优惠券目录三层菜单
+--      （del_flag 1→0，授权行 234 未动，恢复即生效）；领券中心是 C 端装修页面，
+--      由运营替换楼层下线，不在 sys_menu 范围。券模板停发（coupon_info 禁用）
+--      维持 234 口径不变，定向发放由运营按需重新启用模板。
+--   2. 补停两个调度：方案 §9.2 停用清单含 seckillOrderExpireJobHandler 与
+--      groupBuyExpireJobHandler，235 号脚本只停了 3 个。存量秒杀/拼团已收口
+--      （234），在途预扣单由 promotionLockCompensateJobHandler 与取消链路收敛。
+--
+-- 菜单缓存：sys_menu 登录后快照，执行后需清 Redis menu_cache 并重新登录才可见
+--           （与 234/237 号脚本同口径）。
+-- 幂等：可重复执行；不删除任何数据。
+-- 关联：cloud 模式对应 260p0_marketing_retire_patch.sql。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------------------------------------------------------
+-- 1. 恢复优惠券目录三层菜单（目录 + 子页面 + 按钮）
+-- ----------------------------------------------------------------------------
+UPDATE `sys_menu`
+SET `del_flag` = '0', `update_by` = 'system', `update_time` = NOW()
+WHERE `del_flag` = '1'
+  AND `id` IN (
+    SELECT `id` FROM (
+      SELECT `id` FROM `sys_menu`
+      WHERE `id` = '1585191363078467586'  -- 优惠券 /promotion/coupon
+         OR `parent_id` = '1585191363078467586'
+         OR `parent_id` IN (
+              SELECT `id` FROM (
+                SELECT `id` FROM `sys_menu`
+                WHERE `parent_id` = '1585191363078467586'
+              ) `t2`
+           )
+    ) `t1`
+  );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ----------------------------------------------------------------------------
+-- 2. 补停秒杀预扣单过期 / 拼团过期两个调度（方案 §9.2 清单补齐）
+-- ----------------------------------------------------------------------------
+USE `aryn_boot_job`;
+
+UPDATE `xxl_job_info`
+SET `trigger_status` = 0, `trigger_next_time` = 0, `update_time` = NOW()
+WHERE `executor_handler` IN (
+  'seckillOrderExpireJobHandler',
+  'groupBuyExpireJobHandler'
+)
+  AND `trigger_status` = 1;
+
+-- 自检（执行后人工核对）：
+-- SELECT id, name, del_flag FROM aryn_boot.sys_menu
+--  WHERE id = '1585191363078467586' OR parent_id = '1585191363078467586';  -- 应全部 del_flag=0
+-- SELECT executor_handler, trigger_status FROM xxl_job_info
+--  WHERE executor_handler IN ('seckillOrderExpireJobHandler','groupBuyExpireJobHandler');  -- 应为 0
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- AI 平台配置与不可变凭证版本
+-- Source: db/boot/247ai_configuration_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+-- AI 配置与不可变凭证版本；供应商/模型/用途作为单个版本JSON原子保存。
+-- 可重复执行，不含有效密钥，不覆盖已配置数据。
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `ai_config_version` (
+  `id` varchar(64) NOT NULL,
+  `document` longtext NOT NULL,
+  `digest` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_credential_version` (
+  `id` varchar(64) NOT NULL,
+  `provider_id` varchar(64) NOT NULL,
+  `sealed_value` text NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_runtime_state` (
+  `id` varchar(64) NOT NULL,
+  `draft_version` varchar(64) DEFAULT NULL,
+  `active_version` varchar(64) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `emergency_epoch` bigint NOT NULL DEFAULT 0,
+  `disabled` tinyint NOT NULL DEFAULT 0,
+  `disabled_providers` text NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_capability_test` (
+  `id` varchar(64) NOT NULL,
+  `version_id` varchar(64) NOT NULL,
+  `model_id` varchar(64) NOT NULL,
+  `passed` tinyint NOT NULL,
+  `status` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_config_operation` (
+  `id` varchar(64) NOT NULL,
+  `operation` varchar(40) NOT NULL,
+  `version_id` varchar(64) DEFAULT NULL,
+  `previous_version` varchar(64) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_call_log` (
+  `id` varchar(64) NOT NULL,
+  `usage_code` varchar(40) NOT NULL,
+  `task_id` varchar(100) NOT NULL,
+  `version_id` varchar(64) NOT NULL,
+  `provider_id` varchar(64) NOT NULL,
+  `model_id` varchar(200) NOT NULL,
+  `result` varchar(40) NOT NULL,
+  `total_tokens` bigint DEFAULT NULL,
+  `reserved_tokens` bigint NOT NULL DEFAULT 0,
+  `elapsed_millis` bigint DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
+CREATE TABLE IF NOT EXISTS `ai_usage_budget` (
+  `id` varchar(64) NOT NULL,
+  `usage_code` varchar(40) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_usage` (`tenant_id`,`usage_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 平台专属菜单，普通租户套餐不得授权 sys_key。
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2471100000000000000','AI 配置','upms:ai-config:query','/platform/ai-config',NULL,'1881217134381326338','carbon:machine-learning','system/ai-config/index',110,'0',NOW(),'0','0','sys_key','system'),
+('2471100000000000001','AI 配置查询','upms:ai-config:query',NULL,NULL,'2471100000000000000','','',1,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000002','AI 配置编辑','upms:ai-config:edit',NULL,NULL,'2471100000000000000','','',2,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000003','AI 能力测试','upms:ai-config:test',NULL,NULL,'2471100000000000000','','',3,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000004','AI 启用与停用','upms:ai-config:activate',NULL,NULL,'2471100000000000000','','',4,'1',NOW(),'0','0','sys_key','system');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 持久向量索引与模型成套切换
+-- Source: db/boot/248catalog_vector_index_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+-- 持久向量索引；查询模型与generation固定成套，不在用户查询内重建目录。
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `catalog_vector_generation` (
+  `id` varchar(64) NOT NULL,
+  `config_version` varchar(64) NOT NULL,
+  `model_fingerprint` varchar(64) NOT NULL,
+  `dimension` int NOT NULL,
+  `catalog_fingerprint` varchar(64) DEFAULT NULL,
+  `status` varchar(32) NOT NULL,
+  `cursor_id` varchar(64) DEFAULT NULL,
+  `indexed_rows` int NOT NULL DEFAULT 0,
+  `expected_rows` int NOT NULL DEFAULT 0,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `error_code` varchar(64) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `catalog_vector_item` (
+  `id` varchar(64) NOT NULL,
+  `generation_id` varchar(64) NOT NULL,
+  `sku_id` varchar(64) NOT NULL,
+  `source_name` varchar(500) NOT NULL,
+  `vector_json` longtext NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_generation_sku` (`tenant_id`,`generation_id`,`sku_id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `catalog_vector_state` (
+  `id` varchar(64) NOT NULL,
+  `generation_id` varchar(64) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- SKU度量与审核编码别名
+-- Source: db/boot/249product_measurement_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- 不从历史标题推断净含量；旧商品仍可按整数销售件购买。
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='sales_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `sales_unit` varchar(24) NOT NULL DEFAULT ''件''', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_dimension');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_dimension` varchar(16) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_unit` varchar(8) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_qty_per_sales_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_qty_per_sales_unit` decimal(24,9) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='quantity_precision');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `quantity_precision` varchar(16) NOT NULL DEFAULT ''UNKNOWN''', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='min_order_qty');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `min_order_qty` int NOT NULL DEFAULT 1', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='step_qty');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `step_qty` int NOT NULL DEFAULT 1', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='unit_spec_text');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `unit_spec_text` varchar(500) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='measurement_revision');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `measurement_revision` bigint NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+CREATE TABLE IF NOT EXISTS `product_sku_identifier` (
+ `id` varchar(64) NOT NULL,
+ `sku_id` varchar(64) NOT NULL,
+ `identifier_type` varchar(24) NOT NULL,
+ `display_value` varchar(200) NOT NULL,
+ `normalized_value` varchar(200) NOT NULL,
+ `status` varchar(16) NOT NULL DEFAULT 'PENDING',
+ `source` varchar(32) NOT NULL,
+ `review_by` varchar(64) DEFAULT NULL,
+ `review_time` datetime DEFAULT NULL,
+ `revision` bigint NOT NULL DEFAULT 0,
+ `tenant_id` varchar(32) NOT NULL,
+ `del_flag` char(1) NOT NULL DEFAULT '0',
+ `create_by` varchar(64) DEFAULT NULL,
+ `update_by` varchar(64) DEFAULT NULL,
+ `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ `active_value` varchar(200) GENERATED ALWAYS AS (CASE WHEN del_flag='0' THEN normalized_value ELSE NULL END) STORED,
+ PRIMARY KEY (`id`),
+ UNIQUE KEY `uk_identifier_active` (`tenant_id`,`identifier_type`,`active_value`),
+ KEY `idx_identifier_sku` (`tenant_id`,`sku_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 持久采购草稿与来源贡献
+-- Source: db/boot/250procurement_draft_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+-- 长期采购草稿，与共享车收集窗口解耦。旧导入报告仍保留只读；无法重建的存量贡献不得推算撤销。
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `procurement_draft` (
+  `id` varchar(64) NOT NULL,
+  `owner_user_id` varchar(64) NOT NULL,
+  `purchase_scene` varchar(64) NOT NULL,
+  `buyer_org_id` varchar(64) DEFAULT NULL,
+  `vessel_id` varchar(64) DEFAULT NULL,
+  `vessel_call_id` varchar(64) DEFAULT NULL,
+  `title` varchar(120) DEFAULT NULL,
+  `client_request_id` varchar(64) NOT NULL,
+  `context_fingerprint` varchar(64) NOT NULL,
+  `status` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`,`id`),
+  UNIQUE KEY `uk_draft_request` (`tenant_id`,`owner_user_id`,`client_request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `procurement_source_batch` (
+  `id` varchar(64) NOT NULL,
+  `draft_id` varchar(64) NOT NULL,
+  `operator_user_id` varchar(64) NOT NULL,
+  `input_type` varchar(64) NOT NULL,
+  `client_request_id` varchar(64) NOT NULL,
+  `input_digest` varchar(64) NOT NULL,
+  `explicit_new` tinyint(1) NOT NULL,
+  `input_name` varchar(255) DEFAULT NULL,
+  `input_text` longtext DEFAULT NULL,
+  `input_bytes` longblob DEFAULT NULL,
+  `template_version` varchar(64) DEFAULT NULL,
+  `config_version` varchar(64) DEFAULT NULL,
+  `parser_source` varchar(64) DEFAULT NULL,
+  `parse_revision` int NOT NULL DEFAULT 0,
+  `status` varchar(64) NOT NULL,
+  `total_rows` int NOT NULL DEFAULT 0,
+  `completed_rows` int NOT NULL DEFAULT 0,
+  `source_cursor` int NOT NULL DEFAULT 0,
+  `attempt` int NOT NULL DEFAULT 0,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime(6) DEFAULT NULL,
+  `heartbeat` datetime(6) DEFAULT NULL,
+  `next_retry_at` datetime(6) DEFAULT NULL,
+  `error_code` varchar(64) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `confirmed_request_id` varchar(64) DEFAULT NULL,
+  `confirmation_json` longtext DEFAULT NULL,
+  `replaced_by_batch_id` varchar(64) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`,`id`),
+  UNIQUE KEY `uk_batch_request` (`tenant_id`,`draft_id`,`operator_user_id`,`client_request_id`),
+  KEY `idx_batch_digest` (`tenant_id`,`draft_id`,`operator_user_id`,`input_digest`),
+  KEY `idx_batch_jobs` (`tenant_id`,`status`,`next_retry_at`,`lease_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `procurement_draft_row` (
+  `id` varchar(64) NOT NULL,
+  `draft_id` varchar(64) NOT NULL,
+  `batch_id` varchar(64) NOT NULL,
+  `source_position` varchar(64) NOT NULL,
+  `source_sheet` varchar(200) DEFAULT NULL,
+  `source_row` int DEFAULT NULL,
+  `source_offset` int DEFAULT NULL,
+  `raw_text` longtext DEFAULT NULL,
+  `raw_name` varchar(500) DEFAULT NULL,
+  `raw_quantity` decimal(38,18) DEFAULT NULL,
+  `raw_unit` varchar(24) DEFAULT NULL,
+  `raw_spec` varchar(500) DEFAULT NULL,
+  `raw_code` varchar(200) DEFAULT NULL,
+  `raw_owner` varchar(120) DEFAULT NULL,
+  `parse_status` varchar(64) DEFAULT NULL,
+  `match_status` varchar(64) DEFAULT NULL,
+  `unit_status` varchar(64) DEFAULT NULL,
+  `quantity_status` varchar(64) DEFAULT NULL,
+  `review_status` varchar(64) DEFAULT NULL,
+  `candidates_json` longtext DEFAULT NULL,
+  `matched_sku_id` varchar(64) DEFAULT NULL,
+  `selected_sku_id` varchar(64) DEFAULT NULL,
+  `normalized_base_quantity` decimal(60,30) DEFAULT NULL,
+  `suggested_sales_quantity` int DEFAULT NULL,
+  `confirmed_sales_quantity` int DEFAULT NULL,
+  `excess_base_quantity` decimal(60,30) DEFAULT NULL,
+  `measurement_revision` bigint DEFAULT NULL,
+  `decision_json` longtext DEFAULT NULL,
+  `review_actor` varchar(64) DEFAULT NULL,
+  `review_reason` varchar(500) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `parse_revision` int NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`,`id`),
+  UNIQUE KEY `uk_source_position` (`tenant_id`,`batch_id`,`parse_revision`,`source_position`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `procurement_contribution` (
+  `id` varchar(64) NOT NULL,
+  `draft_id` varchar(64) NOT NULL,
+  `batch_id` varchar(64) NOT NULL,
+  `source_row_id` varchar(64) NOT NULL,
+  `target_type` varchar(64) NOT NULL,
+  `target_id` varchar(64) NOT NULL,
+  `target_line_id` varchar(64) NOT NULL,
+  `owner_user_id` varchar(64) NOT NULL,
+  `sku_id` varchar(64) NOT NULL,
+  `quantity` int NOT NULL,
+  `status` varchar(64) NOT NULL,
+  `origin` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`,`id`),
+  UNIQUE KEY `uk_row_target_contribution` (`tenant_id`,`batch_id`,`source_row_id`,`target_type`,`target_line_id`),
+  KEY `idx_target_contributions` (`tenant_id`,`target_type`,`target_line_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+SET @procurement_expand=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_draft_row' AND COLUMN_NAME='raw_quantity' AND NUMERIC_PRECISION<38);
+SET @procurement_ddl=IF(@procurement_expand=1, 'ALTER TABLE procurement_draft_row MODIFY COLUMN raw_quantity decimal(38,18) DEFAULT NULL', 'SELECT 1');
+PREPARE procurement_stmt FROM @procurement_ddl; EXECUTE procurement_stmt; DEALLOCATE PREPARE procurement_stmt;
+SET @procurement_expand=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_draft_row' AND COLUMN_NAME='normalized_base_quantity' AND NUMERIC_PRECISION<60);
+SET @procurement_ddl=IF(@procurement_expand=1, 'ALTER TABLE procurement_draft_row MODIFY COLUMN normalized_base_quantity decimal(60,30) DEFAULT NULL', 'SELECT 1');
+PREPARE procurement_stmt FROM @procurement_ddl; EXECUTE procurement_stmt; DEALLOCATE PREPARE procurement_stmt;
+SET @procurement_expand=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_draft_row' AND COLUMN_NAME='excess_base_quantity' AND NUMERIC_PRECISION<60);
+SET @procurement_ddl=IF(@procurement_expand=1, 'ALTER TABLE procurement_draft_row MODIFY COLUMN excess_base_quantity decimal(60,30) DEFAULT NULL', 'SELECT 1');
+PREPARE procurement_stmt FROM @procurement_ddl; EXECUTE procurement_stmt; DEALLOCATE PREPARE procurement_stmt;
+SET @procurement_tenant_nullable=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_draft' AND COLUMN_NAME='tenant_id' AND IS_NULLABLE='YES');
+SET @procurement_tenant_ddl=IF(@procurement_tenant_nullable=1, 'ALTER TABLE procurement_draft MODIFY COLUMN tenant_id varchar(32) NOT NULL', 'SELECT 1');
+PREPARE procurement_tenant_stmt FROM @procurement_tenant_ddl; EXECUTE procurement_tenant_stmt; DEALLOCATE PREPARE procurement_tenant_stmt;
+SET @procurement_tenant_nullable=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_source_batch' AND COLUMN_NAME='tenant_id' AND IS_NULLABLE='YES');
+SET @procurement_tenant_ddl=IF(@procurement_tenant_nullable=1, 'ALTER TABLE procurement_source_batch MODIFY COLUMN tenant_id varchar(32) NOT NULL', 'SELECT 1');
+PREPARE procurement_tenant_stmt FROM @procurement_tenant_ddl; EXECUTE procurement_tenant_stmt; DEALLOCATE PREPARE procurement_tenant_stmt;
+SET @procurement_tenant_nullable=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_draft_row' AND COLUMN_NAME='tenant_id' AND IS_NULLABLE='YES');
+SET @procurement_tenant_ddl=IF(@procurement_tenant_nullable=1, 'ALTER TABLE procurement_draft_row MODIFY COLUMN tenant_id varchar(32) NOT NULL', 'SELECT 1');
+PREPARE procurement_tenant_stmt FROM @procurement_tenant_ddl; EXECUTE procurement_tenant_stmt; DEALLOCATE PREPARE procurement_tenant_stmt;
+SET @procurement_tenant_nullable=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='procurement_contribution' AND COLUMN_NAME='tenant_id' AND IS_NULLABLE='YES');
+SET @procurement_tenant_ddl=IF(@procurement_tenant_nullable=1, 'ALTER TABLE procurement_contribution MODIFY COLUMN tenant_id varchar(32) NOT NULL', 'SELECT 1');
+PREPARE procurement_tenant_stmt FROM @procurement_tenant_ddl; EXECUTE procurement_tenant_stmt; DEALLOCATE PREPARE procurement_tenant_stmt;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 稳定合送组与操作outbox
+-- Source: db/boot/251delivery_group_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+-- 稳定合送组、订单关系及本地操作outbox。不会改动订单、支付、签收或存量数据。
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `delivery_group` (
+  `id` varchar(64) NOT NULL,
+  `warehouse_id` varchar(64) NOT NULL,
+  `vessel_id` varchar(64) NOT NULL,
+  `vessel_call_id` varchar(64) NOT NULL,
+  `port_code` varchar(64) NOT NULL,
+  `window_sequence` int NOT NULL,
+  `window_start` datetime(6) DEFAULT NULL,
+  `window_end` datetime(6) DEFAULT NULL,
+  `cutoff` datetime(6) DEFAULT NULL,
+  `max_orders` int NOT NULL,
+  `status` varchar(32) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_group_window` (`tenant_id`,`warehouse_id`,`vessel_call_id`,`window_sequence`),
+  KEY `idx_group_cutoff` (`tenant_id`,`status`,`cutoff`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `delivery_group_order_link` (
+  `id` varchar(64) NOT NULL,
+  `group_id` varchar(64) NOT NULL,
+  `order_id` varchar(64) NOT NULL,
+  `warehouse_id` varchar(64) NOT NULL,
+  `wave_id` varchar(64) DEFAULT NULL,
+  `task_id` varchar(64) DEFAULT NULL,
+  `status` varchar(32) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_order_group` (`tenant_id`,`order_id`),
+  KEY `idx_group_active` (`tenant_id`,`group_id`,`status`),
+  KEY `idx_group_wave` (`tenant_id`,`wave_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `delivery_group_operation` (
+  `id` varchar(64) NOT NULL,
+  `group_id` varchar(64) NOT NULL,
+  `request_id` varchar(120) NOT NULL,
+  `fingerprint` varchar(64) NOT NULL,
+  `action` varchar(32) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `reason` varchar(500) NOT NULL,
+  `request_json` longtext NOT NULL,
+  `result_json` longtext NOT NULL,
+  `notification_json` longtext NOT NULL,
+  `outbox_status` varchar(32) NOT NULL,
+  `attempts` int NOT NULL DEFAULT 0,
+  `next_attempt_at` datetime(6) DEFAULT NULL,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime(6) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `update_time` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_group_request` (`tenant_id`,`request_id`),
+  KEY `idx_group_outbox` (`tenant_id`,`outbox_status`,`next_attempt_at`,`lease_until`),
+  KEY `idx_group_history` (`tenant_id`,`group_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 原订单没有仓库字段；归组/入波次时显式核定，旧记录保持NULL待核定。
+SET @delivery_group_column=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='order_info' AND COLUMN_NAME='fulfillment_warehouse_id');
+SET @delivery_group_ddl=IF(@delivery_group_column=0, 'ALTER TABLE order_info ADD COLUMN fulfillment_warehouse_id varchar(64) DEFAULT NULL COMMENT ''显式核定履约仓库''', 'SELECT 1');
+PREPARE delivery_group_stmt FROM @delivery_group_ddl; EXECUTE delivery_group_stmt; DEALLOCATE PREPARE delivery_group_stmt;
+SET @delivery_group_column=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='delivery_task' AND COLUMN_NAME='warehouse_id');
+SET @delivery_group_ddl=IF(@delivery_group_column=0, 'ALTER TABLE delivery_task ADD COLUMN warehouse_id varchar(64) DEFAULT NULL COMMENT ''显式核定履约仓库''', 'SELECT 1');
+PREPARE delivery_group_stmt FROM @delivery_group_ddl; EXECUTE delivery_group_stmt; DEALLOCATE PREPARE delivery_group_stmt;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 合送排程管理入口与权限继承
+-- Source: db/boot/252delivery_group_menu_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- 合送排程复用原波次权限；只向原有同项权限的租户/角色继承，不扩大职责。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2521100000000000000','合送排程',NULL,'/order/delivery-group',NULL,'2110000000000000000','lucide:calendar-clock','order/delivery-group/index',8,'0',NOW(),'0','0','app_base','system'),
+('2521100000000000001','排程查询','fulfillment:wave:page',NULL,NULL,'2521100000000000000','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2521100000000000002','排程管理','fulfillment:wave:save',NULL,NULL,'2521100000000000000','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2521100000000000003','开始拣货','fulfillment:wave:pick',NULL,NULL,'2521100000000000000','',NULL,3,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(gr.tenant_id,':delivery-group:',m.id)),gr.tenant_id,m.id,NOW(),'system'
+FROM sys_menu m JOIN sys_menu peer ON (m.permission=peer.permission OR (m.id='2521100000000000000' AND peer.permission='fulfillment:wave:page'))
+JOIN sys_tenant_menu gr ON gr.menu_id=peer.id
+WHERE m.id IN ('2521100000000000000','2521100000000000001','2521100000000000002','2521100000000000003') AND peer.id NOT LIKE '252110000000000000%';
+INSERT IGNORE INTO sys_role_menu (id,role_id,menu_id,create_time,tenant_id)
+SELECT MD5(CONCAT(gr.tenant_id,':',gr.role_id,':delivery-group:',m.id)),gr.role_id,m.id,NOW(),gr.tenant_id
+FROM sys_menu m JOIN sys_menu peer ON (m.permission=peer.permission OR (m.id='2521100000000000000' AND peer.permission='fulfillment:wave:page'))
+JOIN sys_role_menu gr ON gr.menu_id=peer.id
+WHERE m.id IN ('2521100000000000000','2521100000000000001','2521100000000000002','2521100000000000003') AND peer.id NOT LIKE '252110000000000000%';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- B2B 活动写入命令与配置修订
+-- Source: db/boot/253b2b_activity_command_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- 配置修订号与交易额度分离，存量活动从修订 0 开始；不改发布态、预算或历史锁。
+SET @activity_revision_ddl = IF(
+  EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+    AND TABLE_NAME='promotion_activity' AND COLUMN_NAME='revision'),
+  'SELECT 1',
+  'ALTER TABLE promotion_activity ADD COLUMN revision bigint NOT NULL DEFAULT 0 COMMENT ''配置修订号''');
+PREPARE activity_revision_stmt FROM @activity_revision_ddl;
+EXECUTE activity_revision_stmt;
+DEALLOCATE PREPARE activity_revision_stmt;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 未发布活动情景模拟凭据
+-- Source: db/boot/254campaign_simulation_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `campaign_simulation` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `draft_activity_id` varchar(64) NOT NULL,
+  `draft_revision` bigint NOT NULL,
+  `request_json` longtext NOT NULL,
+  `draft_digest` char(64) NOT NULL,
+  `input_digest` char(64) NOT NULL,
+  `fact_digest` char(64) NOT NULL,
+  `result_json` longtext NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `create_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_campaign_sim_owner` (`tenant_id`,`actor_id`,`draft_activity_id`,`create_time`),
+  KEY `idx_campaign_sim_expiry` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='未发布方案只读模拟凭据，不占用库存额度';
+-- 模拟权限独立于活动发布权限；由管理员分配角色，不自动扩展既有角色职责。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2541100000000000001','活动情景模拟','promotion:campaign:simulate',NULL,NULL,m.id,'',NULL,90,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-simulate')),g.tenant_id,'2541100000000000001',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 活动包草稿与受控生成队列
+-- Source: db/boot/255campaign_draft_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `campaign_draft` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `title` varchar(100) NOT NULL,
+  `definition_json` longtext NOT NULL,
+  `status` varchar(32) NOT NULL DEFAULT 'DRAFT',
+  `main_activity_id` varchar(64) DEFAULT NULL,
+  `main_activity_revision` bigint DEFAULT NULL,
+  `page_id` varchar(64) DEFAULT NULL,
+  `page_revision` bigint DEFAULT NULL,
+  `page_digest` char(64) DEFAULT NULL,
+  `simulation_id` varchar(64) DEFAULT NULL,
+  `simulation_revision` bigint DEFAULT NULL,
+  `generation_version` int NOT NULL DEFAULT 0,
+  `generation_reason` varchar(1000) DEFAULT NULL,
+  `create_time` datetime NOT NULL,
+  `update_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_campaign_draft_owner` (`tenant_id`,`actor_id`,`update_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='受控活动包草稿，不自动发布';
+CREATE TABLE IF NOT EXISTS `campaign_generation_job` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `draft_id` varchar(64) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `request_id` varchar(64) NOT NULL,
+  `base_revision` bigint NOT NULL,
+  `status` varchar(32) NOT NULL,
+  `input_json` longtext NOT NULL,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `attempt` int NOT NULL DEFAULT 0,
+  `next_retry_at` datetime DEFAULT NULL,
+  `config_version` varchar(64) NOT NULL,
+  `provider_id` varchar(64) DEFAULT NULL,
+  `model` varchar(255) DEFAULT NULL,
+  `prompt_version` varchar(64) NOT NULL,
+  `input_digest` char(64) NOT NULL,
+  `output_json` longtext,
+  `error_code` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL,
+  `update_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_campaign_generation_request` (`tenant_id`,`draft_id`,`request_id`),
+  KEY `idx_campaign_generation_due` (`tenant_id`,`status`,`next_retry_at`,`lease_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动包生成租约与修订审计，输出仅内部使用';
+-- 权限由管理员显式分配，不自动授予角色。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000001','活动包编辑','promotion:campaign:edit',NULL,NULL,m.id,'',NULL,91,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-edit')),g.tenant_id,'2551100000000000001',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000002','活动方案生成','promotion:campaign:generate',NULL,NULL,m.id,'',NULL,92,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-generate')),g.tenant_id,'2551100000000000002',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000003','活动包发布','promotion:campaign:publish',NULL,NULL,m.id,'',NULL,93,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-publish')),g.tenant_id,'2551100000000000003',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 活动包显式协议政策草稿
+-- Source: db/boot/256campaign_policy_draft_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET @campaign_column_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draft' AND COLUMN_NAME='main_policy_id'), 'SELECT 1', 'ALTER TABLE `campaign_draft` ADD COLUMN `main_policy_id` varchar(64) DEFAULT NULL');
+PREPARE campaign_column_stmt FROM @campaign_column_sql; EXECUTE campaign_column_stmt; DEALLOCATE PREPARE campaign_column_stmt;
+SET @campaign_column_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draft' AND COLUMN_NAME='main_policy_digest'), 'SELECT 1', 'ALTER TABLE `campaign_draft` ADD COLUMN `main_policy_digest` char(64) DEFAULT NULL');
+PREPARE campaign_column_stmt FROM @campaign_column_sql; EXECUTE campaign_column_stmt; DEALLOCATE PREPARE campaign_column_stmt;
+-- 协议主方案没有统一活动ID，使用活动包修订和主政策摘要校验。
+ALTER TABLE `campaign_simulation` MODIFY COLUMN `draft_activity_id` varchar(64) DEFAULT NULL;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 活动包页面草稿归属
+-- Source: db/boot/257campaign_page_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET @campaign_page_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='page_design' AND COLUMN_NAME='campaign_draft_id'), 'SELECT 1', 'ALTER TABLE `page_design` ADD COLUMN `campaign_draft_id` varchar(64) DEFAULT NULL COMMENT ''活动包拥有者，仅经活动包发布编排启用''');
+PREPARE campaign_page_stmt FROM @campaign_page_sql; EXECUTE campaign_page_stmt; DEALLOCATE PREPARE campaign_page_stmt;
+SET @campaign_page_sql = IF(EXISTS(SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='page_design' AND INDEX_NAME='uk_page_campaign_owner'), 'SELECT 1', 'ALTER TABLE `page_design` ADD UNIQUE KEY `uk_page_campaign_owner` (`tenant_id`,`campaign_draft_id`)');
+PREPARE campaign_page_stmt FROM @campaign_page_sql; EXECUTE campaign_page_stmt; DEALLOCATE PREPARE campaign_page_stmt;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 活动包人工发布与恢复
+-- Source: db/boot/258campaign_publish_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `campaign_publish_operation` (
+ `id` varchar(64) NOT NULL,
+ `tenant_id` varchar(32) NOT NULL,
+ `actor_id` varchar(64) NOT NULL,
+ `draft_id` varchar(64) NOT NULL,
+ `request_id` varchar(64) NOT NULL,
+ `command_json` longtext NOT NULL,
+ `command_digest` char(64) NOT NULL,
+ `status` varchar(32) NOT NULL,
+ `steps_json` text NOT NULL,
+ `main_activity_id` varchar(64) DEFAULT NULL,
+ `main_policy_id` varchar(64) DEFAULT NULL,
+ `coupon_id` varchar(64) DEFAULT NULL,
+ `page_id` varchar(64) DEFAULT NULL,
+ `page_version_id` varchar(64) DEFAULT NULL,
+ `failure_code` varchar(64) DEFAULT NULL,
+ `create_time` datetime NOT NULL,
+ `update_time` datetime NOT NULL,
+ `del_flag` char(1) NOT NULL DEFAULT '0',
+ PRIMARY KEY (`id`),
+ UNIQUE KEY `uk_campaign_publish_request` (`tenant_id`,`draft_id`,`request_id`),
+ KEY `idx_campaign_publish_owner` (`tenant_id`,`actor_id`,`draft_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动包人工发布信封、原子步骤和恢复记录';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 采购营销工作台菜单
+-- Source: db/boot/259campaign_workbench_menu_incremental.sql
+-- ============================================================================
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- 只提供可分配入口；不向角色自动授予AI生成、模拟、发布或价格权限。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2591100000000000000','采购营销工作台',NULL,'/promotion/campaign-workbench',NULL,p.parent_id,'lucide:clipboard-check','promotion/campaign-workbench/index',3,'0',NOW(),'0','0','app_base','system'
+FROM sys_menu p WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench')),g.tenant_id,'2591100000000000000',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000001','活动包编辑','promotion:campaign:edit',NULL,NULL,'2591100000000000000','',NULL,1,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:edit')),g.tenant_id,'2591100000000000001',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000002','活动包生成','promotion:campaign:generate',NULL,NULL,'2591100000000000000','',NULL,2,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:generate')),g.tenant_id,'2591100000000000002',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000003','活动包模拟','promotion:campaign:simulate',NULL,NULL,'2591100000000000000','',NULL,3,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:simulate')),g.tenant_id,'2591100000000000003',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000004','活动包发布','promotion:campaign:publish',NULL,NULL,'2591100000000000000','',NULL,4,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:publish')),g.tenant_id,'2591100000000000004',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 首页轮播图整组换新：11.15-11.30 档期重制版
+-- Source: db/boot/260home_banner_redo_1122_incremental.sql
+-- ============================================================================
+-- 首页轮播图整组换新：11.15-11.30 档期视觉升级（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景（2026-11-22）：
+--   现行首页轮播 4 张图（245 号脚本挂上）为 11-15 生成的初版 AI 整图，存在明显伪影：
+--   第 3 张有杜撰酒瓶「锦绣华章」（目录无此商品）、囤货图包装文字乱码、四张图构图与
+--   字体风格不统一。本次整组重做（只换图，不动任何活动与链接）：
+--   1) 底图由 GLM-Image 生成无文字场景，文字（徽章/标题/副标/按钮）由设计工具精确
+--      排版合成，杜绝 AI 错别字与杜撰元素；
+--   2) 视觉体系统一为「深海军蓝 + 档期橙」，构图统一（左文案区/右场景区）；
+--   3) 图片文件与素材登记均用新 UUID/新 ID（9600000000000000029~32），旧素材 21~24
+--      与 25~28（竖版）保留不删（历史版本 80 快照仍引用）；
+--   4) 轮播跳转链接与 245 号脚本一致（船供专区/商品列表/限时折扣），公告、券楼层、
+--      金刚区等其余装修组件一律不动；
+--   5) 图片 URL 沿用当前演示隧道域名（与库内现状一致），隧道轮换时随演示环境一并重发；
+--   6) 基线为当前发布版本 85（11-20 管理端发布，轮播仅剩 1 张图且挂在已 403 的豆包
+--      CDN 域名上），本脚本只重建 swiper-banner 的 imageList 为 4 张，其余组件原样保留；
+--   7) 文案对齐 11-15 下午 B 方案（满量优惠 4 档封顶 4000 / 多件囤货满 20/50 件阶梯 /
+--      赠礼 3 千 1 万 3 万三档），跳转链接与 v85 公告口径一致。
+-- C 端读取说明：C 端读 page_design_version 发布快照（published_version_id 指向记录），
+--   本脚本新建发布版本 86 并切换发布指针，同时同步草稿，双端一致。
+-- 幂等：素材与版本 INSERT 均带 NOT EXISTS 守卫，UPDATE 可重复执行。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- ---------- 1. 新建发布版本 81（幂等） ----------
+INSERT INTO `page_design_version`
+(`id`,`page_design_id`,`version_no`,`schema_version`,`page_name`,`page_type`,`page_content`,`publish_remark`,`publish_by`,`published_at`,`create_by`,`create_time`,`del_flag`,`tenant_id`)
+SELECT '2126112200000000086','2105298015641964546',86,3,'悦航购','1','{"page":{"backgroundColor":"rgb(251, 94, 94)","backgroundImage":"","enablePullDownRefresh":true,"navigation":{"backgroundColor":"#ffffff","backgroundMode":"followFirstSection","textColorAuto":true,"textColor":"#ffffff","title":"","visible":true,"scrollEffect":{"mode":"fade","surface":"frosted","surfaceColor":"","distance":140,"blur":true}},"share":{"description":"","imageUrl":"","title":""},"followMallTheme":true},"schemaVersion":3,"sections":[{"components":[{"id":"m_6f3hp-ZGwXpvr5wZXof","props":{"style":"1","height":36,"sticky":true,"bgColor":"rgb(255, 255, 255)","hotWords":"","showScan":false,"textAlign":"left","commonStyle":{"bgPicUrl":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"placeholder":"搜索商品","borderRadius":16,"backgroundColor":"#ffffff"},"type":"search-bar","version":1},{"id":"2IvecuLH_oqxGPa1ssChb","props":{"height":160,"interval":3500,"imageList":[{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/76a058c5-5ef5-4683-be3c-80f2457edf31.jpg","link":{"name":"船供专区","url":"/sub-pages/product/ship-supply/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/2fc2fa6c-31c6-4710-9422-c3c42cfaefaa.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/4353586c-df9c-4d2a-991b-84a1683ed0fd.jpg","link":{"name":"档期特供","url":"/sub-pages/promotion/calendar-special/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/66fbaf97-f810-41dd-9bb2-29b82f048aad.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}}],"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"borderRadius":9,"indicatorDots":false,"indicatorColor":"rgba(255, 255, 255, 0.3)","indicatorActiveColor":"rgb(51, 159, 248)"},"type":"swiper-banner","version":1},{"id":"pzY0iPxxIpZYtl74o-Q1G","props":{"type":"3","imgSize":56,"navList":[{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000001","categorySecondId":""},"targetId":"9710000000000000001"},"title":"时令鲜果"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000002","categorySecondId":""},"targetId":"9710000000000000002"},"title":"新鲜蔬菜"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000003","categorySecondId":""},"targetId":"9710000000000000003"},"title":"肉禽蛋品"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000026","categorySecondId":""},"targetId":"9710000000000000026"},"title":"海鲜水产"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000004","categorySecondId":""},"targetId":"9710000000000000004"},"title":"面食早点"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000005","categorySecondId":""},"targetId":"9710000000000000005"},"title":"速冻美食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000008","categorySecondId":""},"targetId":"9710000000000000008"},"title":"乳品冷饮"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000009","categorySecondId":""},"targetId":"9710000000000000009"},"title":"水饮饮料"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000011","categorySecondId":""},"targetId":"9710000000000000011"},"title":"酒水酒类"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000013","categorySecondId":""},"targetId":"9710000000000000013"},"title":"冲调热饮"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000006","categorySecondId":""},"targetId":"9710000000000000006"},"title":"本周上新"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000014","categorySecondId":""},"targetId":"9710000000000000014"},"title":"烧烤火锅"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000015","categorySecondId":""},"targetId":"9710000000000000015"},"title":"熟食卤味"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000016","categorySecondId":""},"targetId":"9710000000000000016"},"title":"罐头食品"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000018","categorySecondId":""},"targetId":"9710000000000000018"},"title":"休闲零食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000019","categorySecondId":""},"targetId":"9710000000000000019"},"title":"面包糕点"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000020","categorySecondId":""},"targetId":"9710000000000000020"},"title":"方便速食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000021","categorySecondId":""},"targetId":"9710000000000000021"},"title":"个护清洁"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000022","categorySecondId":""},"targetId":"9710000000000000022"},"title":"家居日用"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000023","categorySecondId":""},"targetId":"9710000000000000023"},"title":"文具运动"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000024","categorySecondId":""},"targetId":"9710000000000000024"},"title":"数码家电"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000025","categorySecondId":""},"targetId":"9710000000000000025"},"title":"劳保用品"}],"showNum":5,"pageRows":3,"fontColor":"#303133","imgRadius":28,"scrollShow":false,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":10,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":12,"styleBottomPadding":0},"displayMode":"pager","indicatorDots":true,"indicatorColor":"rgba(0, 0, 0, 0.2)","indicatorActiveColor":"#07c160"},"type":"tab-nav","version":1}],"id":"section-brand","name":"品牌区","style":{"backgroundColor":"","backgroundImage":"","condition":"always","horizontalScroll":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"radius":0,"sticky":false,"backgroundGradient":{"endColor":"rgb(238, 243, 251)","direction":"to bottom","startColor":"rgb(244, 75, 75)"}},"type":"default"},{"components":[{"id":"TradeCal0300Op9rTfhK0kA1","props":{"count":10,"title":"","dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"type":"trade-calendar","version":1},{"id":"cr_cFyjWqZxZnmFyouwu1","props":{"color":"rgba(100, 101, 102, 1)","speed":50,"bgColor":"#fff8e6","content":"欢迎光临","titleUrl":"","direction":"vertical","iconColor":"#ff9900","textColor":"#5a3c14","titleSize":18,"titleText":"新档期","titleType":"","titleColor":"","titleStyle":"0","commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"contentList":[{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"11.15-11.30 船供备货节：整船满1万减400、满3万减1200、满5万减2000，封顶4000"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"多件囤货按件数阶梯价：船供满20件、海员满5件、工厂满10件起"},{"url":"","link":{"path":"/sub-pages/promotion/calendar-special/index","type":"custom","params":{}},"type":0,"content":"每周爆款档期特供，每周上新一批，数量有限先到先得"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"满3千赠椰子水2份、满1万赠6份、满3万赠12份，送完即止"},{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"整船备货满10万减4000，船供整单更划算"}]},"type":"notice","version":1},{"id":"rp-2102572931049308162","props":{"count":1,"title":"今日补给单","dataSource":{"mode":"current-tenant"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":12,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":12,"styleBottomPadding":12},"showPreview":true,"showBatchAdd":true,"emptyStrategy":"placeholder","invalidStrategy":"hide"},"type":"replenish-card","version":1},{"id":"SKuTWucXqsQRNiYnYeXWD","props":{"tabs":[{"id":"recommend","title":"热门商品","dataSource":{"mode":"automatic","sort":"sales","cacheTtl":0,"targetIds":[],"categoryId":""},"feedCard":{"enabled":true,"interval":4000,"items":[{"id":"feed-stock","badge":"11.15-11.30 档期","kicker":"船供囤货专场","title":"多件囤货","subtitle":"按件计价 · 多件阶梯价","ctaText":"立即囤货","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/a39b4ff9-36a3-47c8-bde6-93df25789bf6.jpg","link":{"type":"custom","path":"/sub-pages/product/goods-list/index","params":{}}},{"id":"feed-ship","badge":"11.15-11.30 档期","kicker":"整船备货专场","title":"整船备货","subtitle":"满1万减400 · 满3万减1200","ctaText":"去备货","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/4642d91c-ae09-4aca-9363-7c96468f6fed.jpg","link":{"type":"custom","path":"/sub-pages/product/ship-supply/index","params":{}}},{"id":"feed-weekly","badge":"11.15-11.30 档期","kicker":"每周上新","title":"每周爆款","subtitle":"档期特供 · 精选好物专享价","ctaText":"先抢为快","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/6eb7b738-de93-4325-b632-5343cc30d36b.jpg","link":{"type":"custom","path":"/sub-pages/promotion/calendar-special/index","params":{}}},{"id":"feed-gift","badge":"11.15-11.30 档期","kicker":"满额赠礼","title":"满3千赠椰子水","subtitle":"满3千赠2份 · 满1万赠6份","ctaText":"去凑单","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/05df1e02-cd6e-48ad-94d3-0aa16426559a.jpg","link":{"type":"custom","path":"/sub-pages/product/goods-list/index","params":{}}}]}},{"id":"bargain","title":"超值特惠","dataSource":{"mode":"automatic","sort":"clearance","cacheTtl":0,"targetIds":[],"categoryId":"","bargainRate":1.3}},{"id":"member","title":"尊享专区","dataSource":{"mode":"automatic","sort":"member_price","cacheTtl":0,"targetIds":[],"categoryId":""},"memberBanner":{"enabled":true}}],"count":10,"columns":2,"showPrice":true,"showSales":true,"stickyTabs":true,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"placeholder","invalidStrategy":"hide","showOriginalPrice":true},"type":"goods-tabs","version":1}],"id":"section-content","name":"内容区","style":{"backgroundColor":"","backgroundImage":"","condition":"always","horizontalScroll":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"radius":0,"sticky":false},"type":"default"}]}','首页轮播整组换新为 11.15-11.30 档期重制版视觉（对齐 B 方案活动规则）','system',NOW(),'system',NOW(),'0','1590229800633634816' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_version` WHERE `id`='2126112200000000086');
+
+-- ---------- 2. 草稿与发布指针同步到新版本 ----------
+UPDATE `page_design`
+SET `page_content` = '{"page":{"backgroundColor":"rgb(251, 94, 94)","backgroundImage":"","enablePullDownRefresh":true,"navigation":{"backgroundColor":"#ffffff","backgroundMode":"followFirstSection","textColorAuto":true,"textColor":"#ffffff","title":"","visible":true,"scrollEffect":{"mode":"fade","surface":"frosted","surfaceColor":"","distance":140,"blur":true}},"share":{"description":"","imageUrl":"","title":""},"followMallTheme":true},"schemaVersion":3,"sections":[{"components":[{"id":"m_6f3hp-ZGwXpvr5wZXof","props":{"style":"1","height":36,"sticky":true,"bgColor":"rgb(255, 255, 255)","hotWords":"","showScan":false,"textAlign":"left","commonStyle":{"bgPicUrl":"","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":0,"styleRightPadding":0,"styleBottomPadding":0},"placeholder":"搜索商品","borderRadius":16,"backgroundColor":"#ffffff"},"type":"search-bar","version":1},{"id":"2IvecuLH_oqxGPa1ssChb","props":{"height":160,"interval":3500,"imageList":[{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/76a058c5-5ef5-4683-be3c-80f2457edf31.jpg","link":{"name":"船供专区","url":"/sub-pages/product/ship-supply/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/2fc2fa6c-31c6-4710-9422-c3c42cfaefaa.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/4353586c-df9c-4d2a-991b-84a1683ed0fd.jpg","link":{"name":"档期特供","url":"/sub-pages/promotion/calendar-special/index"}},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/66fbaf97-f810-41dd-9bb2-29b82f048aad.jpg","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"}}],"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"borderRadius":9,"indicatorDots":false,"indicatorColor":"rgba(255, 255, 255, 0.3)","indicatorActiveColor":"rgb(51, 159, 248)"},"type":"swiper-banner","version":1},{"id":"pzY0iPxxIpZYtl74o-Q1G","props":{"type":"3","imgSize":56,"navList":[{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000001","categorySecondId":""},"targetId":"9710000000000000001"},"title":"时令鲜果"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000002","categorySecondId":""},"targetId":"9710000000000000002"},"title":"新鲜蔬菜"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000003","categorySecondId":""},"targetId":"9710000000000000003"},"title":"肉禽蛋品"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000026","categorySecondId":""},"targetId":"9710000000000000026"},"title":"海鲜水产"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000004","categorySecondId":""},"targetId":"9710000000000000004"},"title":"面食早点"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000005","categorySecondId":""},"targetId":"9710000000000000005"},"title":"速冻美食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000008","categorySecondId":""},"targetId":"9710000000000000008"},"title":"乳品冷饮"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000009","categorySecondId":""},"targetId":"9710000000000000009"},"title":"水饮饮料"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000011","categorySecondId":""},"targetId":"9710000000000000011"},"title":"酒水酒类"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000013","categorySecondId":""},"targetId":"9710000000000000013"},"title":"冲调热饮"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000006","categorySecondId":""},"targetId":"9710000000000000006"},"title":"本周上新"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000014","categorySecondId":""},"targetId":"9710000000000000014"},"title":"烧烤火锅"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000015","categorySecondId":""},"targetId":"9710000000000000015"},"title":"熟食卤味"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000016","categorySecondId":""},"targetId":"9710000000000000016"},"title":"罐头食品"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000018","categorySecondId":""},"targetId":"9710000000000000018"},"title":"休闲零食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000019","categorySecondId":""},"targetId":"9710000000000000019"},"title":"面包糕点"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000020","categorySecondId":""},"targetId":"9710000000000000020"},"title":"方便速食"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000021","categorySecondId":""},"targetId":"9710000000000000021"},"title":"个护清洁"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000022","categorySecondId":""},"targetId":"9710000000000000022"},"title":"家居日用"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000023","categorySecondId":""},"targetId":"9710000000000000023"},"title":"文具运动"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000024","categorySecondId":""},"targetId":"9710000000000000024"},"title":"数码家电"},{"url":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg","link":{"path":"","type":"category","params":{"categoryFirstId":"9710000000000000025","categorySecondId":""},"targetId":"9710000000000000025"},"title":"劳保用品"}],"showNum":5,"pageRows":3,"fontColor":"#303133","imgRadius":28,"scrollShow":false,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":10,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":12,"styleBottomPadding":0},"displayMode":"pager","indicatorDots":true,"indicatorColor":"rgba(0, 0, 0, 0.2)","indicatorActiveColor":"#07c160"},"type":"tab-nav","version":1}],"id":"section-brand","name":"品牌区","style":{"backgroundColor":"","backgroundImage":"","condition":"always","horizontalScroll":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"radius":0,"sticky":false,"backgroundGradient":{"endColor":"rgb(238, 243, 251)","direction":"to bottom","startColor":"rgb(244, 75, 75)"}},"type":"default"},{"components":[{"id":"TradeCal0300Op9rTfhK0kA1","props":{"count":10,"title":"","dataSource":{"mode":"automatic"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":5,"styleLeftMargin":10,"styleTopPadding":5,"bgColorDirection":"to right","styleLeftPadding":6,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":6,"styleBottomPadding":5},"emptyStrategy":"hide","invalidStrategy":"hide"},"type":"trade-calendar","version":1},{"id":"cr_cFyjWqZxZnmFyouwu1","props":{"color":"rgba(100, 101, 102, 1)","speed":50,"bgColor":"#fff8e6","content":"欢迎光临","titleUrl":"","direction":"vertical","iconColor":"#ff9900","textColor":"#5a3c14","titleSize":18,"titleText":"新档期","titleType":"","titleColor":"","titleStyle":"0","commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":10,"styleLtRadius":10,"styleRbRadius":10,"styleRtRadius":10,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":10,"styleBottomMargin":5,"styleRightPadding":0,"styleBottomPadding":0},"contentList":[{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"11.15-11.30 船供备货节：整船满1万减400、满3万减1200、满5万减2000，封顶4000"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"多件囤货按件数阶梯价：船供满20件、海员满5件、工厂满10件起"},{"url":"","link":{"path":"/sub-pages/promotion/calendar-special/index","type":"custom","params":{}},"type":0,"content":"每周爆款档期特供，每周上新一批，数量有限先到先得"},{"url":"","link":{"path":"/sub-pages/product/goods-list/index","type":"custom","params":{}},"type":0,"content":"满3千赠椰子水2份、满1万赠6份、满3万赠12份，送完即止"},{"url":"","link":{"path":"/sub-pages/product/ship-supply/index","type":"custom","params":{}},"type":0,"content":"整船备货满10万减4000，船供整单更划算"}]},"type":"notice","version":1},{"id":"rp-2102572931049308162","props":{"count":1,"title":"今日补给单","dataSource":{"mode":"current-tenant"},"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"#ffffff","styleLbRadius":16,"styleLtRadius":16,"styleRbRadius":16,"styleRtRadius":16,"styleTopMargin":0,"styleLeftMargin":10,"styleTopPadding":12,"bgColorDirection":"to right","styleLeftPadding":12,"styleRightMargin":10,"styleBottomMargin":10,"styleRightPadding":12,"styleBottomPadding":12},"showPreview":true,"showBatchAdd":true,"emptyStrategy":"placeholder","invalidStrategy":"hide"},"type":"replenish-card","version":1},{"id":"SKuTWucXqsQRNiYnYeXWD","props":{"tabs":[{"id":"recommend","title":"热门商品","dataSource":{"mode":"automatic","sort":"sales","cacheTtl":0,"targetIds":[],"categoryId":""},"feedCard":{"enabled":true,"interval":4000,"items":[{"id":"feed-stock","badge":"11.15-11.30 档期","kicker":"船供囤货专场","title":"多件囤货","subtitle":"按件计价 · 多件阶梯价","ctaText":"立即囤货","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/a39b4ff9-36a3-47c8-bde6-93df25789bf6.jpg","link":{"type":"custom","path":"/sub-pages/product/goods-list/index","params":{}}},{"id":"feed-ship","badge":"11.15-11.30 档期","kicker":"整船备货专场","title":"整船备货","subtitle":"满1万减400 · 满3万减1200","ctaText":"去备货","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/4642d91c-ae09-4aca-9363-7c96468f6fed.jpg","link":{"type":"custom","path":"/sub-pages/product/ship-supply/index","params":{}}},{"id":"feed-weekly","badge":"11.15-11.30 档期","kicker":"每周上新","title":"每周爆款","subtitle":"档期特供 · 精选好物专享价","ctaText":"先抢为快","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/6eb7b738-de93-4325-b632-5343cc30d36b.jpg","link":{"type":"custom","path":"/sub-pages/promotion/calendar-special/index","params":{}}},{"id":"feed-gift","badge":"11.15-11.30 档期","kicker":"满额赠礼","title":"满3千赠椰子水","subtitle":"满3千赠2份 · 满1万赠6份","ctaText":"去凑单","imageUrl":"https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/05df1e02-cd6e-48ad-94d3-0aa16426559a.jpg","link":{"type":"custom","path":"/sub-pages/product/goods-list/index","params":{}}}]}},{"id":"bargain","title":"超值特惠","dataSource":{"mode":"automatic","sort":"clearance","cacheTtl":0,"targetIds":[],"categoryId":"","bargainRate":1.3}},{"id":"member","title":"尊享专区","dataSource":{"mode":"automatic","sort":"member_price","cacheTtl":0,"targetIds":[],"categoryId":""},"memberBanner":{"enabled":true}}],"count":10,"columns":2,"showPrice":true,"showSales":true,"stickyTabs":true,"commonStyle":{"bgPicUrl":"","bgEndColor":"","bgStartColor":"rgba(255, 255, 255, 1)","styleLbRadius":0,"styleLtRadius":0,"styleRbRadius":0,"styleRtRadius":0,"styleTopMargin":0,"styleLeftMargin":0,"styleTopPadding":0,"bgColorDirection":"to right","styleLeftPadding":0,"styleRightMargin":0,"styleBottomMargin":10,"styleRightPadding":0,"styleBottomPadding":0},"emptyStrategy":"placeholder","invalidStrategy":"hide","showOriginalPrice":true},"type":"goods-tabs","version":1}],"id":"section-content","name":"内容区","style":{"backgroundColor":"","backgroundImage":"","condition":"always","horizontalScroll":false,"marginX":0,"marginY":0,"paddingX":0,"paddingY":0,"radius":0,"sticky":false},"type":"default"}]}',
+    `published_version_id` = '2126112200000000086',
+    `published_at` = NOW(),
+    `draft_revision` = `draft_revision` + 1,
+    `update_by` = 'system'
+WHERE `id` = '2105298015641964546' AND `page_type` = '1';
+
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000029','1','-1','档期1122 整船备货满量优惠 banner.jpg','/boot/file/local/1590229800633634816/76a058c5-5ef5-4683-be3c-80f2457edf31.jpg',426117,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000029');
+
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000030','1','-1','档期1122 整箱囤货件多价更低 banner.jpg','/boot/file/local/1590229800633634816/2fc2fa6c-31c6-4710-9422-c3c42cfaefaa.jpg',328663,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000030');
+
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000031','1','-1','档期1122 每周爆款档期特供 banner.jpg','/boot/file/local/1590229800633634816/4353586c-df9c-4d2a-991b-84a1683ed0fd.jpg',322576,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000031');
+
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000032','1','-1','档期1122 满299赠椰子水 banner.jpg','/boot/file/local/1590229800633634816/66fbaf97-f810-41dd-9bb2-29b82f048aad.jpg',398034,'1590229800633634816','system',NOW(),'0' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000032');
+
+-- ============================================================================
+-- 运营回填③：会员专区换血重选 + 捡漏区临期梯度重建
+-- Source: db/boot/261ops_zone_reset_seed.sql
+-- ============================================================================
+-- 运营回填③：会员专区换血重选 + 低价捡漏区临期梯度重建（Boot 单体模式）
+--
+-- 背景（2026-11-22 运营确认执行）：
+--   1) 会员专区换血：上一轮 48 个（30 个 0.95 生鲜 + 17 个 0.90 速食个护 + 1 个固定价）
+--      全部摘标，重选 36 个高频囤货标品（饮料酒水/休闲零食/方便速食/罐头酱菜/日用洗护），
+--      统一 0.95 折扣率（会员专区心智=「全场 95 折」）；伊利纯牛奶由捡漏旧标转入会员专区；
+--   2) 低价捡漏区临期梯度重建：摘掉 10 月种子遗留的 20 个无价旧标（纸品/奶品/茶咖
+--      长驻兜底价语义混乱）；已到期 5 个重配新档期复活；新补 8 个冷冻/鲜食快消品；
+--      「专业飞盘」原 11-23 到期顺延远期档，组成 7/15/30 天三档梯度（共 18 个在售）。
+--
+-- 幂等：全部按显式 ID 绝对赋值，可重复执行；到期时间按执行日 +N 天动态计算，
+--       重复执行会顺延到期窗口（属预期刷新语义，不会产生脏数据）。
+-- 生效：配价后由 MallZoneActivitySyncServiceImpl 同步进 SYS_MEMBER_ZONE /
+--       SYS_CLEARANCE_ZONE 系统活动（管理端专区设置页「立即同步」或每日
+--       mallZoneSyncJobHandler 兜底）；出清价随 goods_sku_price_daily 快照联动近 14 天最低价标签。
+-- 关联：cloud 对应脚本 264ops_zone_reset_seed.sql（aryn_product 库，同数据）。
+
+SET NAMES utf8mb4;
+
+-- ① 会员专区：上一轮 48 个全部摘标（保留原折扣率字段值，便于回溯）
+UPDATE `goods_spu`
+SET `is_member_item` = 0, `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `is_member_item` = '1' AND `tenant_id` = '1590229800633634816'
+  AND `id` IN (
+    '9740000000000000001','9740000000000000002','9740000000000000003','9740000000000000004',
+    '9740000000000000005','9740000000000000006','9740000000000000007','9740000000000000008',
+    '9740000000000000009','9740000000000000010','9740000000000000011','9740000000000000012',
+    '9740000000000000013','9740000000000000014','9740000000000000015','9740000000000000016',
+    '9740000000000000017','9740000000000000018','9740000000000000019','9740000000000000020',
+    '9740000000000000021','9740000000000000022','9740000000000000023','9740000000000000024',
+    '9740000000000000025','9740000000000000026','9740000000000000027','9740000000000000028',
+    '9740000000000000029','9740000000000000030','9740000000000000303','9740000000000000308',
+    '9740000000000000312','9740000000000000319','9740000000000000332','9740000000000000342',
+    '9740000000000000355','9740000000000000361','97700000000000000179','97700000000000000180',
+    '97700000000000000181','97700000000000000182','97700000000000000183','97700000000000000184',
+    '97700000000000000186','97700000000000000189','97700000000000000215','97700000000000000216'
+  );
+
+-- ② 会员专区：新选 36 个高频囤货标品，统一 0.95 折扣率
+--    饮料酒水 10 / 休闲零食 8 / 方便速食 8 / 罐头酱菜 4 / 日用洗护 6
+UPDATE `goods_spu`
+SET `is_member_item` = 1, `member_discount_rate` = 0.95,
+    `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `tenant_id` = '1590229800633634816'
+  AND `id` IN (
+    '9740000000000000049', -- 农夫山泉天然水 550ml×24瓶
+    '9740000000000000057', -- 伊利纯牛奶 250ml×24盒（自捡漏旧标转入）
+    '9740000000000000062', -- 安慕希酸奶 205g×16盒
+    '9740000000000000063', -- 椰树椰汁 245ml×24罐
+    '9740000000000000065', -- 可口可乐 500ml×24瓶
+    '9740000000000000066', -- 雪碧 500ml×24瓶
+    '9740000000000000069', -- 元气森林气泡水 480ml×12瓶
+    '9740000000000000073', -- 红牛维生素功能饮料 250ml×12罐
+    '9740000000000000081', -- 青岛啤酒经典 500ml×12罐
+    '9740000000000000090', -- 东方树叶绿茶 500ml×24瓶
+    '9740000000000000129', -- 洽洽香瓜子 260g/袋
+    '9740000000000000130', -- 铁锅炒花生 250g/袋
+    '9740000000000000132', -- 三只松鼠碧根果 500g/袋
+    '9740000000000000135', -- 开心果 250g/袋
+    '9740000000000000137', -- 乐事薯片 70g×3包
+    '9740000000000000138', -- 卫龙大面筋辣条 106g×3包
+    '9740000000000000139', -- 三只松鼠肉脯 200g/袋
+    '9740000000000000140', -- 旺旺仙贝 400g/袋
+    '9740000000000000153', -- 康师傅红烧牛肉面 105g×5包
+    '9740000000000000155', -- 桶装方便面 128g×10桶
+    '9740000000000000156', -- 自热小火锅 400g/盒
+    '9740000000000000157', -- 自热米饭 440g/盒
+    '9740000000000000158', -- 柳州螺蛳粉 335g×3袋
+    '9740000000000000160', -- 酸辣粉 135g×5袋
+    '9740000000000000279', -- 汤达人豚骨拉面 128g/桶
+    '9740000000000000281', -- 武汉热干面 250g/袋
+    '9740000000000000117', -- 涪陵榨菜 80g×10袋
+    '9740000000000000121', -- 砀山黄桃罐头 425g/罐
+    '9740000000000000125', -- 午餐肉罐头 198g/罐
+    '9740000000000000126', -- 油浸金枪鱼罐头 150g/罐
+    '9740000000000000161', -- 海飞丝去屑洗发水 500ml/瓶
+    '9740000000000000162', -- 舒肤佳沐浴露 400ml/瓶
+    '9740000000000000166', -- 高露洁牙膏 120g/支
+    '9740000000000000168', -- 纸巾抽纸整箱 3层100抽×24包
+    '9740000000000000169', -- 蓝月亮洗衣液 1kg/瓶
+    '9740000000000000170'  -- 立白洗洁精 500g/瓶
+  );
+
+-- ③ 捡漏区：摘掉 10 月种子遗留的 20 个无价旧标（双保险：显式 ID + 无价守卫）
+UPDATE `goods_spu`
+SET `is_clearance_item` = 0, `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `is_clearance_item` = '1' AND `clearance_price` IS NULL
+  AND `tenant_id` = '1590229800633634816'
+  AND `id` IN (
+    '9740000000000000052','9740000000000000053','9740000000000000054','9740000000000000055',
+    '9740000000000000056','9740000000000000057','9740000000000000058','9740000000000000059',
+    '9740000000000000060','9740000000000000061','9740000000000000092','9740000000000000093',
+    '9740000000000000094','9740000000000000095','9740000000000000096','9740000000000000097',
+    '9740000000000000098','9740000000000000099','9740000000000000100','9740000000000000101'
+  );
+
+-- ④ 捡漏区：近期档（执行日 +7 天到期，折力最深；新补商品同时打标）
+UPDATE `goods_spu`
+SET `is_clearance_item` = 1,
+    `clearance_price` = CASE `id`
+      WHEN '9740000000000000316' THEN 4.90  -- 小米粥杯装350g（原档已到期，复活）
+      WHEN '9740000000000000318' THEN 5.90  -- 皮蛋瘦肉粥杯装（原档已到期，复活）
+      WHEN '9740000000000000036' THEN 8.90  -- 速冻水饺 450g/袋
+      WHEN '9740000000000000042' THEN 8.90  -- 巴氏鲜牛奶 1L/瓶
+      WHEN '9740000000000000046' THEN 7.90  -- 全麦贝果 2个装
+    END,
+    `clearance_expire_time` = DATE_ADD(NOW(), INTERVAL 7 DAY),
+    `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `tenant_id` = '1590229800633634816'
+  AND `id` IN ('9740000000000000316','9740000000000000318','9740000000000000036',
+               '9740000000000000042','9740000000000000046');
+
+-- ⑤ 捡漏区：中期档（执行日 +15 天到期；新补商品同时打标）
+UPDATE `goods_spu`
+SET `is_clearance_item` = 1,
+    `clearance_price` = CASE `id`
+      WHEN '9740000000000000322' THEN 11.90 -- 奶黄包12只装（原档已到期，复活）
+      WHEN '9740000000000000327' THEN 6.90  -- 婴儿手口湿巾80抽（原档已到期，复活）
+      WHEN '9740000000000000038' THEN 16.90 -- 冷冻虾仁 250g/袋
+      WHEN '9740000000000000043' THEN 9.90  -- 牛油果 2个装
+      WHEN '9740000000000000047' THEN 11.90 -- 手打鲜虾滑 150g/袋
+    END,
+    `clearance_expire_time` = DATE_ADD(NOW(), INTERVAL 15 DAY),
+    `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `tenant_id` = '1590229800633634816'
+  AND `id` IN ('9740000000000000322','9740000000000000327','9740000000000000038',
+               '9740000000000000043','9740000000000000047');
+
+-- ⑥ 捡漏区：远期档（执行日 +30 天到期；专业飞盘原 11-23 到期顺延；新补商品同时打标）
+UPDATE `goods_spu`
+SET `is_clearance_item` = 1,
+    `clearance_price` = CASE `id`
+      WHEN '9740000000000000388' THEN 12.90 -- 车载出风口手机支架（原档已到期，复活）
+      WHEN '9740000000000000383' THEN 25.90 -- 专业飞盘175g（原 11-23 到期，顺延）
+      WHEN '9740000000000000033' THEN 6.90  -- 冷冻粗薯条 400g/袋
+      WHEN '9740000000000000035' THEN 11.90 -- 香煎鸡排 400g/袋
+    END,
+    `clearance_expire_time` = DATE_ADD(NOW(), INTERVAL 30 DAY),
+    `update_by` = 'ops', `update_time` = NOW()
+WHERE `del_flag` = '0' AND `tenant_id` = '1590229800633634816'
+  AND `id` IN ('9740000000000000388','9740000000000000383','9740000000000000033',
+               '9740000000000000035');
+
+-- 自检（执行后人工核对）
+-- SELECT COUNT(*) AS member_tagged FROM goods_spu
+--  WHERE del_flag='0' AND is_member_item='1' AND tenant_id='1590229800633634816';  -- 期望 36
+-- SELECT COUNT(*) AS member_no_price FROM goods_spu
+--  WHERE del_flag='0' AND is_member_item='1' AND tenant_id='1590229800633634816'
+--    AND member_discount_rate IS NULL AND member_price_fixed IS NULL;  -- 期望 0
+-- SELECT COUNT(*) AS clearance_tagged FROM goods_spu
+--  WHERE del_flag='0' AND is_clearance_item='1' AND tenant_id='1590229800633634816';  -- 期望 18
+-- SELECT id, name, sales_price, clearance_price, DATE(clearance_expire_time) AS expire_date,
+--        CASE WHEN clearance_expire_time < NOW() THEN 'expired' ELSE 'onsale' END AS state
+--  FROM goods_spu
+--  WHERE del_flag='0' AND is_clearance_item='1' AND tenant_id='1590229800633634816'
+--  ORDER BY clearance_expire_time;  -- 期望无 expired、无 NULL 价，三档梯度清晰
+
+-- ============================================================================
+-- 商详样板商品资料
+-- Source: db/boot/1013goods_detail_sample_incremental.sql
+-- ============================================================================
+USE aryn_boot;
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
+
+-- 银鹭样板商品补齐品牌和可核实的商品规格。仅填目标租户中尚未配置的字段。
+START TRANSACTION;
+
+SET @goods_detail_sample_tenant = '1590229800633634816';
+SET @goods_detail_sample_spu = '9740000000000000332';
+SET @goods_detail_sample_sku = '10740000000000000332';
+
+INSERT INTO goods_brand (id, name, status, tenant_id, create_by, create_time, del_flag)
+SELECT REPLACE(UUID(), '-', ''), '银鹭', '0', @goods_detail_sample_tenant, 'system', NOW(), '0'
+FROM goods_spu spu
+WHERE spu.id = @goods_detail_sample_spu AND spu.tenant_id = @goods_detail_sample_tenant
+  AND spu.del_flag = '0' AND spu.name = '银鹭花生牛奶450ml'
+  AND (spu.brand_id IS NULL OR spu.brand_id IN ('', '0'))
+  AND NOT EXISTS (
+    SELECT 1 FROM goods_brand brand
+    WHERE brand.tenant_id = @goods_detail_sample_tenant AND brand.name = '银鹭' AND brand.del_flag = '0'
+  );
+
+SET @goods_detail_sample_brand = (
+  SELECT id FROM goods_brand
+  WHERE tenant_id = @goods_detail_sample_tenant AND name = '银鹭' AND status = '0' AND del_flag = '0'
+  ORDER BY id LIMIT 1
+);
+
+UPDATE goods_spu
+SET brand_id = @goods_detail_sample_brand
+WHERE id = @goods_detail_sample_spu AND tenant_id = @goods_detail_sample_tenant
+  AND del_flag = '0' AND name = '银鹭花生牛奶450ml'
+  AND (brand_id IS NULL OR brand_id IN ('', '0')) AND @goods_detail_sample_brand IS NOT NULL;
+
+UPDATE goods_sku sku
+JOIN goods_spu spu ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id
+SET sku.unit_spec_text = '450 mL'
+WHERE spu.id = @goods_detail_sample_spu AND spu.tenant_id = @goods_detail_sample_tenant
+  AND spu.del_flag = '0' AND spu.name = '银鹭花生牛奶450ml' AND spu.enable_specs = '0'
+  AND sku.id = @goods_detail_sample_sku AND sku.del_flag = '0'
+  AND (sku.unit_spec_text IS NULL OR TRIM(sku.unit_spec_text) = '');
+
+COMMIT;
+
+-- ============================================================================
+-- 商详商品参数
+-- Source: db/boot/1014goods_spu_params_incremental.sql
+-- ============================================================================
+USE aryn_boot;
+
+-- 商品详情的 SPU 参数数组，存量商品默认为空。
+SET @goods_params_ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'goods_spu' AND column_name = 'params_json'),
+  'SELECT 1',
+  'ALTER TABLE goods_spu ADD COLUMN params_json JSON NULL COMMENT ''商品参数（label/value 数组）'''
+);
+PREPARE goods_params_stmt FROM @goods_params_ddl;
+EXECUTE goods_params_stmt;
+DEALLOCATE PREPARE goods_params_stmt;
+
+-- ============================================================================
+-- 商详服务承诺标签
+-- Source: db/boot/1016goods_spu_service_tags_incremental.sql
+-- ============================================================================
+USE aryn_boot;
+
+-- 商详首屏服务承诺标签（code 数组），存量商品默认为空、端上回退全局三项。
+SET @goods_service_tags_ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'goods_spu' AND column_name = 'service_tags'),
+  'SELECT 1',
+  'ALTER TABLE goods_spu ADD COLUMN service_tags JSON NULL COMMENT ''服务承诺标签（code 数组）'''
+);
+PREPARE goods_service_tags_stmt FROM @goods_service_tags_ddl;
+EXECUTE goods_service_tags_stmt;
+DEALLOCATE PREPARE goods_service_tags_stmt;
+
+-- ============================================================================
+-- 商详商品档案与结构化详情
+-- Source: db/boot/1017goods_profile_detail_sections_incremental.sql
+-- ============================================================================
+-- 商详商品档案与结构化详情（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行；只新增 JSON 列，不改存量字段；示例数据只填 goods_profile 为空的目标商品。
+-- 执行：mysql -u root -p aryn_boot < 1017goods_profile_detail_sections_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ===========================================================================
+-- 1. 商品档案：配料 / 营养 / 过敏原 / 执行标准 / 认证
+-- ===========================================================================
+SET @goods_profile_ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'goods_spu' AND column_name = 'goods_profile'),
+  'SELECT 1',
+  'ALTER TABLE goods_spu ADD COLUMN goods_profile JSON NULL COMMENT ''商品档案（配料/营养/标准）'''
+);
+PREPARE goods_profile_stmt FROM @goods_profile_ddl;
+EXECUTE goods_profile_stmt;
+DEALLOCATE PREPARE goods_profile_stmt;
+
+-- ===========================================================================
+-- 2. 结构化详情：标题 + 纯文本 + 可选配图，按数组顺序渲染
+-- ===========================================================================
+SET @detail_sections_ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'goods_spu' AND column_name = 'detail_sections'),
+  'SELECT 1',
+  'ALTER TABLE goods_spu ADD COLUMN detail_sections JSON NULL COMMENT ''结构化详情段落（标题/正文/配图）'''
+);
+PREPARE detail_sections_stmt FROM @detail_sections_ddl;
+EXECUTE detail_sections_stmt;
+DEALLOCATE PREPARE detail_sections_stmt;
+
+-- ===========================================================================
+-- 3. 樱桃预览数据：只填空档案，不覆盖运营已维护的内容
+-- ===========================================================================
+UPDATE goods_spu
+SET goods_profile = JSON_OBJECT(
+      'ingredients', '樱桃',
+      'nutrition', JSON_ARRAY(
+        JSON_OBJECT('name', '能量', 'amount', '264', 'unit', 'kJ', 'nrv', '3%'),
+        JSON_OBJECT('name', '蛋白质', 'amount', '1.1', 'unit', 'g', 'nrv', '2%'),
+        JSON_OBJECT('name', '脂肪', 'amount', '0.2', 'unit', 'g', 'nrv', '0%'),
+        JSON_OBJECT('name', '碳水化合物', 'amount', '16.0', 'unit', 'g', 'nrv', '5%'),
+        JSON_OBJECT('name', '膳食纤维', 'amount', '2.1', 'unit', 'g', 'nrv', '8%'),
+        JSON_OBJECT('name', '钠', 'amount', '0', 'unit', 'mg', 'nrv', '0%')
+      ),
+      'allergens', '无已知过敏原；对樱桃过敏者请慎食',
+      'standard', '按产地准入与企业验收标准执行',
+      'certifications', JSON_ARRAY('产地直采', '冷链直供')
+    ),
+    detail_sections = JSON_ARRAY(
+      JSON_OBJECT(
+        'title', '产地与采摘',
+        'content', '烟台产区当季现摘，采摘后预冷分选，按果径分级装箱。',
+        'imageUrl', 'https://economies-gps-ceremony-cities.trycloudflare.com/boot/file/local/1590229800633634816/d71571ab-bbdd-4588-895b-437090ccf079.jpg'
+      ),
+      JSON_OBJECT(
+        'title', '储存与食用',
+        'content', '收到后建议 0–4℃ 冷藏，食用前清洗；冷藏后风味更佳，建议尽快食用。',
+        'imageUrl', ''
+      ),
+      JSON_OBJECT(
+        'title', '船供采购场景',
+        'content', '适合船员食堂、靠港补给和整箱备货；按箱规配货，可与其它生鲜合并装运。',
+        'imageUrl', ''
+      )
+    )
+WHERE id = '9740000000000000201'
+  AND tenant_id = '1590229800633634816'
+  AND del_flag = '0'
+  AND (goods_profile IS NULL OR JSON_LENGTH(goods_profile) = 0);
+
+-- 自检：应返回目标商品的两列 JSON
+SELECT id, name, goods_profile, detail_sections
+FROM goods_spu
+WHERE id = '9740000000000000201' AND tenant_id = '1590229800633634816';
 
 SET FOREIGN_KEY_CHECKS = 1;

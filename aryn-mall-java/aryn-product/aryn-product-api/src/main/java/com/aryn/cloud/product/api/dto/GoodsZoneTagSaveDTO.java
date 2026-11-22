@@ -56,6 +56,9 @@ public class GoodsZoneTagSaveDTO implements Serializable {
 	@Schema(description = "SKU 覆盖精确提交：true 时 skus 中出现的 SKU 按提交值覆盖（null=清空该字段并恢复继承）")
 	private Boolean replaceSkuRules;
 
+	@Schema(description = "单专区编辑范围：member 或 clearance。商品规则和提交的规格按该专区精确覆盖，null 清空字段")
+	private String editZone;
+
 	@Schema(description = "SKU 级覆盖")
 	private List<SkuTag> skus;
 

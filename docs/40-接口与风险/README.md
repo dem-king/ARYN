@@ -550,3 +550,35 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
   两者都失败返回「未知」；归属地只影响展示，任何异常不得影响登录/业务主流程（`IpUtils` 已兜底）。
 - **cloud 多服务**：xdb 是本地文件。需要所有实例热更新时，要么给各服务挂同一 `data-dir` 共享卷，
   要么在各执行器分组分别注册刷新任务；否则非执行器服务随镜像发版更新。
+
+
+### B2B 活动写入准入（2026-11-15）
+
+`/ship-activity`人工写入与复制统一经`B2bActivityCommandService`，仅接受4阶梯、5买赠、7满量满额、12档期特供。请求DTO不含发布状态、系统编码、租户和消耗量；更新与生命周期命令必须传`expectedRevision`，冲突返回409。已发布活动先暂停编辑；复制不继承发布态/消耗量。配置修订与订单占用预算/限量分别维护。
+
+秒杀/折扣/拼团保存修改及状态切换、分销配置启用/注册、非销售社交分享绑定和公共领券中心接口明确拒绝停运功能。销售CRM分享绑定、历史订单只读/退款补偿、会员/积分定向权益发券继续保留。10/11专区仍只能通过标签系统治理；协议价和采购档期使用各自领域服务。
+
+两模式增量为Boot `253b2b_activity_command_incremental.sql`与Cloud `1006b2b_activity_command_incremental.sql`。存量库上线新代码前需执行增量提供`promotion_activity.revision`；本地仅已验证隔离库，未迁移实际业务库。
+
+
+### 营销纯评估边界（2026-11-15）
+
+正式`PromotionEngineServiceImpl.preview`与草稿情景复用`PromotionScenarioEvaluator`；`PromotionFactSnapshot`是已读取的值快照，重放不查询、不预占、不发券。月度消耗按快照时点所在月统计。该核心只输出活动定价/优惠来源/赠品，券、双轨会员折扣、运费与积分仍属于订单域正式计算，不能仅凭活动结果宣称完整成交实付或ROI。
+
+
+### 草稿情景模拟与报价范围（2026-11-15）
+
+`POST /promotion/campaign-simulation`与同路径`GET /{id}`（boot改写为`/boot/campaign-simulation`）使用独立`promotion:campaign:simulate`，保存的记录仅当前租户/操作者可读。样本必须为该租户有效用户，指定船/企业需先证明该用户是有效成员，再读取协议价。售价、港口由事实域重建。旧`ship-activity/dry-run`为管理任意主体试算，同时要求活动列表及价格政策读取权限。
+
+报价复用正式订单的双轨会员/券叠加与分摊、券后整船优惠，只表示券后商品应付；地址运费、积分及储值未进入该样本。成本缺失为UNKNOWN，未来场景沿用当前会员和库存事实。模拟记录不占库存/预算、不发布、不发券；10分钟后过期，发布前必须通过`CampaignSimulationService.requireCurrent`重验摘要，不能相信客户端传来的current。活动包修订与未发行券关联正在T24接入，不能把当前主活动模拟当作整个营销闭环验收。
+
+
+## AI与采购营销改造（2026-11-15本地交付）
+
+- 配置权威在upms，common-ai只提供协议；服务间走API契约，无biz直接导入。按平台权限保存/测试/启用版本，调用任务固定配置、租户/用途签名和预算；未配置可规则降级。
+- 商品度量统一MOQ/step，数量从MOQ起递增；未知与约量不自动变精确。采购来源按贡献追加/替换，LEGACY与别人的手工量不可推算撤销。
+- `/upms/ai-config`、`/product/catalog-index`、`/mall-order/app/procurement-drafts`、`/promotion/campaign-draft`为前端Cloud域路径；网关去域后映射Controller，Boot走公共rewrite。实际部署路径仍须现场验。
+- 营销发布以requestId+确认摘要持久化，promotion同库事务包含主方案/停用券模板/装修版本/operation，页面最后启用。无自动发券；协议政策预算没有订单侧硬消耗保护，须显式风险确认；指标缺归因则为空。
+- 原件/凭证/索引留存工具位于 `aryn-mall-java/db/maintenance/ai-retention.py`，默认ROLLBACK预览。正式清理须停写、核对引用与回滚窗口；跨服务器Cloud无一致依赖快照时不能清配置/凭证。保留贡献和审计，不物理删业务记录。
+- 真实供应商、Cloud多实例/Dubbo/broker、真实菜单/C端发布与小程序终端未验。管理端全量还有两项既有装修契约失败及既有格式检查失败；微信主包2028.5KB，余19.5KB。
+- 证据和操作见[验收记录](../50-需求文档/2026-11-14-主流同类产品AI能力调研/05-验收用例与验证记录.md)、[部署运维](../50-需求文档/2026-11-14-主流同类产品AI能力调研/06-部署迁移与运维手册.md)。Graphify/UA不可用，以源码检索/编译回退，不声明已部署。

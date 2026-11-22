@@ -253,8 +253,7 @@ describe('shared cart routing contract', () => {
     // 模板下载要带鉴权头：模板接口挂在 C 端登录态下，不能为了省事挂到网关白名单
     expect(api).toContain('satoken')
     expect(api).toContain('uni.downloadFile')
-    const page = source('src/sub-pages/order/shared-cart/import.vue')
-    expect(page).toContain('downloadTemplate')
+    expect(api).toContain('downloadSharedCartImportTemplate')
   })
 
   it('template lists on-sale goods by category so only the quantity column needs filling', () => {
@@ -282,23 +281,17 @@ describe('shared cart routing contract', () => {
     expect(excel).toContain('catalogHead')
   })
 
-  it('import report distinguishes not-filled rows from quantity errors', () => {
-    // 目录模板铺满在售商品，客户只填要买的几行。没填数量的行必须是
-    // 「未填数量」而不是「数量异常」，否则 273 行的模板会刷出 268 条红色报错。
+  it('historical report keeps unfilled quantities distinct and has no row mutation controls', () => {
     const page = source('src/sub-pages/order/shared-cart/import.vue')
     expect(page).toContain('NOT_FILLED')
     expect(page).toContain('notFilledRows')
-    expect(page).toContain('未填数量')
-
-    // 未填数量的行不进「待处置」列表：它是正常状态，不该占用处置位
-    const actionable = page.slice(
-      page.indexOf('const actionableRows'),
-      page.indexOf('const passiveRows'),
-    )
-    expect(actionable).toContain('NOT_FILLED')
-
-    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
-    expect(controller).toContain('@GetMapping("/import/template")')
+    expect(page).toContain('procurement.legacyReadOnly')
+    for (const retired of ['acceptSpec', 'adjustQuantity', 'chooseCandidate', 'uploadAndParse', 'v-if="false"'])
+      expect(page).not.toContain(retired)
+    const chain = source('src/sub-pages/order/shared-cart/chain-import.vue')
+    expect(chain).toContain('/sub-pages/order/shared-cart/import?')
+    expect(chain).toContain('/sub-pages/order/procurement/index?')
+    expect(chain).not.toContain('setInterval')
   })
 
   it('import page registers in pages.json and is reachable from detail', () => {
@@ -307,7 +300,7 @@ describe('shared cart routing contract', () => {
     expect(pages).toContain('"name": "shared-cart-import"')
 
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    expect(detail).toContain('/sub-pages/order/shared-cart/import?cartId=')
+    expect(detail).toContain('/sub-pages/order/procurement/index?cartId=')
     // 入口按服务端权限标记显示，前端不自行推断角色
     expect(detail).toContain('cart.viewerCanConfirm')
   })
@@ -415,9 +408,10 @@ describe('shared cart routing contract', () => {
   it('import confirm only sends actions, never row content', () => {
     const page = source('src/sub-pages/order/shared-cart/import.vue')
     // 客户端只回传「行号 → 处置动作」；行内容一律以服务端解析行为准
-    expect(page).toContain('confirmSharedCartImport')
-    expect(page).toContain('rowNo')
-    expect(page).toContain('action')
+    expect(page).not.toContain('confirmSharedCartImport')
+    const review = source('src/api/order/procurement-draft.ts')
+    expect(review).toContain('reviewProcurementRow')
+    expect(review).toContain('expectedRevision')
     // 不得把服务端返回的行原文再回传（那是可被篡改的输入）
     expect(page).not.toMatch(/confirmSharedCartImport\([^)]*rawQuantity/)
 
@@ -434,12 +428,15 @@ describe('shared cart routing contract', () => {
     expect(payloadBody).not.toMatch(/raw[A-Z]/)
   })
 
-  it('import page does not fake a parse progress bar', () => {
+  it('historical report rejects responses after leaving or changing identity', () => {
     const page = source('src/sub-pages/order/shared-cart/import.vue')
-    // 解析同步完成、没有真实进度可回传；画百分比进度条就是假进度
-    expect(page).not.toContain('parseBar')
-    expect(page).not.toMatch(/progress.*=\s*\d+/)
-    expect(page).toContain('正在解析')
+    expect(page).toContain('onHide')
+    expect(page).toContain('onUnload')
+    expect(page).toContain('auth.getToken')
+    expect(page).toContain('isCurrent(ticket, token)')
+    expect(page).toContain('if (!stillCurrent())')
+    expect(page).not.toContain('setInterval')
+    expect(page).not.toContain('aiPhase')
   })
 
   it('reuse only offered for finished carts, never the active one', () => {
@@ -456,19 +453,17 @@ describe('shared cart routing contract', () => {
       detail.indexOf('function openConfirm'),
     )
     // 复用出来的是本轮采购，配送窗口必须落在本次靠港
-    expect(call).toContain('vesselCallId: shipContextStore.vesselCallId')
+    expect(call).toContain('vesselCallId: shore ? undefined : shipContextStore.vesselCallId')
     // 船必须与源单一致
-    expect(call).toContain('vesselId: cart.value.vesselId')
+    expect(call).toContain('vesselId: shore ? undefined : cart.value.vesselId')
   })
 
-  it('reuse reports partial success instead of swallowing skipped items', () => {
+  it('reuse opens a persistent review source instead of immediately adding historical quantities', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    // 跳过项（本次清单已有该商品 / 原明细无可用数量）必须如实告知。
-    // 断到「跳过 N 项」这个完整文案：只查 skippedCount 或「已复用」的话，
-    // 把提示改成永远说「已复用 N 项」也照样通过（缺陷注入实测如此）。
-    expect(detail).toContain('sharedCart.detail.reusePartial')
-    expect(detail).toContain('reused: result.reusedCount')
-    expect(detail).toContain('skipped')
+    expect(detail).toContain('clientRequestId: requestId')
+    expect(detail).toContain('result.draftId')
+    expect(detail).toContain('/sub-pages/order/procurement/index?cartId=')
+    expect(detail).not.toContain('reused: result.reusedCount')
   })
 
   it('warns on a stale call snapshot instead of exposing it only at submit', () => {

@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.product.service.impl;
 
+import com.aryn.cloud.product.support.GoodsMeasurementSupport;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -65,6 +66,15 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	/** 个人中心个性化：近期浏览足迹取样上限 */
 	private static final int RECOMMEND_FOOTPRINT_LIMIT = 20;
+
+	/**
+	 * 商详服务承诺标签白名单：端上按 code 出中英文案，后端只收这四个，
+	 * 避免运营手填出「冷链直发」这种和商品实际不符的承诺。
+	 */
+	private static final Set<String> SERVICE_TAG_CODES = Set.of("authentic", "damage_refund", "invoice", "cold_chain");
+
+	/** 服务承诺最多 4 项：商详首屏一行排得下，多了会换行挤压卖点 */
+	private static final int MAX_SERVICE_TAG_SIZE = 4;
 
 	private final GoodsSkuMapper goodsSkuMapper;
 
@@ -156,6 +166,8 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		}
 		boolean zoneChanged = zoneFieldsChanged(storedSpu, goodsSpu);
 		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
+		goodsSpu.setParams(normalizeParams(goodsSpu.getParams()));
+		goodsSpu.setServiceTags(normalizeServiceTags(goodsSpu.getServiceTags()));
 		// 显式提交了卖点（哪怕是空编辑器）就要真正落库：清洗成 null 时写空串，
 		// 否则会被 MyBatis-Plus 的 NOT_NULL 更新策略忽略，运营清空卖点不生效
 		boolean introductionSubmitted = goodsSpu.getIntroduction() != null;
@@ -179,12 +191,14 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 				if (goodsSku.getVersion() == null || goodsSku.getVersion() != storedVersion) {
 					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
 				}
+				prepareMeasurement(goodsSku, storedSku);
 				stockDelta = Math.addExact(stockDelta, goodsSku.getStock() - storedSku.getStock());
 				recordSkuPriceChanges(goodsSpu.getId(), storedSku, goodsSku);
 				prepareSkuForUpdate(goodsSku, goodsSpu.getId());
 				if (goodsSkuMapper.updateById(goodsSku) <= 0) {
 					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
 				}
+				goodsSkuMapper.updateMeasurement(goodsSku);
 			}
 			else {
 				stockDelta = Math.addExact(stockDelta, goodsSku.getStock());
@@ -220,6 +234,8 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveGoods(GoodsSpu goodsSpu) {
 		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
+		goodsSpu.setParams(normalizeParams(goodsSpu.getParams()));
+		goodsSpu.setServiceTags(normalizeServiceTags(goodsSpu.getServiceTags()));
 		goodsSpu.setIntroduction(GoodsIntroductionSanitizer.sanitize(goodsSpu.getIntroduction()));
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		applyAggregatePrices(goodsSpu, goodsSkuList);
@@ -324,7 +340,13 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		goodsSpu.setDelFlag(null);
 	}
 
+	private void prepareMeasurement(GoodsSku requested, GoodsSku stored) {
+		try { GoodsMeasurementSupport.prepare(requested, stored); }
+		catch (IllegalArgumentException exception) { throw new ArynBusinessException("SKU " + Objects.toString(requested.getId(), "新增") + "：" + exception.getMessage()); }
+	}
+
 	private void prepareSkuForInsert(GoodsSku goodsSku, String spuId) {
+		prepareMeasurement(goodsSku, null);
 		goodsSku.setId(null);
 		goodsSku.setSpuId(spuId);
 		goodsSku.setTenantId(null);
@@ -670,6 +692,61 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		// 口碑气泡增强展示：内部自行逐路降级，全部不可得返回 null（气泡不渲染）
 		masked.setSocialBubble(goodsSocialBubbleService.build(id));
 		return masked;
+	}
+
+	private static List<GoodsParam> normalizeParams(List<GoodsParam> params) {
+		if (params == null) {
+			return null;
+		}
+		if (params.size() > 12) {
+			throw new ArynBusinessException("商品参数最多填写 12 项");
+		}
+		List<GoodsParam> normalized = new ArrayList<>(params.size());
+		Set<String> labels = new HashSet<>();
+		for (GoodsParam param : params) {
+			if (param == null || !StringUtils.hasText(param.getLabel()) || !StringUtils.hasText(param.getValue())) {
+				throw new ArynBusinessException("请填写商品参数名称和内容");
+			}
+			String label = param.getLabel().strip();
+			String value = param.getValue().strip();
+			if (label.length() > 24 || value.length() > 200) {
+				throw new ArynBusinessException("商品参数名称最多 24 字，内容最多 200 字");
+			}
+			if (!labels.add(label.toLowerCase(Locale.ROOT))) {
+				throw new ArynBusinessException("商品参数名称不能重复");
+			}
+			normalized.add(new GoodsParam(label, value));
+		}
+		return normalized;
+	}
+
+	/**
+	 * 服务承诺标签清洗：白名单 + 小写收敛 + 去重 + 数量上限。
+	 *
+	 * <p>null 表示本次没提交（更新时保持原值）；空数组表示运营主动清空，
+	 * 清空后端上按全局三项兜底，不出现空白承诺行。
+	 */
+	private static List<String> normalizeServiceTags(List<String> serviceTags) {
+		if (serviceTags == null) {
+			return null;
+		}
+		List<String> normalized = new ArrayList<>(serviceTags.size());
+		for (String tag : serviceTags) {
+			if (!StringUtils.hasText(tag)) {
+				continue;
+			}
+			String code = tag.strip().toLowerCase(Locale.ROOT);
+			if (!SERVICE_TAG_CODES.contains(code)) {
+				throw new ArynBusinessException("服务承诺标签不合法：" + tag);
+			}
+			if (!normalized.contains(code)) {
+				normalized.add(code);
+			}
+		}
+		if (normalized.size() > MAX_SERVICE_TAG_SIZE) {
+			throw new ArynBusinessException("服务承诺最多选择 " + MAX_SERVICE_TAG_SIZE + " 项");
+		}
+		return normalized;
 	}
 
 	/**

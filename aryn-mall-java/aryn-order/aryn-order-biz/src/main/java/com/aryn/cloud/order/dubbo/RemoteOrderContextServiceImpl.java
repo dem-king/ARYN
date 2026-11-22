@@ -38,6 +38,35 @@ public class RemoteOrderContextServiceImpl implements RemoteOrderContextService 
 
 	private final OrderInfoMapper orderInfoMapper;
 
+	private final com.aryn.cloud.order.service.IBuyerOrgService buyerOrgService;
+
+	@Override
+	public boolean isUsableBuyerOrgMember(String tenantId, String userId, String buyerOrgId) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(userId) || !StringUtils.hasText(buyerOrgId)) {
+			return false;
+		}
+		String snapshot = ArynTenantContextHolder.getTenantId();
+		try {
+			ArynTenantContextHolder.setTenantId(tenantId);
+			// 与下单链同口径：主体可用 + 本人有效成员（不要求建车权限）
+			buyerOrgService.requireForOrder(tenantId, userId, buyerOrgId);
+			return true;
+		}
+		catch (Exception ex) {
+			log.info("采购主体成员校验不通过 tenant={} user={} org={}: {}", tenantId, userId, buyerOrgId,
+					ex.getMessage());
+			return false;
+		}
+		finally {
+			if (snapshot != null) {
+				ArynTenantContextHolder.setTenantId(snapshot);
+			}
+			else {
+				ArynTenantContextHolder.removeTenantId();
+			}
+		}
+	}
+
 	@Override
 	public List<OrderContextVO> queryRecentOrders(String tenantId, String customerId, int limit) {
 		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(customerId)) {

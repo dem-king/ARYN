@@ -25,8 +25,7 @@ import {
  * 1. 专区切换是页面的一级上下文，用分段控件表达当前所在专区；
  * 2. 专区状态 / 默认折扣率 / 系统活动 / 已同步商品 / 最近同步 按指标卡展示，
  *    运营扫一眼就能判断「价格是否在生效」；
- * 3. 完整价格口径收进「规则说明」气泡，底部保留一行「标签存在≠价格生效」
- *    常驻提示，不再用整条 Alert 长期占用列表首屏。
+ * 3. 价格口径收进「规则说明」气泡。
  */
 interface ZoneSettingLike {
   defaultDiscountRate?: null | number | string;
@@ -161,8 +160,7 @@ function handleSwitchKeydown(event: KeyboardEvent) {
           <div class="zone-rule">
             <p class="zone-rule__desc">{{ zoneDescription }}</p>
             <p class="zone-rule__warn">
-              专区价由后端按规则实时计算：价格倒挂、出清到期、商品下架时 C
-              端不会展示专区价。
+              列表展示商品规则试算。专区开启后，系统按规格同步可用专区价。
             </p>
           </div>
         </ElPopover>
@@ -274,13 +272,6 @@ function handleSwitchKeydown(event: KeyboardEvent) {
         </span>
       </div>
     </div>
-
-    <p class="zone-hero__hint">
-      <ElIcon class="zone-hero__hint-icon" aria-hidden="true">
-        <InfoFilled />
-      </ElIcon>
-      专区价由规则实时计算；「标签存在」≠「价格生效」，请以列表「生效状态」列为准。
-    </p>
   </section>
 </template>
 
@@ -486,23 +477,6 @@ function handleSwitchKeydown(event: KeyboardEvent) {
   &--unknown {
     background: var(--el-text-color-placeholder);
   }
-}
-
-.zone-hero__hint {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
-  padding-top: 10px;
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
-  border-top: 1px dashed var(--el-border-color-lighter);
-}
-
-.zone-hero__hint-icon {
-  margin-top: 2px;
-  color: var(--el-color-primary);
 }
 
 .zone-rule {

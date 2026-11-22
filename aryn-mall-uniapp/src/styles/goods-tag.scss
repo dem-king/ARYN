@@ -1,13 +1,15 @@
 /**
- * 商品卡营销标签设计令牌（2026-11-08 视觉增强版）。
+ * 商品卡营销标签设计令牌（2026-11-08 视觉增强版，2026-11-15 收敛版）。
  *
  * 三族标签共用同一套令牌：社证（月N+人已下单/回头客/回购率）、价格声明（近N天最低价）、
  * 新人价钩子。四张主卡（goods-list-panel / waterfall-goods / diy-goods / diy-goods-tabs）
  * 与次级卡面（收藏/足迹/快捷商详/装修商品楼层）共用，改这里即全站同步。
  *
- * 设计口径（增强版，取代首版「灰字社证 + 细描边」的素色方案）：
+ * 设计口径（2026-11-15 收敛）：
  * - 社证 = 热销暖 chip：浅桃底 + 暖橙字 + 数字加粗，把「很多人买」变成看得见的热度；
- * - 最低价 = 红底贴纸：浅红渐变实底 + 600 字重 + 降价触底图标，价格保障一眼可读；
+ * - 最低价 = **与社证同族的暖橙 chip**（浅桃底 + 暖橙字 + 降价触底图标）：同为「解释价格」的
+ *   中性声明，不是身份价。首版浅红描边贴纸在实卡上与「捡漏价/秒杀价」红橙实底白字标签
+ *   风格打架，宽度不足还会掉到价格行第二行，位置与社证 chip 不齐——已废弃；
  * - 新人价 = 红橙渐变实底白字 + 白色星芒，资格钩子要有「专享感」。
  * - 三族都用**固定红橙系，不随多租户主题**（首版主题橙粗框被否的教训延续）；
  *   「跟随主题」只适用于价格数字与秒杀角标（既有约定不变）。
@@ -20,12 +22,6 @@
 /* 浅桃底上的暖橙小字：对比度 ≈ 5:1，20rpx 小字不糊 */
 $goods-tag-hot-ink: #d43e00;
 $goods-tag-hot-bg: linear-gradient(90deg, #fff6ee 0%, #ffe9d8 100%);
-
-/* ---------- 价格声明·最低价族 ---------- */
-$goods-tag-low-ink: #e02612;
-$goods-tag-low-bg: linear-gradient(90deg, #fff0ec 0%, #ffdfd9 100%);
-/* 同族浅描边：保住首版 1px 描边的度量（行高不变），又比裸描边更「贴纸」 */
-$goods-tag-low-line: rgba(224, 38, 18, 0.16);
 
 /* ---------- 新人价钩子族 ---------- */
 $goods-tag-newbie-bg: linear-gradient(135deg, #ff2237 0%, #ff7a00 100%);
@@ -54,14 +50,6 @@ $goods-tag-clearance-bg: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
   font-weight: 700;
 }
 
-/* 最低价贴纸身份：浅红实底 + 同族浅描边 + 600 字重 */
-@mixin goods-tag-low {
-  border: 1px solid $goods-tag-low-line;
-  background: $goods-tag-low-bg;
-  color: $goods-tag-low-ink;
-  font-weight: 600;
-}
-
 /* 新人价钩子身份：红橙渐变实底白字加粗（不随主题，理由见文件头） */
 @mixin goods-tag-newbie {
   display: inline-flex;
@@ -81,12 +69,15 @@ $goods-tag-clearance-bg: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
   font-weight: 600;
 }
 
-/* 降价触底折线图标（固定红系）：尺寸由各卡落值 */
-@mixin goods-tag-low-icon {
-  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxMic+PHBvbHlsaW5lIHBvaW50cz0nMSwyIDUsNyA4LDQgMTQsOScgZmlsbD0nbm9uZScgc3Ryb2tlPSclMjNlMDI2MTInIHN0cm9rZS13aWR0aD0nMicgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PHBhdGggZD0nTTEgMTFoMTQnIHN0cm9rZT0nJTIzZTAyNjEyJyBzdHJva2Utd2lkdGg9JzEuNScgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBvcGFjaXR5PScuNDUnLz48L3N2Zz4=") no-repeat center / contain;
+/* 降价触底折线图标（暖橙系，与社证 chip 同族）：尺寸由各卡落值。
+   【base64 陷阱】SVG 源码里的 '#' 不能再写成 %23——base64 负载不经过 URL 解码，
+   %23 会被 SVG 解析器当成非法颜色，图标直接不显示（首版实卡图标不可见即此因）。 */
+@mixin goods-tag-hot-icon {
+  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxMic+PHBvbHlsaW5lIHBvaW50cz0nMSwyIDUsNyA4LDQgMTQsOScgZmlsbD0nbm9uZScgc3Ryb2tlPScjZDQzZTAwJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCcvPjxwYXRoIGQ9J00xIDExaDE0JyBzdHJva2U9JyNkNDNlMDAnIHN0cm9rZS13aWR0aD0nMS41JyBzdHJva2UtbGluZWNhcD0ncm91bmQnIG9wYWNpdHk9Jy40NScvPjwvc3ZnPg==") no-repeat center / contain;
 }
 
-/* 白色星芒图标（新人价专享感）：尺寸由各卡落值 */
+/* 白色星芒图标（新人价专享感）：尺寸由各卡落值。'%23fff' 同属上面的 base64 陷阱，
+   实卡会渲染成黑星甚至不出图，这里一并纠正为 '#fff' */
 @mixin goods-tag-newbie-icon {
-  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHBhdGggZmlsbD0nJTIzZmZmJyBkPSdNOCAwbDEuOSA2LjFMMTYgOGwtNi4xIDEuOUw4IDE2bC0xLjktNi4xTDAgOGw2LjEtMS45eicvPjwvc3ZnPg==") no-repeat center / contain;
+  background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHBhdGggZmlsbD0nI2ZmZicgZD0nTTggMGwxLjkgNi4xTDE2IDhsLTYuMSAxLjlMOCAxNmwtMS45LTYuMUwwIDhsNi4xLTEuOXonLz48L3N2Zz4=") no-repeat center / contain;
 }

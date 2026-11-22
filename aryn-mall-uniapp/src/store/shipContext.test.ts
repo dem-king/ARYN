@@ -62,6 +62,18 @@ describe('shipContextStore', () => {
     store.switchVessel('vessel-1', 'A轮')
     expect(store.vesselCallId).toBe('call-1')
   })
+  it('权威窗口被清空或通过setContext换船时不残留旧ETA', () => {
+    const store = useShipContextStore()
+    store.setVesselContext({ vesselId: 'a', vesselCallId: 'call-a', deliveryWindowStart: 'old-start', deliveryWindowEnd: 'old-end', berth: 'old-berth' })
+    store.setVesselCall({ id: 'call-a' })
+    expect(store.deliveryWindowStart).toBe('')
+    expect(store.deliveryWindowEnd).toBe('')
+    expect(store.berth).toBe('')
+    store.setVesselCall({ id: 'call-a', deliveryWindowStart: 'again' })
+    store.setVesselContext({ vesselId: 'b' })
+    expect(store.vesselCallId).toBe('')
+    expect(store.deliveryWindowStart).toBe('')
+  })
 
   it('购买场景切换同步结算上下文', () => {
     const store = useShipContextStore()

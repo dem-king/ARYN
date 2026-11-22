@@ -16,8 +16,9 @@ import {
   ElTag,
 } from 'element-plus';
 
+import { getWarehouseConfig } from '#/api/delivery/config';
 import {
-  addOrderToWave,
+  addOrdersToWave,
   createWave,
   getWaveItems,
   getWavePage,
@@ -26,6 +27,7 @@ import {
   reportShort,
   reviewWave,
   scanPick,
+  startPicking,
 } from '#/api/fulfillment/wave';
 import { uploadFile } from '#/api/upms/upload';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
@@ -50,7 +52,9 @@ const waveForm = reactive<any>({
   portCode: '',
   portName: '',
   vesselCallId: '',
+  warehouseId: '',
 });
+const warehouse = ref<{ id: string; warehouseName: string }>();
 const orderIdInput = ref('');
 
 const itemsDialogVisible = ref(false);
@@ -154,8 +158,8 @@ const initPage = async () => {
 };
 
 const saveWave = () => {
-  if (!waveForm.portCode) {
-    ElMessage.warning('港口编码必填');
+  if (!waveForm.portCode || !waveForm.warehouseId) {
+    ElMessage.warning('请选择仓库并填写港口编码');
     return;
   }
   createWave(waveForm)
@@ -180,7 +184,10 @@ const handleAddOrder = () => {
     ElMessage.warning('请输入订单ID');
     return;
   }
-  addOrderToWave(itemsWave.value.id, orderIdInput.value)
+  addOrdersToWave(
+    itemsWave.value.id,
+    orderIdInput.value.split(/[\s,，]+/).filter(Boolean),
+  )
     .then(() => {
       ElMessage.success('订单已加入波次');
       orderIdInput.value = '';
@@ -190,6 +197,17 @@ const handleAddOrder = () => {
       itemTableData.value = list;
     })
     .catch(() => {});
+};
+
+const handleStart = async (row: any) => {
+  try {
+    const current = await startPicking(row.id);
+    if (itemsWave.value.id === row.id) itemsWave.value = current;
+    ElMessage.success('已开始拣货，后续订单请另建波次');
+    await initPage();
+  } catch {
+    /* 请求层展示具体状态冲突。 */
+  }
 };
 
 const handleScan = () => {
@@ -242,6 +260,14 @@ const handleHandOver = (row: any) => {
 };
 
 onMounted(initPage);
+onMounted(async () => {
+  try {
+    warehouse.value = await getWarehouseConfig();
+    waveForm.warehouseId = warehouse.value?.id || '';
+  } catch {
+    ElMessage.warning('仓库信息未加载，请检查仓库配置和查看权限');
+  }
+});
 
 useKeepAliveRefresh(initPage);
 </script>
@@ -310,7 +336,7 @@ useKeepAliveRefresh(initPage);
           </template>
         </ElTableColumn>
         <ElTableColumn prop="operatorName" label="操作员" width="110" />
-        <ElTableColumn label="操作" width="240">
+        <ElTableColumn label="操作" width="310">
           <template #default="scope">
             <ElButton
               link
@@ -319,6 +345,15 @@ useKeepAliveRefresh(initPage);
               @click="openItems(scope.row)"
             >
               明细
+            </ElButton>
+            <ElButton
+              link
+              type="primary"
+              v-access:code="'fulfillment:wave:pick'"
+              :disabled="scope.row.status !== '1'"
+              @click="handleStart(scope.row)"
+            >
+              开始拣货
             </ElButton>
             <ElButton
               link
@@ -351,6 +386,18 @@ useKeepAliveRefresh(initPage);
       <!-- 新建波次 -->
       <ElDialog v-model="waveDialogVisible" title="新建拣货波次" width="520px">
         <ElForm label-width="auto">
+          <ElFormItem label="履约仓库" required>
+            <ElSelect
+              v-model="waveForm.warehouseId"
+              placeholder="请选择已配置仓库"
+            >
+              <ElOption
+                v-if="warehouse"
+                :label="warehouse.warehouseName"
+                :value="warehouse.id"
+              />
+            </ElSelect>
+          </ElFormItem>
           <ElFormItem label="港口编码" required>
             <ElInput v-model="waveForm.portCode" placeholder="CNSHA" />
           </ElFormItem>
@@ -384,10 +431,25 @@ useKeepAliveRefresh(initPage);
         <div class="mb10">
           <ElInput
             v-model="orderIdInput"
-            placeholder="订单ID"
+            placeholder="订单ID，多个用逗号或换行分隔"
+            :disabled="itemsWave.status !== '1'"
             style="width: 220px; margin-right: 8px"
           />
-          <ElButton type="primary" @click="handleAddOrder">加入订单</ElButton>
+          <ElButton
+            type="primary"
+            v-access:code="'fulfillment:wave:save'"
+            :disabled="itemsWave.status !== '1'"
+            @click="handleAddOrder"
+          >
+            批量加入订单
+          </ElButton>
+          <ElButton
+            v-access:code="'fulfillment:wave:pick'"
+            :disabled="itemsWave.status !== '1' || itemTableData.length === 0"
+            @click="handleStart(itemsWave)"
+          >
+            开始拣货
+          </ElButton>
         </div>
         <ElTable
           :data="itemTableData"
@@ -451,6 +513,7 @@ useKeepAliveRefresh(initPage);
             <ElButton
               type="primary"
               v-access:code="'fulfillment:wave:pick'"
+              :disabled="itemsWave.status !== '2'"
               @click="handleScan"
             >
               扫码确认
@@ -482,6 +545,7 @@ useKeepAliveRefresh(initPage);
             <ElButton
               type="warning"
               v-access:code="'fulfillment:wave:pick'"
+              :disabled="itemsWave.status !== '2'"
               @click="handleShort"
             >
               记录短装

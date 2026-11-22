@@ -97,4 +97,33 @@ public class PromotionLockUsage {
 		}
 	}
 
+	/**
+	 * 用户在某档期特供活动下已占用的限量件数（从锁定快照 quotaUnits 恢复）。
+	 *
+	 * <p>每人限购按<b>件数</b>口径（方案 §4.3「活动级限量（件数）+ perUserLimit」），
+	 * 只统计 LOCKED/CONFIRMED，与 {@link #countUserLocks} 的次数口径互补。
+	 */
+	public int sumUserQuotaUnits(String tenantId, String userId, String activityId) {
+		return promotionLockMapper.selectList(Wrappers.lambdaQuery(PromotionLock.class)
+				.eq(PromotionLock::getTenantId, tenantId)
+				.eq(PromotionLock::getUserId, userId)
+				.eq(PromotionLock::getActivityId, activityId)
+				.eq(PromotionLock::getActivityType, PromotionActivity.TYPE_CALENDAR_SPECIAL)
+				.in(PromotionLock::getStatus, List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)))
+			.stream()
+			.mapToInt(this::quotaUnits)
+			.sum();
+	}
+
+	private int quotaUnits(PromotionLock lock) {
+		try {
+			Integer units = JSONUtil.parseObj(lock.getRuleSnapshot()).getInt("quotaUnits");
+			return units == null || units <= 0 ? 0 : units;
+		}
+		catch (Exception ex) {
+			log.warn("锁定[订单{}]特供限量快照解析失败，按 0 计", lock.getOrderId(), ex);
+			return 0;
+		}
+	}
+
 }

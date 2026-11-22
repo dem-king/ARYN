@@ -18,8 +18,15 @@ export default {
     // Trade calendar special floor (diy-trade-calendar)
     tradeCalendar: {
       badge: 'Special',
+      mark: 'S',
+      endsIn: 'Ends in',
       quotaUnlimited: 'Unlimited',
+      quotaTotal: 'Limited to {count} per drop',
       quotaLeft: '{count} left',
+      limitPerUser: '{count} per person',
+      limitNone: 'No limit',
+      multiActivity: '{count} campaigns',
+      viewAll: 'View all',
       fallbackTitle: 'Specials',
     },
 

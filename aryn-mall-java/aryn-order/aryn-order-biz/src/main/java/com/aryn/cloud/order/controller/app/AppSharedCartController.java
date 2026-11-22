@@ -59,6 +59,11 @@ import java.util.List;
 @RequestMapping("/app/shared-cart")
 @Tag(description = "shared-cart-app", name = "共享购物车")
 public class AppSharedCartController {
+    public record PersistentChainInput(String draftId, String clientRequestId, long expectedRevision, String text, boolean explicitNew) { }
+
+    private final com.aryn.cloud.order.service.impl.ProcurementHistoryService procurementHistory;
+    private final com.aryn.cloud.order.service.impl.ProcurementDraftService procurementDrafts;
+
 
 	private final ISharedCartService sharedCartService;
 
@@ -201,9 +206,9 @@ public class AppSharedCartController {
 
 	@Operation(summary = "历史补给单一键复用（把历史明细复制到当前靠港计划下的购物车）")
 	@PostMapping("/{id}/reuse")
-	public Result<SharedCartReuseVO> reuse(@PathVariable String id, @Valid @RequestBody SharedCartReuseDTO dto) {
+	public Result<?> reuse(@PathVariable String id, @RequestBody com.aryn.cloud.order.service.impl.ProcurementHistoryService.ReuseCommand dto) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.reuseFromHistory(ArynTenantContextHolder.getTenantId(),
+		return Result.success(procurementHistory.reuse(ArynTenantContextHolder.getTenantId(),
 				user.getUserId(), id, dto));
 	}
 
@@ -240,21 +245,34 @@ public class AppSharedCartController {
 
 	@Operation(summary = "上传补给清单，解析并返回导入报告（确认人/发起人）")
 	@PostMapping("/{id}/import/preview")
-	public Result<SharedCartImportVO> previewImport(@PathVariable String id,
-			@RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws IOException {
-		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.previewImport(ArynTenantContextHolder.getTenantId(), user.getUserId(),
-				id, file.getOriginalFilename(), file.getSize(), file.getBytes()));
-	}
+    public Result<?> previewImport(@PathVariable String id,
+            @RequestParam String draftId, @RequestParam String clientRequestId, @RequestParam long expectedRevision,
+            @RequestParam(defaultValue = "false") boolean explicitNew,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws IOException {
+        var user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+        requireProcurementTarget(user.getUserId(), id, draftId);
+        if (file.getSize() > 8 * 1024 * 1024) throw new com.aryn.cloud.common.security.handler.ArynBusinessException("文件超过8MB");
+        return Result.success(procurementDrafts.submitExcel(ArynTenantContextHolder.getTenantId(), user.getUserId(), draftId,
+            clientRequestId, expectedRevision, explicitNew, file.getOriginalFilename(), file.getBytes()));
+    }
 
 	@Operation(summary = "粘贴微信群接龙，解析成「人×商品×数量」并返回导入报告（确认人/发起人）")
 	@PostMapping("/{id}/chain-import/preview")
-	public Result<SharedCartImportVO> previewChainImport(@PathVariable String id,
-			@Valid @RequestBody SharedCartChainImportDTO dto) {
-		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.previewChainImport(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), id, dto.getText()));
-	}
+    public Result<?> previewChainImport(@PathVariable String id, @RequestBody PersistentChainInput dto) {
+        var user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+        requireProcurementTarget(user.getUserId(), id, dto.draftId());
+        return Result.success(procurementDrafts.submitText(ArynTenantContextHolder.getTenantId(), user.getUserId(), dto.draftId(),
+            new com.aryn.cloud.order.api.dto.ProcurementCommands.SubmitText(dto.clientRequestId(), dto.expectedRevision(), dto.text(), dto.explicitNew())));
+    }
+    private void requireProcurementTarget(String actor, String cartId, String draftId) {
+        String tenant = ArynTenantContextHolder.getTenantId();
+        var cart = sharedCartService.getCartForUser(tenant, actor, cartId);
+        var draft = procurementDrafts.get(tenant, actor, draftId);
+        if (!java.util.Objects.equals(cart.getVesselId(), draft.getVesselId())
+                || !java.util.Objects.equals(cart.getVesselCallId(), draft.getVesselCallId())
+                || !java.util.Objects.equals(cart.getBuyerOrgId(), draft.getBuyerOrgId()))
+            throw new com.aryn.cloud.common.security.handler.ArynBusinessException(403, "采购草稿与补给目标不一致");
+    }
 
 	@Operation(summary = "取回导入报告（稍后处理）")
 	@GetMapping("/{id}/imports/{importId}")
@@ -277,8 +295,9 @@ public class AppSharedCartController {
 	public Result<SharedCartImportVO> confirmImport(@PathVariable String id, @PathVariable String importId,
 			@RequestBody(required = false) SharedCartImportConfirmDTO dto) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.confirmImport(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), id, importId, dto));
+        var report = sharedCartService.getImport(ArynTenantContextHolder.getTenantId(), user.getUserId(), id, importId);
+        if (!"2".equals(report.getStatus())) throw new com.aryn.cloud.common.security.handler.ArynBusinessException(409, "旧未确认任务请在采购工作台重新解析；历史报告保留只读");
+        return Result.success(report);
 	}
 
 	@Operation(summary = "发起人关闭购物车")

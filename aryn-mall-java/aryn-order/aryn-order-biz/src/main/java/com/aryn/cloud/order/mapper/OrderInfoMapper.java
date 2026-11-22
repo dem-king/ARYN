@@ -94,4 +94,12 @@ public interface OrderInfoMapper extends BaseMapper<OrderInfo> {
 
 	List<OrderStatisticsVO> channelTypeStatistics(@Param("query") OrderStatisticsDTO orderStatisticsDTO);
 
+	/**
+	 * 企业采购额月度聚合（企业等级月度对账）：已支付且完成收货的企业场景订单，
+	 * 按完成月份归属；剔除已退款明细（status=6）与赠品（gift_flag=1），金额不含运费。
+	 * 全退订单明细全部被剔除，自然归零，无需按订单状态二次过滤。语句见 OrderInfoMapper.xml。
+	 */
+	List<com.aryn.cloud.order.api.vo.EnterprisePurchaseAggVO> aggregateEnterprisePurchase(
+			@Param("tenantId") String tenantId, @Param("startMonth") String startMonth);
+
 }

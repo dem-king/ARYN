@@ -15,6 +15,7 @@ export interface DeliveryContextSource {
   deliveryWay: string
   /** 导入交接场景：'2' 船供采购；'3' 岸上企业采购；空=非导入 */
   importScene?: string
+  importBuyerOrgId?: string
   /** 导入交接锁定的船舶与靠港（刷新后仍可恢复） */
   importVesselId?: string
   importVesselCallId?: string
@@ -29,6 +30,7 @@ export interface DeliveryContextSource {
 export interface ResolvedDeliveryContext {
   deliveryWay: string
   purchaseScene?: string
+  buyerOrgId?: string
   vesselId?: string
   vesselCallId?: string
 }
@@ -43,7 +45,12 @@ export function resolveDeliveryContext(source: DeliveryContextSource): ResolvedD
     }
   }
   if (source.importScene === '3') {
-    return { deliveryWay: '3', purchaseScene: '3' }
+    return { deliveryWay: '3', purchaseScene: '3', ...(source.importBuyerOrgId ? { buyerOrgId: source.importBuyerOrgId } : {}) }
+  }
+  if (source.importScene === '1') {
+    return source.importVesselId && source.importVesselCallId
+      ? { deliveryWay: '4', purchaseScene: '1', vesselId: source.importVesselId, vesselCallId: source.importVesselCallId }
+      : { deliveryWay: source.deliveryWay === '4' ? '3' : source.deliveryWay, purchaseScene: '1' }
   }
   if (source.deliveryWay === '4' && source.globalContext) {
     return {
@@ -63,6 +70,7 @@ export function applyDeliveryContext(
   resolved: ResolvedDeliveryContext,
 ) {
   params.deliveryWay = resolved.deliveryWay
+  setOrDelete(params, 'buyerOrgId', resolved.buyerOrgId)
   setOrDelete(params, 'purchaseScene', resolved.purchaseScene)
   setOrDelete(params, 'vesselId', resolved.vesselId)
   setOrDelete(params, 'vesselCallId', resolved.vesselCallId)

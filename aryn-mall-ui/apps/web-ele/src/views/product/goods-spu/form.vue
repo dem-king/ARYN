@@ -2,9 +2,15 @@
 import type { FormInstance } from 'element-plus';
 
 import type {
+  GoodsDetailSectionForm,
+  GoodsProfileForm,
+} from './goods-profile-form';
+import type {
   GoodsAttrTagFormRow,
   GoodsAttrTagFormValue,
+  GoodsParamFormRow,
 } from './goods-spu-form-validation';
+import type { SkuMeasurementForm } from './measurement-form';
 
 import type { ZoneTagDetail } from '#/views/product/zone-batch/types';
 
@@ -16,6 +22,8 @@ import {
   ElAutocomplete,
   ElButton,
   ElCascader,
+  ElCheckbox,
+  ElCheckboxGroup,
   ElCol,
   ElDropdown,
   ElDropdownItem,
@@ -52,10 +60,20 @@ import {
   isAttrValueUsed,
 } from './goods-attr-tag-presets';
 import {
+  emptyGoodsDetailSection,
+  emptyGoodsProfile,
+  normalizeDetailSectionForms,
+  normalizeGoodsProfileForm,
+} from './goods-profile-form';
+import {
+  appendGoodsParamTemplates,
+  MAX_GOODS_PARAMS,
   validateGoodsAttrTags,
   validateGoodsIntroduction,
+  validateGoodsParams,
   validateGoodsSkus,
 } from './goods-spu-form-validation';
+import SkuMeasurementEditor from './sku-measurement-editor.vue';
 
 const Editor = defineAsyncComponent(
   () => import('#/components/editor/index.vue'),
@@ -76,9 +94,11 @@ interface DataState {
     clearanceExpireTime?: string;
     clearancePrice?: number;
     description: string;
+    detailSections: GoodsDetailSectionForm[];
     enableSpecs: string;
     fixedFreightPrice: number;
     freightType: string;
+    goodsProfile: GoodsProfileForm;
     goodsSkus: Array<any>;
     goodsSpuSpecs: Array<any>;
     id: undefined;
@@ -89,8 +109,11 @@ interface DataState {
     memberPriceFixed?: number;
     memberPriceFloor?: number;
     name: string;
+    params: GoodsParamFormRow[];
     salesVolume: number;
-    sku: {
+    /** 商详首屏服务承诺（code 数组）：不选由端上回退全局三项 */
+    serviceTags: string[];
+    sku: SkuMeasurementForm & {
       costPrice: number;
       originalPrice: number;
       salesPrice: number;
@@ -119,6 +142,10 @@ const state = reactive<DataState>({
     subTitle: '',
     introduction: '',
     attrTags: [],
+    params: [],
+    goodsProfile: emptyGoodsProfile(),
+    detailSections: [],
+    serviceTags: [],
     spuUrls: [],
     salesVolume: 0,
     enableSpecs: '0',
@@ -392,6 +419,10 @@ const resetForm = (formEl: FormInstance | undefined) => {
     subTitle: '',
     introduction: '',
     attrTags: [],
+    params: [],
+    goodsProfile: emptyGoodsProfile(),
+    detailSections: [],
+    serviceTags: [],
     spuUrls: [],
     salesVolume: 0,
     enableSpecs: '0',
@@ -477,6 +508,11 @@ const handleZoneSaved = (detail?: ZoneTagDetail) => {
   state.form.clearanceExpireTime = detail.clearanceExpireTime ?? undefined;
 };
 
+/** 追加常用食品参数：已有标签跳过，运营只填值 */
+function addParamTemplates() {
+  state.form.params = appendGoodsParamTemplates(state.form.params);
+}
+
 /**
  * 提交按钮
  */
@@ -501,6 +537,11 @@ const submitForm = async (formEl: FormInstance | undefined) => {
       );
       if (attrTagValidationMessage) {
         ElMessage.warning(attrTagValidationMessage);
+        return;
+      }
+      const paramsValidationMessage = validateGoodsParams(state.form.params);
+      if (paramsValidationMessage) {
+        ElMessage.warning(paramsValidationMessage);
         return;
       }
       const introductionValidationMessage = validateGoodsIntroduction(
@@ -685,6 +726,18 @@ const initForm = () => {
         loading.value = false;
         state.form = response;
         state.form.attrTags = normalizeAttrTags(response.attrTags);
+        state.form.params = Array.isArray(response.params)
+          ? response.params
+          : [];
+        state.form.serviceTags = Array.isArray(response.serviceTags)
+          ? response.serviceTags
+          : [];
+        state.form.goodsProfile = normalizeGoodsProfileForm(
+          response.goodsProfile,
+        );
+        state.form.detailSections = normalizeDetailSectionForms(
+          response.detailSections,
+        );
         // 老数据/旧后端没有卖点字段时按空串回显，避免编辑器读到 undefined
         state.form.introduction = response.introduction ?? '';
 
@@ -739,6 +792,67 @@ initForm();
                   show-word-limit
                   :rows="2"
                 />
+              </ElFormItem>
+              <ElFormItem label="商品参数">
+                <div class="flex w-full flex-col gap-2">
+                  <div
+                    v-for="(param, index) in state.form.params"
+                    :key="index"
+                    class="flex items-start gap-2"
+                  >
+                    <ElInput
+                      v-model="param.label"
+                      aria-label="参数名称"
+                      placeholder="参数名称，如保质期"
+                      maxlength="24"
+                    />
+                    <ElInput
+                      v-model="param.value"
+                      aria-label="参数内容"
+                      placeholder="参数内容"
+                      maxlength="200"
+                    />
+                    <ElButton
+                      text
+                      type="danger"
+                      @click="state.form.params.splice(index, 1)"
+                    >
+                      删除
+                    </ElButton>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <ElButton
+                      :disabled="state.form.params.length >= MAX_GOODS_PARAMS"
+                      @click="state.form.params.push({ label: '', value: '' })"
+                    >
+                      添加参数
+                    </ElButton>
+                    <ElButton
+                      :disabled="state.form.params.length >= MAX_GOODS_PARAMS"
+                      @click="addParamTemplates"
+                    >
+                      常用食品参数
+                    </ElButton>
+                    <span class="text-xs text-gray-500">
+                      一键铺好 产地 / 储存 / 保质期 / 包装，只填值
+                    </span>
+                  </div>
+                </div>
+              </ElFormItem>
+              <ElFormItem label="服务承诺">
+                <div class="flex w-full flex-col gap-2">
+                  <ElCheckboxGroup v-model="state.form.serviceTags">
+                    <ElCheckbox value="cold_chain"> 冷链直发 </ElCheckbox>
+                    <ElCheckbox value="damage_refund"> 破损包赔 </ElCheckbox>
+                    <ElCheckbox value="invoice"> 支持开票 </ElCheckbox>
+                    <ElCheckbox value="authentic"> 正品保障 </ElCheckbox>
+                  </ElCheckboxGroup>
+                  <div class="text-xs text-gray-500">
+                    商详首屏价格下方展示，最多 4 项；不选则默认「正品保障 /
+                    破损包赔 /
+                    可开发票」。冷链、坏果类承诺请只勾选商品真实可兑现的项。
+                  </div>
+                </div>
               </ElFormItem>
               <ElFormItem label="商品卖点">
                 <div class="intro-editor">
@@ -1116,6 +1230,9 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
+                <ElFormItem label="采购度量">
+                  <SkuMeasurementEditor v-model="state.form.sku" />
+                </ElFormItem>
                 <ElFormItem label="重量（kg）" prop="sku.weight">
                   <ElInputNumber
                     v-model="state.form.sku.weight"
@@ -1137,6 +1254,149 @@ initForm();
               </div>
             </ElTabPane>
             <ElTabPane label="商品详情" :name="2">
+              <ElFormItem label="商品档案">
+                <div class="profile-editor">
+                  <div class="editor-tip">
+                    仅食品类目需要填写。这里的内容只进商详「商品档案」弹层，与首屏商品参数不重复。
+                  </div>
+                  <div class="profile-editor__grid">
+                    <ElInput
+                      v-model="state.form.goodsProfile.ingredients"
+                      type="textarea"
+                      :rows="2"
+                      maxlength="200"
+                      show-word-limit
+                      placeholder="配料表，如：樱桃"
+                    />
+                    <ElInput
+                      v-model="state.form.goodsProfile.allergens"
+                      maxlength="100"
+                      placeholder="过敏原提示，如：无已知过敏原"
+                    />
+                    <ElInput
+                      v-model="state.form.goodsProfile.standard"
+                      maxlength="100"
+                      placeholder="执行标准，如：按产地准入标准执行"
+                    />
+                    <ElSelect
+                      v-model="state.form.goodsProfile.certifications"
+                      multiple
+                      filterable
+                      allow-create
+                      default-first-option
+                      placeholder="认证 / 品质保障标签"
+                    >
+                      <ElOption label="绿色食品" value="绿色食品" />
+                      <ElOption label="地理标志" value="地理标志" />
+                      <ElOption label="有机认证" value="有机认证" />
+                      <ElOption label="产地直采" value="产地直采" />
+                      <ElOption label="冷链直供" value="冷链直供" />
+                    </ElSelect>
+                  </div>
+                  <div class="nutrition-editor">
+                    <div class="nutrition-editor__head">
+                      <span>营养成分表</span>
+                      <span class="editor-tip"
+                        >按包装标注录入，留空不展示该行</span
+                      >
+                    </div>
+                    <div
+                      v-for="(item, index) in state.form.goodsProfile.nutrition"
+                      :key="index"
+                      class="nutrition-editor__row"
+                    >
+                      <ElInput
+                        v-model="item.name"
+                        maxlength="20"
+                        placeholder="项目"
+                      />
+                      <ElInput
+                        v-model="item.amount"
+                        maxlength="20"
+                        placeholder="含量"
+                      />
+                      <ElInput
+                        v-model="item.unit"
+                        maxlength="10"
+                        placeholder="单位"
+                      />
+                      <ElInput
+                        v-model="item.nrv"
+                        maxlength="10"
+                        placeholder="NRV%"
+                      />
+                      <ElButton
+                        text
+                        type="danger"
+                        @click="
+                          state.form.goodsProfile.nutrition.splice(index, 1)
+                        "
+                      >
+                        删除
+                      </ElButton>
+                    </div>
+                    <ElButton
+                      @click="
+                        state.form.goodsProfile.nutrition.push({
+                          name: '',
+                          amount: '',
+                          unit: '',
+                          nrv: '',
+                        })
+                      "
+                    >
+                      添加营养成分
+                    </ElButton>
+                  </div>
+                </div>
+              </ElFormItem>
+              <ElFormItem label="结构化详情">
+                <div class="detail-section-editor">
+                  <div class="editor-tip">
+                    每块标题 + 正文 +
+                    可选一张图，按顺序展示在商详「商品详情」区，适合产地、储存、食用场景。
+                  </div>
+                  <div
+                    v-for="(section, index) in state.form.detailSections"
+                    :key="index"
+                    class="detail-section-editor__row"
+                  >
+                    <ElInput
+                      v-model="section.title"
+                      maxlength="20"
+                      placeholder="段落标题，如产地与采摘"
+                    />
+                    <ElInput
+                      v-model="section.content"
+                      type="textarea"
+                      :rows="3"
+                      maxlength="500"
+                      show-word-limit
+                      placeholder="段落正文"
+                    />
+                    <div class="detail-section-editor__media">
+                      <SelectMaterial
+                        v-model="section.imageUrl"
+                        :can-choose-images-num="1"
+                      />
+                      <ElButton
+                        text
+                        type="danger"
+                        @click="state.form.detailSections.splice(index, 1)"
+                      >
+                        删除段落
+                      </ElButton>
+                    </div>
+                  </div>
+                  <ElButton
+                    @click="
+                      state.form.detailSections.push(emptyGoodsDetailSection())
+                    "
+                  >
+                    添加详情段落
+                  </ElButton>
+                </div>
+              </ElFormItem>
               <ElFormItem label="商品描述" prop="description">
                 <Editor
                   v-model:get-html="state.form.description"
@@ -1328,6 +1588,69 @@ initForm();
     }
   }
 }
+
+.profile-editor,
+.detail-section-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.editor-tip {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+
+.profile-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-editor__grid > :first-child {
+  grid-column: 1 / -1;
+}
+
+.nutrition-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 6px;
+}
+
+.nutrition-editor__head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.nutrition-editor__row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 0.8fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.detail-section-editor__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+.detail-section-editor__media {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
 </style>
 
 <style lang="scss">
@@ -1450,5 +1773,68 @@ initForm();
   &__badge {
     color: var(--el-color-primary);
   }
+}
+
+.profile-editor,
+.detail-section-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.editor-tip {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+
+.profile-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-editor__grid > :first-child {
+  grid-column: 1 / -1;
+}
+
+.nutrition-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 6px;
+}
+
+.nutrition-editor__head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.nutrition-editor__row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 0.8fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.detail-section-editor__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+.detail-section-editor__media {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
 </style>

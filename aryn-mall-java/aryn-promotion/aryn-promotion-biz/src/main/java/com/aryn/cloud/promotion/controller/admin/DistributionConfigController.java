@@ -1,5 +1,7 @@
 package com.aryn.cloud.promotion.controller.admin;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -42,6 +44,7 @@ public class DistributionConfigController {
 	@SaCheckPermission("promotion:distributionconfig:add")
 	@PostMapping
 	public Result<Boolean> add(@Valid @RequestBody DistributionConfig entity) {
+		B2bActivityAdmission.rejectRetired("分销");
 		return Result.success(distributionConfigService.save(entity));
 	}
 
@@ -50,6 +53,7 @@ public class DistributionConfigController {
 	@SaCheckPermission("promotion:distributionconfig:edit")
 	@PutMapping
 	public Result<Boolean> edit(@Valid @RequestBody DistributionConfig entity) {
+		B2bActivityAdmission.rejectRetired("分销");
 		return Result.success(distributionConfigService.updateById(entity));
 	}
 
@@ -58,6 +62,7 @@ public class DistributionConfigController {
 	@SaCheckPermission("promotion:distributionconfig:edit")
 	@PutMapping("/enable/{id}")
 	public Result<Boolean> enable(@PathVariable String id) {
+		B2bActivityAdmission.rejectRetired("分销");
 		return Result.success(distributionConfigService.enableConfig(id));
 	}
 

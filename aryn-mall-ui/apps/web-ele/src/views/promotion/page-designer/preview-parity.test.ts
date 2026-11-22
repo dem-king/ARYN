@@ -2154,4 +2154,93 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(mobilePreview).toContain("emptyStrategy || 'hide'");
     expect(mobilePreview).toContain("invalidStrategy || 'hide'");
   });
+
+  it('档期特供：档期牌、余量尺与特供票尺寸两端一致（1rpx = 0.5px）', () => {
+    const adminSource = readAdmin('trade-calendar');
+    const mobileSource = readMobile('diy-trade-calendar');
+    const admin = styleBlock(adminSource);
+    const mobile = styleBlock(mobileSource);
+
+    // 档期牌：外距 / 内距 / 圆角
+    expect(value(declarations(admin, '.tc-board'), 'border-radius')).toBe(
+      '14px',
+    );
+    expect(value(declarations(mobile, '.tc-board'), 'border-radius')).toBe(
+      '28rpx',
+    );
+    expect(value(declarations(admin, '.tc-board'), 'padding')).toBe(
+      '12px 12px 10px',
+    );
+    expect(value(declarations(mobile, '.tc-board'), 'padding')).toBe(
+      '24rpx 24rpx 20rpx',
+    );
+
+    // 楼层头：档期标 / 档期名 / 距结束 / 副标题
+    expect(value(declarations(admin, '.tc-mark'), 'width')).toBe('17px');
+    expect(value(declarations(mobile, '.tc-mark'), 'width')).toBe('34rpx');
+    expect(value(declarations(admin, '.tc-title'), 'font-size')).toBe('15px');
+    expect(value(declarations(mobile, '.tc-title'), 'font-size')).toBe('30rpx');
+    expect(value(declarations(admin, '.tc-timer-value'), 'font-size')).toBe(
+      '11px',
+    );
+    expect(value(declarations(mobile, '.tc-timer-value'), 'font-size')).toBe(
+      '22rpx',
+    );
+    expect(value(declarations(admin, '.tc-sub'), 'font-size')).toBe('10px');
+    expect(value(declarations(mobile, '.tc-sub'), 'font-size')).toBe('20rpx');
+    // 「查看全部」入口：字号两端一致
+    expect(value(declarations(admin, '.tc-more'), 'font-size')).toBe('10px');
+    expect(value(declarations(mobile, '.tc-more'), 'font-size')).toBe('20rpx');
+
+    // 余量尺：高度与文字字号两端一致
+    expect(value(declarations(admin, '.tc-gauge'), 'height')).toBe('4px');
+    expect(value(declarations(mobile, '.tc-gauge'), 'height')).toBe('8rpx');
+    expect(value(declarations(admin, '.tc-gauge-left'), 'font-size')).toBe(
+      '9px',
+    );
+    expect(value(declarations(mobile, '.tc-gauge-left'), 'font-size')).toBe(
+      '18rpx',
+    );
+
+    // 卡片：一屏三张 220rpx、圆角 16rpx、图区 220rpx
+    expect(value(declarations(admin, '.tc-card'), 'width')).toBe('110px');
+    expect(value(declarations(mobile, '.tc-card'), 'width')).toBe('220rpx');
+    expect(value(declarations(admin, '.tc-card'), 'border-radius')).toBe('8px');
+    expect(value(declarations(mobile, '.tc-card'), 'border-radius')).toBe(
+      '16rpx',
+    );
+    expect(value(declarations(admin, '.tc-figure'), 'height')).toBe('110px');
+    expect(value(declarations(mobile, '.tc-figure'), 'height')).toBe('220rpx');
+
+    // 特供票印章：字号两端一致
+    expect(value(declarations(admin, '.tc-stamp'), 'font-size')).toBe('8px');
+    expect(value(declarations(mobile, '.tc-stamp'), 'font-size')).toBe('16rpx');
+
+    // 同一排卡片齐平靠固定行高：名称两行、价行、限购行
+    expect(value(declarations(admin, '.tc-name'), 'height')).toBe('32px');
+    expect(value(declarations(mobile, '.tc-name'), 'height')).toBe('64rpx');
+    expect(value(declarations(admin, '.tc-price-row'), 'height')).toBe('20px');
+    expect(value(declarations(mobile, '.tc-price-row'), 'height')).toBe(
+      '40rpx',
+    );
+    expect(value(declarations(admin, '.tc-meta'), 'height')).toBe('16px');
+    expect(value(declarations(mobile, '.tc-meta'), 'height')).toBe('32rpx');
+
+    // 余量口径只在档期牌底部出现一次：卡片不再逐卡渲染「余 N 件」，
+    // 否则三款各写 80 件会被读成「每款库存 80」
+    expect(adminSource).not.toContain('tc-quota');
+    expect(mobileSource).not.toContain('tc-quota');
+    expect(mobileSource).toContain("t('diy.tradeCalendar.quotaTotal'");
+    expect(adminSource).toContain('整场限量');
+
+    // 「查看全部」默认落地页同一路径：管理端在 defaults（types.ts），C 端在楼层常量
+    const adminTypes = readFileSync(
+      resolve(adminComponentsRoot, 'trade-calendar/types.ts'),
+      'utf8',
+    );
+    expect(adminTypes).toContain('/sub-pages/promotion/calendar-special/index');
+    expect(mobileSource).toContain(
+      '/sub-pages/promotion/calendar-special/index',
+    );
+  });
 });

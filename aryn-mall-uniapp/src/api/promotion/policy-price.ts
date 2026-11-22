@@ -1,14 +1,15 @@
 /**
- * C 端协议价批量查询（需登录）
+ * C 端协议价批量查询（免登可访问，游客请求安全）
  * 对应后端 AppPolicyPriceController（POST /promotion/app/policy/prices）
  *
  * 用户身份从登录态读取，采购主体/船舶上下文由当前会话 store 传入
  * （岸上共享车 buyerOrgId / 船上下文 vesselId），与订单计价上下文同源。
- * 未登录网关层拦截；未命中政策返回空数组（按无协议价渲染）。
+ * 服务端对游客/非成员自动清空主体上下文（不会下发合同价），因此前端无需登录门槛、
+ * 也不需要 skipToken 特殊处理；未命中政策返回空数组（按无协议价渲染）。
  *
- * 展示接入点（P1.5）：`utils/zone-price.ts#resolveListZonePrice` 增加 `policyPrice`
- * 入参与 `policy` 角标（最高优先级，与后端引擎锁定语义一致），统一在
- * `useZonePrices` 批量补价后下发商品卡/商详/购物车。
+ * 展示接入点：`utils/zone-price.ts#resolveListZonePrice` 的 `policyPrice` 入参与
+ * `policy` 角标（最高优先级，与后端引擎锁定语义一致），统一在 `useZonePrices`
+ * 批量补价后下发商品卡/商详/购物车。
  */
 import { alovaInstance } from '@/api/core/instance'
 
@@ -20,7 +21,10 @@ export interface PolicyPriceItem {
   policyId: string
   /** 政策名称（展示「协议价」来源） */
   policyName: string
-  /** 协议起订量（展示提示，不参与计价校验） */
+  /**
+   * 协议起订量：**参与成交校验**——购买件数 < minQty 时协议价不生效。
+   * 展示侧据此 gating：未达量只提示「协议价 N 件起」，不切主价。
+   */
   minQty?: number
   /** 当前售价（划线基准） */
   originalPrice: number
@@ -42,7 +46,7 @@ export interface PolicyPriceQuery {
   vesselId?: string
 }
 
-/** 批量查询协议价（需登录；未命中返回空数组） */
+/** 批量查询协议价（免登可访问；游客/非成员由服务端清空主体上下文，未命中返回空数组） */
 export function getPolicyPrices(query: PolicyPriceQuery) {
   return alovaInstance.Post<PolicyPriceItem[]>('/promotion/app/policy/prices', query)
 }

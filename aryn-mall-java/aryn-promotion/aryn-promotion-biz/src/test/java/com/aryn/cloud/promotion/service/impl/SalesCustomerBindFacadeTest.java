@@ -53,9 +53,10 @@ class SalesCustomerBindFacadeTest {
 		when(salesCustomerBindService.getByCustomerUserId("buyer-1")).thenReturn(null);
 		DistributionUserRegisterDTO dto = registerDto("buyer-1", "inviter-not-sales", "SHARE");
 
-		facade.bindFromShare(dto);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> facade.bindFromShare(dto))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
 
-		verify(distributionUserService).register(dto);
+		verify(distributionUserService, never()).register(any());
 		verify(salesBindWriter, never()).upsertBind(any(), any(), any(), any(), any(), any());
 		verify(salesCustomerClaimService, never()).upsertClaim(any(), any(), any());
 	}

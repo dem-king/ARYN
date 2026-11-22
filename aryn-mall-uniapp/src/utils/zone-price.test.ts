@@ -369,3 +369,120 @@ describe('resolveListZonePrice 协议价（2026-11-14 B2B）', () => {
     expect(zonePriceBadgeText('policy')).toBe('协议价')
   })
 })
+
+describe('resolveListZonePrice 档期特供 / 阶梯价（2026-11-14 B2B）', () => {
+  it('特供价低于会员价：身份价家族取低，角标 special、划线当前售价', () => {
+    const result = resolveListZonePrice({
+      salesPrice: 39.9,
+      specialPrice: 30,
+      memberDisplay: memberDisplay(),
+    })
+    expect(result.badgeKind).toBe('special')
+    expect(result.mainPrice).toBe(30)
+    expect(result.strikePrice).toBe(39.9)
+    expect(result.guideText).toBeNull()
+  })
+
+  it('特供价高于会员价/出清价：家族仍取最低者（特供不无条件覆盖）', () => {
+    const memberWins = resolveListZonePrice({
+      salesPrice: 39.9,
+      specialPrice: 38,
+      memberDisplay: memberDisplay(),
+    })
+    expect(memberWins.badgeKind).toBe('member')
+    expect(memberWins.mainPrice).toBe(35.91)
+
+    const clearanceWins = resolveListZonePrice({
+      salesPrice: 39.9,
+      specialPrice: 38,
+      memberDisplay: memberDisplay(),
+      clearanceDisplay: clearanceDisplay({ clearancePrice: 20, originalPrice: 39.9 }),
+    })
+    expect(clearanceWins.badgeKind).toBe('clearance')
+    expect(clearanceWins.mainPrice).toBe(20)
+  })
+
+  it('同价归属：特供 > 会员 > 出清', () => {
+    const specialTie = resolveListZonePrice({
+      salesPrice: 39.9,
+      specialPrice: 35.91,
+      memberDisplay: memberDisplay(),
+    })
+    expect(specialTie.badgeKind).toBe('special')
+
+    const memberTie = resolveListZonePrice({
+      salesPrice: 39.9,
+      memberDisplay: memberDisplay({ memberPrice: 20 }),
+      clearanceDisplay: clearanceDisplay({ clearancePrice: 20, originalPrice: 39.9 }),
+    })
+    expect(memberTie.badgeKind).toBe('member')
+  })
+
+  it('特供不覆盖协议价与秒杀（两者命中即终态）', () => {
+    const policy = resolveListZonePrice({ salesPrice: 39.9, specialPrice: 20, policyPrice: 33 })
+    expect(policy.badgeKind).toBe('policy')
+    expect(policy.mainPrice).toBe(33)
+
+    const seckill = resolveListZonePrice({ salesPrice: 39.9, specialPrice: 20, seckillPrice: 30 })
+    expect(seckill.badgeKind).toBe('seckill')
+    expect(seckill.mainPrice).toBe(30)
+  })
+
+  it('新人价仅严格低于特供价才覆盖；同价保留特供角标', () => {
+    const lower = resolveListZonePrice({ salesPrice: 39.9, specialPrice: 20, newbiePrice: 1 })
+    expect(lower.badgeKind).toBe('newbie')
+    expect(lower.mainPrice).toBe(1)
+
+    const tie = resolveListZonePrice({ salesPrice: 39.9, specialPrice: 20, newbiePrice: 20 })
+    expect(tie.badgeKind).toBe('special')
+  })
+
+  it('特供价倒挂/非法值视为未命中：回落会员价口径', () => {
+    expect(resolveListZonePrice({ salesPrice: 39.9, specialPrice: 39.9, memberDisplay: memberDisplay() }).badgeKind)
+      .toBe('member')
+    expect(resolveListZonePrice({ salesPrice: 39.9, specialPrice: 0, memberDisplay: memberDisplay() }).badgeKind)
+      .toBe('member')
+    expect(resolveListZonePrice({ salesPrice: 39.9, specialPrice: 'abc' }).badgeKind).toBe('')
+  })
+
+  it('阶梯价（商详按当前数量取档）严格更低才接管，同价保留身份角标', () => {
+    const ladderWins = resolveListZonePrice({
+      salesPrice: 39.9,
+      ladderPrice: 28,
+      memberDisplay: memberDisplay(),
+      specialPrice: 30,
+    })
+    expect(ladderWins.badgeKind).toBe('ladder')
+    expect(ladderWins.mainPrice).toBe(28)
+    expect(ladderWins.strikePrice).toBe(39.9)
+
+    const identityTie = resolveListZonePrice({ salesPrice: 39.9, ladderPrice: 30, specialPrice: 30 })
+    expect(identityTie.badgeKind).toBe('special')
+
+    // 卡片不传 ladderPrice：数量未定，阶梯价不参与卡面判定
+    expect(resolveListZonePrice({ salesPrice: 39.9, memberDisplay: memberDisplay() }).badgeKind).toBe('member')
+  })
+
+  it('协议价锁定后阶梯价/特供价一律不覆盖；未达 minQty 时调用方不传协议价', () => {
+    const locked = resolveListZonePrice({ salesPrice: 39.9, policyPrice: 33, ladderPrice: 20, specialPrice: 25 })
+    expect(locked.badgeKind).toBe('policy')
+    expect(locked.mainPrice).toBe(33)
+
+    // 件数 < minQty：调用方不传 policyPrice，身份价家族（含阶梯）照常生效
+    const belowMinQty = resolveListZonePrice({ salesPrice: 39.9, ladderPrice: 20, specialPrice: 25 })
+    expect(belowMinQty.badgeKind).toBe('ladder')
+    expect(belowMinQty.mainPrice).toBe(20)
+  })
+
+  it('阶梯价倒挂/非法值视为未命中；新人价仍可严格更低覆盖', () => {
+    expect(resolveListZonePrice({ salesPrice: 39.9, ladderPrice: 40 }).badgeKind).toBe('')
+    expect(resolveListZonePrice({ salesPrice: 39.9, ladderPrice: -1 }).badgeKind).toBe('')
+    const newbie = resolveListZonePrice({ salesPrice: 39.9, ladderPrice: 30, newbiePrice: 20 })
+    expect(newbie.badgeKind).toBe('newbie')
+  })
+
+  it('角标文案：档期特供 / 阶梯价', () => {
+    expect(zonePriceBadgeText('special')).toBe('档期特供')
+    expect(zonePriceBadgeText('ladder')).toBe('阶梯价')
+  })
+})

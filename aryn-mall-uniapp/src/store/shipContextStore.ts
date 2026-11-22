@@ -84,8 +84,14 @@ export const useShipContextStore = defineStore('shipContext', {
       vesselId: string
       vesselName?: string
     }) {
+      if (payload.vesselId !== this.vesselId)
+        this.switchVessel(payload.vesselId, payload.vesselName ?? '')
       this.vesselId = payload.vesselId
       this.vesselName = payload.vesselName ?? this.vesselName
+      if (payload.vesselCallId !== undefined) {
+        this.setVesselCall({ ...payload, id: payload.vesselCallId })
+        return
+      }
       this.vesselCallId = payload.vesselCallId ?? this.vesselCallId
       this.portCode = payload.portCode ?? this.portCode
       this.portName = payload.portName ?? this.portName
@@ -122,11 +128,11 @@ export const useShipContextStore = defineStore('shipContext', {
       portName?: string
     }) {
       this.vesselCallId = payload.id
-      this.portCode = payload.portCode ?? this.portCode
-      this.portName = payload.portName ?? this.portName
-      this.berth = payload.berth ?? this.berth
-      this.deliveryWindowStart = payload.deliveryWindowStart ?? this.deliveryWindowStart
-      this.deliveryWindowEnd = payload.deliveryWindowEnd ?? this.deliveryWindowEnd
+      this.portCode = payload.portCode ?? ''
+      this.portName = payload.portName ?? ''
+      this.berth = payload.berth ?? ''
+      this.deliveryWindowStart = payload.deliveryWindowStart ?? ''
+      this.deliveryWindowEnd = payload.deliveryWindowEnd ?? ''
     },
 
     /**

@@ -41,6 +41,7 @@ class CatalogVectorRecallServiceTest {
 	private EmbeddingClient embeddingClient;
 
 	private CatalogVectorRecallService service;
+    private CatalogIndexRepository repository;
 
 	@BeforeEach
 	void setUp() {
@@ -48,10 +49,20 @@ class CatalogVectorRecallServiceTest {
 		embeddingClient = mock(EmbeddingClient.class);
 		when(embeddingClient.isAvailable()).thenReturn(true);
 		// 阈值 0.5 / top-K 6：测试里向量手工构造，距离拉开便于断言
-		service = new CatalogVectorRecallService(mapper, embeddingClient, 60, 6, 0.5);
+		repository=mock(CatalogIndexRepository.class);
+        var generation=new com.aryn.cloud.product.api.entity.CatalogVectorGeneration();generation.setId("gen");generation.setConfigVersion("version");generation.setDimension(2);generation.setStatus("READY");generation.setModelFingerprint(CatalogIndexRules.fingerprint("p:model:version"));
+        when(repository.active(TENANT)).thenReturn(generation);
+        var session=mock(com.aryn.cloud.upms.api.client.AiRuntimeClient.Session.class);
+        when(session.model()).thenReturn(new com.aryn.cloud.common.ai.contract.AiModelSnapshot("version","key","p",java.net.URI.create("https://example.com"),"model",com.aryn.cloud.common.ai.contract.AiCapability.EMBEDDING,1000,1000,100,2,java.util.Map.of(),new com.aryn.cloud.common.ai.contract.AiSecret("secret")));
+        when(embeddingClient.openVersion(anyString(),anyString())).thenReturn(session);
+        when(repository.page(org.mockito.ArgumentMatchers.eq("gen"),org.mockito.ArgumentMatchers.isNull())).thenAnswer(invocation->{
+            var rows=mapper.selectCatalogRows(TENANT,2000);return rows.stream().map(row->{var item=new com.aryn.cloud.product.api.entity.CatalogVectorItem();item.setSkuId(row.getSkuId());item.setSourceName(row.getName());item.setVectorJson(com.alibaba.fastjson2.JSON.toJSONString(vectorOf(row.getName())));return item;}).toList();
+        });
+        when(mapper.selectRowsBySkuIds(anyString(),anyList())).thenAnswer(invocation->mapper.selectCatalogRows(TENANT,2000));
+        service = new CatalogVectorRecallService(repository, mapper, embeddingClient, 6, 0.5);
 		// 目录向量化与查询向量化共用一个假编码器：按词映射到手工二维向量
-		when(embeddingClient.embed(anyList())).thenAnswer(invocation -> {
-			List<String> texts = invocation.getArgument(0);
+		when(embeddingClient.embed(org.mockito.ArgumentMatchers.any(),anyList())).thenAnswer(invocation -> {
+			List<String> texts = invocation.getArgument(1);
 			return texts.stream().map(CatalogVectorRecallServiceTest::vectorOf).toList();
 		});
 	}
@@ -111,13 +122,13 @@ class CatalogVectorRecallServiceTest {
 				skuRow("sku-a3", "spu-a", "西红柿"),
 				skuRow("sku-b", "spu-b", "西红柿")));
 
-		CatalogVectorRecallService loose = new CatalogVectorRecallService(mapper, embeddingClient, 60, 4, 0.5);
+		CatalogVectorRecallService loose = new CatalogVectorRecallService(repository, mapper, embeddingClient, 4, 0.5);
 		List<VectorMatch> matches = loose.recall(TENANT, List.of("小番茄")).get(0);
 		// 同向量同分按 skuId 序：a1、a2 占满 spu-a 配额，a3 被单 SPU 上限挡住，b 补位
 		assertEquals(3, matches.size());
 		assertEquals(2, matches.stream().map(match -> match.row().getSpuId()).distinct().count());
 
-		CatalogVectorRecallService tight = new CatalogVectorRecallService(mapper, embeddingClient, 60, 2, 0.5);
+		CatalogVectorRecallService tight = new CatalogVectorRecallService(repository, mapper, embeddingClient, 2, 0.5);
 		List<VectorMatch> capped = tight.recall(TENANT, List.of("小番茄")).get(0);
 		assertEquals(2, capped.size(), "top-K=2 截断");
 	}
@@ -131,13 +142,13 @@ class CatalogVectorRecallServiceTest {
 		service.recall(TENANT, List.of("小番茄"));
 		service.recall(TENANT, List.of("小番茄"));
 
-		verify(mapper, times(1)).selectCatalogRows(anyString(), anyInt());
+		verify(embeddingClient,times(2)).embed(org.mockito.ArgumentMatchers.any(),anyList());
 	}
 
 	@Test
 	@DisplayName("embedding 不可用时召回整体跳过，不碰目录查询")
 	void skipsWhenClientUnavailable() {
-		when(embeddingClient.isAvailable()).thenReturn(false);
+		when(repository.active(TENANT)).thenReturn(null);
 
 		List<List<VectorMatch>> recalled = service.recall(TENANT, List.of("小番茄"));
 

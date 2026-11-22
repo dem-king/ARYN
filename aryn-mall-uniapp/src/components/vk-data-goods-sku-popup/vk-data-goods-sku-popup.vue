@@ -113,6 +113,10 @@ export default {
       Type: [Number, String],
       default: 1,
     },
+    useSkuMeasurement: {
+      type: Boolean,
+      default: false,
+    },
     // 是否只能输入 step 的倍数
     stepStrictly: {
       Type: Boolean,
@@ -234,7 +238,7 @@ export default {
       default: true,
     },
   },
-  emits: ['update:modelValue', 'input', 'update-goods', 'open', 'close', 'add-cart', 'buy-now', 'cart', 'buy', 'num-change'],
+  emits: ['update:modelValue', 'input', 'update-goods', 'open', 'close', 'add-cart', 'buy-now', 'cart', 'buy', 'num-change', 'sku-change'],
   setup() {
     const { t } = useI18n()
     return { t }
@@ -341,6 +345,12 @@ export default {
   },
   // 计算属性
   computed: {
+    minimumQuantity() {
+      return (this.useSkuMeasurement && Number(this.selectShop?.minOrderQty)) || this.minBuyNum || 1
+    },
+    quantityStep() {
+      return (this.useSkuMeasurement && Number(this.selectShop?.stepQty)) || this.stepBuyNum || 1
+    },
     valueCom() {
       // #ifndef VUE3
       return this.value
@@ -654,6 +664,7 @@ export default {
     // 检测是否已经选完sku
     checkSelectShop() {
       const that = this
+      const priorSkuId = that.selectShop?.[that.skuIdName]
       // 如果全部选完
       that.selectPic = ''
       if (that.selectArr.every(item => item !== '')) {
@@ -665,16 +676,20 @@ export default {
         if (that.selectNum > that.maxBuyNum) {
           that.selectNum = that.maxBuyNum
         }
-        if (that.selectNum < that.minBuyNum) {
-          that.selectNum = that.minBuyNum
+        const minimum = that.minimumQuantity
+        if (that.selectNum < minimum) {
+          that.selectNum = minimum
         }
-        if (that.selectedInit) {
-          that.selectNum = that.minBuyNum || 1
+        if (that.selectedInit || (that.useSkuMeasurement && priorSkuId !== that.selectShop[that.skuIdName])) {
+          that.selectNum = minimum
         }
         that.selectPic = that.selectShop.picUrl
       }
       else {
         that.selectShop = {}
+      }
+      if (that.useSkuMeasurement && priorSkuId !== that.selectShop?.[that.skuIdName]) {
+        that.$emit('sku-change', that.selectShop?.[that.skuIdName], that.selectNum)
       }
     },
     // 检查路径
@@ -1056,8 +1071,8 @@ export default {
               </view>
               <view style="flex: 4; text-align: right">
                 <vk-data-input-number-box
-                  v-model="selectNum" :min="minBuyNum || 1" :max="maxBuyNumCom"
-                  :step="stepBuyNum || 1" :step-strictly="stepStrictly" :positive-integer="true" @change="numChange"
+                  v-model="selectNum" :min="minimumQuantity" :max="maxBuyNumCom"
+                  :step="quantityStep" :step-strictly="stepStrictly" :positive-integer="true" @change="numChange"
                 />
               </view>
             </view>

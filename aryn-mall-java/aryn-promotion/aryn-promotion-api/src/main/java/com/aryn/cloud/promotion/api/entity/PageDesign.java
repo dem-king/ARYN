@@ -30,6 +30,9 @@ public class PageDesign extends Model<PageDesign> {
 	@Schema(description = "页面名称")
 	private String pageName;
 
+	/** 活动包拥有的页面仅能由活动包发布编排启用。 */
+	private String campaignDraftId;
+
 	@Schema(description = "页面内容")
 	private String pageContent;
 

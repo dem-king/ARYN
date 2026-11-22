@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { DeliveryEligibility } from '@/api/delivery'
 import type { EnterpriseBenefitsVO } from '@/api/vessel'
+import type { OrderId, ServiceId, UserCenterIcon, WorkbenchId } from '@/components/diy/schema/user-center'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -15,6 +16,8 @@ import { getSalesWorkbench } from '@/api/sales/entity'
 import { getVesselEnterpriseBenefits } from '@/api/vessel'
 // 引入组件
 import DiyPage from '@/components/diy/index.vue'
+import { migratePageContent } from '@/components/diy/schema/migrate'
+import { normalizeUserCenter, userCenterHeroStyle, userCenterOrderIds } from '@/components/diy/schema/user-center'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 // 页面滚动广播：装修商品楼层与底部「猜你喜欢」都靠它自动续页
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
@@ -23,8 +26,9 @@ import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useTabBarLocale } from '@/composables/useTabBarLocale'
 import { useMessageStore } from '@/store/messageStore'
-import { useShipContextStore } from '@/store/shipContextStore'
+import { PURCHASE_SCENE_PERSONAL, useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
+import { formatDiscountValue } from '@/utils/discount-price'
 import { Local } from '@/utils/storage'
 
 const { handlePageScroll } = useFrostedNavbar()
@@ -53,7 +57,7 @@ interface MyService {
 /** 页头底色：与导航栏同源，二者取值必须一致，否则顶部会露出一道色差 */
 const BRAND_COLOR = 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 useTabBarLocale()
 // 滚动接近底部时广播检查：装修楼层与「猜你喜欢」各自测距后自动加载下一页
 useDecorationInfiniteScroll()
@@ -90,74 +94,102 @@ const myOrder = computed<MyOrder[]>(() => [
     status: '5',
   },
 ])
-/**
- * 服务宫格：8 项按 4 列铺满两行。
- * 消息中心排首位，未读角标是这里的首要信息；顺带把「5+3」的断行补齐成整行，
- * 末行只剩 3 项会在视觉上留下一个豁口。
- */
-const myService = computed<MyService[]>(() => [
-  {
+const serviceById = computed<Record<ServiceId, MyService>>(() => ({
+  message: {
     icon: 'i-carbon:notification-new',
     name: t('userCenter.serviceMessage'),
     url: '/sub-pages/message/notice/index',
   },
-  {
+  membership: {
     icon: 'i-carbon:user-profile',
     name: t('userCenter.serviceMember'),
     url: '/sub-pages/user/member/index',
   },
-  {
+  address: {
     icon: 'i-carbon:location',
     name: t('userCenter.serviceAddress'),
     url: '/sub-pages/user/address/index',
   },
-  {
+  review: {
     icon: 'i-carbon:edit',
     name: t('userCenter.serviceAppraise'),
     url: '/sub-pages/user/appraise/index',
   },
-  {
+  footprint: {
     icon: 'i-carbon:time',
     name: t('userCenter.serviceFootprint'),
     url: '/sub-pages/user/footprint/index',
   },
-  {
+  favorite: {
     icon: 'i-carbon:star',
     name: t('userCenter.serviceCollect'),
     url: '/sub-pages/user/collect/index',
   },
-  {
+  coupon: {
     icon: 'i-carbon:ticket',
     name: t('userCenter.serviceCoupon'),
     url: '/sub-pages/promotion/coupon/coupon-user/index',
   },
-  {
-    icon: 'i-carbon:share-knowledge',
-    name: t('userCenter.serviceDistribution'),
-    url: '/sub-pages/user/distribution/index',
+  support: {
+    icon: 'i-carbon:headset',
+    name: t('userCenter.serviceSupport'),
+    url: '/sub-pages/message/chat/index',
   },
-])
+}))
 
 const router = useRouter()
 const authStore = useAuthStore()
 const messageStore = useMessageStore()
 const { show: showToast } = useGlobalToast()
 
-// 个人中心页装修（pageType=4）：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告
+// 个人中心发布版同时承载原生模块设置和运营内容。
 const { pageContentData, loading: decorationLoading, fetch: fetchDecoration } = usePageDecoration('4')
+const decoration = computed(() => pageContentData.value ? migratePageContent(pageContentData.value) : undefined)
+const userCenter = computed(() => normalizeUserCenter(decoration.value?.page.userCenter))
+const embeddedContent = computed(() => decoration.value?.components.length ? pageContentData.value : null)
+const heroStyle = computed(() => userCenterHeroStyle(userCenter.value.hero))
+
+const iconClass: Record<UserCenterIcon, string> = {
+  default: '',
+  bookmark: 'i-carbon:bookmark',
+  pin: 'i-carbon:pin',
+  star: 'i-carbon:star',
+  grid: 'i-carbon:grid',
+  sparkles: 'i-carbon:idea',
+}
+
+function configuredIcon(icon: UserCenterIcon | undefined, fallback: string) {
+  return (icon && iconClass[icon]) || fallback
+}
+
+function localized(value: { zh: string, en: string }, fallback = '') {
+  return (locale.value.startsWith('en') ? value.en : value.zh).trim() || fallback
+}
+
+function orderIcon(id: OrderId | undefined, fallback: string) {
+  return configuredIcon(id && userCenter.value.orders.icons[id], fallback)
+}
 
 // ===================== 资产条 =====================
 
 /**
- * 页头资产条：优惠券 / 积分 / 余额。
+ * 页头资产条：优惠券 / 积分 / 余额（**仅个人态展示**）。
  *
  * 三者都是 userStore 里已有的数据（登录后由 fetchUserInfo 拉取并持久化），
  * 这里只是把它们从「藏在会员中心二级页」提到一屏可见的位置——
  * 原来页头只有一个「优惠券 0」灰胶囊，既看不出信息层级，也漏掉了积分与余额。
+ * 企业态（船供/企业采购场景或已命中企业等级徽章）下积分与余额不参与企业采购结算，
+ * 整条资产条隐藏，避免给出「企业单可用个人积分/余额」的错误预期（见 personalAssetsVisible）。
  */
 const assetCoupon = computed(() => userStore.getCouponCount ?? 0)
 const assetPoint = computed(() => userStore.getPoint ?? 0)
 const assetBalance = computed(() => userStore.getBalance ?? 0)
+
+const assetById = computed(() => ({
+  coupon: { label: t('userCenter.coupon'), value: assetCoupon.value, url: '/sub-pages/promotion/coupon/coupon-user/index' },
+  points: { label: t('userCenter.points'), value: assetPoint.value, url: '/sub-pages/user/member/points-record' },
+  balance: { label: t('userCenter.balance'), value: assetBalance.value, url: '/sub-pages/user/member/balance-record' },
+}))
 
 // ===================== 船舶入口 =====================
 
@@ -178,6 +210,18 @@ const vesselName = ref('')
 const enterpriseLevelName = ref('')
 /** 弹层展示的权益聚合（与徽章同源数据，弹层打开时按最新数据渲染） */
 const enterpriseBenefits = ref<EnterpriseBenefitsVO | null>(null)
+
+/**
+ * 企业态判定：采购场景非个人（船供/企业采购），或已命中企业等级徽章。
+ *
+ * 徽章异步到达前也按场景判定，避免企业用户先看到一屏个人资产再收起。
+ */
+const isEnterpriseContext = computed(() =>
+  shipContextStore.purchaseScene !== PURCHASE_SCENE_PERSONAL
+  || Boolean(enterpriseLevelName.value))
+
+/** 资产条仅个人态展示（企业态隐藏优惠券/积分/余额整条） */
+const personalAssetsVisible = computed(() => authStore.isLoggedIn && !isEnterpriseContext.value)
 /**
  * 是否已登记为在职销售（销售工作台入口的可见性依据）。
  *
@@ -247,12 +291,17 @@ function openEnterpriseSheet() {
   enterpriseSheetVisible.value = true
 }
 
-/** 折扣率权益文案：0.95 → 「9.5折」；null=未配置 */
+/**
+ * 折扣率权益文案：0.95 → 中文「9.5折」/ 英文「5% OFF」；null/无力度=未配置。
+ *
+ * 复用全站折扣文案口径（`formatDiscountValue`），不再硬编码「折」——
+ * 英文界面出现「9.5折」这类混合文案等于没翻译。
+ */
 const enterpriseDiscountText = computed(() => {
   const rate = Number(enterpriseBenefits.value?.discountRate)
-  if (!Number.isFinite(rate) || rate <= 0 || rate > 1)
+  if (!Number.isFinite(rate) || rate <= 0 || rate >= 1)
     return ''
-  return `${(rate * 10).toFixed(1).replace(/\.0$/, '')}折`
+  return formatDiscountValue({ discountType: 1, discountValue: rate })
 })
 
 // ===================== 配送工作台入口 =====================
@@ -363,6 +412,46 @@ async function loadSalesEligibility() {
 const deliveryEntranceBadge = computed(() =>
   formatBadge(deliveryEligibility.value?.pendingTaskCount ?? 0),
 )
+
+const workbenchById = computed(() => ({
+  delivery: {
+    visible: authStore.isLoggedIn && deliveryEntranceVisible.value,
+    icon: 'i-carbon:delivery-truck',
+    title: t('userCenter.deliveryWorkbench'),
+    description: deliveryEntranceSubtitle.value,
+    badge: deliveryEntranceBadge.value,
+    muted: !deliveryEligibility.value?.eligible,
+    busy: deliveryEntering.value,
+  },
+  vessel: {
+    visible: vesselEntranceVisible.value,
+    icon: 'i-carbon:sailboat-coastal',
+    title: t('userCenter.myVessels'),
+    description: vesselEntranceSubtitle.value,
+    badge: '',
+    muted: false,
+    busy: false,
+  },
+  sales: {
+    visible: authStore.isLoggedIn && isSales.value,
+    icon: 'i-carbon:chart-line',
+    title: t('userCenter.salesWorkbench'),
+    description: t('userCenter.salesWorkbenchDesc'),
+    badge: '',
+    muted: false,
+    busy: false,
+  },
+}))
+const visibleWorkbenchIds = computed(() => userCenter.value.workbenches.order.filter(id => workbenchById.value[id].visible))
+
+function openWorkbench(id: WorkbenchId) {
+  if (!workbenchById.value[id].visible)
+    return
+  if (id === 'delivery')
+    void enterDeliveryWorkspace()
+  else
+    toRoute(id === 'vessel' ? '/sub-pages/vessel/bind/index' : '/sub-pages/user/sales/index')
+}
 
 /**
  * 清理本地配送登录态（停用、解绑或 token 失效后调用）
@@ -525,7 +614,7 @@ onPageScroll(handlePageScroll)
   <hr-navbar
     :left-arrow="false"
     :title="t('userCenter.title')"
-    :background-color="BRAND_COLOR"
+    :background-color="heroStyle.backgroundColor || BRAND_COLOR"
     text-color="#ffffff"
   />
   <!--
@@ -533,7 +622,14 @@ onPageScroll(handlePageScroll)
     未登录时整个页头（头像 + 「登录/注册」+ 权益说明）就是唯一的登录入口，
     下方不再重复一条登录引导卡——同一个动作在一屏里出现两次只会分散注意力。
   -->
-  <view class="uc-hero" :class="{ 'uc-hero--guest': !authStore.isLoggedIn }">
+  <view
+    class="uc-hero"
+    :class="{
+      'uc-hero--guest': !personalAssetsVisible,
+      'uc-hero--solid': userCenter.hero.memberStyle === 'solid',
+    }"
+    :style="heroStyle"
+  >
     <view class="uc-hero__profile" @click="toLogin">
       <image
         class="uc-hero__avatar"
@@ -560,7 +656,10 @@ onPageScroll(handlePageScroll)
           </text>
         </view>
         <text v-if="!authStore.isLoggedIn" class="uc-hero__hint">
-          {{ t('userCenter.loginHint') }}
+          {{ localized(userCenter.hero.loginHint, t('userCenter.loginHint')) }}
+        </text>
+        <text v-else-if="localized(userCenter.hero.memberDescription)" class="uc-hero__hint">
+          {{ localized(userCenter.hero.memberDescription) }}
         </text>
       </view>
     </view>
@@ -592,59 +691,37 @@ onPageScroll(handlePageScroll)
       </view>
     </view>
   </view>
-  <!-- 资产条：上移压在渐变收口处，把优惠券/积分/余额提到首屏 -->
   <view
-    v-if="authStore.isLoggedIn"
+    v-if="personalAssetsVisible"
     class="uc-assets"
+    :class="`uc-skin--${userCenter.assets.style}`"
   >
     <view
+      v-for="id in userCenter.assets.order"
+      :key="id"
       class="uc-assets__item"
       hover-class="uc-assets__item--pressed"
-      @click="toRoute('/sub-pages/promotion/coupon/coupon-user/index')"
+      @click="toRoute(assetById[id].url)"
     >
       <text class="uc-assets__value">
-        {{ assetCoupon }}
+        {{ assetById[id].value }}
       </text>
       <text class="uc-assets__label">
-        {{ t('userCenter.coupon') }}
-      </text>
-    </view>
-    <view
-      class="uc-assets__item"
-      hover-class="uc-assets__item--pressed"
-      @click="toRoute('/sub-pages/user/member/points-record')"
-    >
-      <text class="uc-assets__value">
-        {{ assetPoint }}
-      </text>
-      <text class="uc-assets__label">
-        {{ t('userCenter.points') }}
-      </text>
-    </view>
-    <view
-      class="uc-assets__item"
-      hover-class="uc-assets__item--pressed"
-      @click="toRoute('/sub-pages/user/member/balance-record')"
-    >
-      <text class="uc-assets__value">
-        {{ assetBalance }}
-      </text>
-      <text class="uc-assets__label">
-        {{ t('userCenter.balance') }}
+        {{ assetById[id].label }}
       </text>
     </view>
   </view>
-  <!-- 未登录不再补一条登录引导卡：页头本身已是登录入口，见 .uc-hero--guest 注释 -->
-  <!-- 个人中心装修区域：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告 -->
-  <view v-if="pageContentData" class="uc-decoration">
-    <DiyPage :page-content-data="pageContentData" embedded />
-  </view>
-  <view v-else-if="decorationLoading" class="uc-decoration-skeleton" />
+  <template v-if="userCenter.contentPosition === 'beforeOrders'">
+    <view v-if="embeddedContent" class="uc-decoration">
+      <DiyPage :page-content-data="embeddedContent" embedded />
+    </view>
+    <view v-else-if="decorationLoading" class="uc-decoration-skeleton" />
+  </template>
   <!-- 我的订单 -->
-  <view class="uc-card">
+  <view class="uc-card" :class="`uc-skin--${userCenter.orders.style}`">
     <view class="uc-card__head">
       <text class="uc-card__title">
-        {{ t('userCenter.myOrders') }}
+        {{ localized(userCenter.orders.title, t('userCenter.myOrders')) }}
       </text>
       <view
         class="uc-card__more"
@@ -657,14 +734,14 @@ onPageScroll(handlePageScroll)
     </view>
     <view class="uc-grid uc-grid--5">
       <view
-        v-for="item in myOrder"
+        v-for="(item, index) in myOrder"
         :key="item.status"
         class="uc-grid__item"
         hover-class="uc-grid__item--pressed"
         @click="toOrder(item.status)"
       >
         <view class="uc-grid__icon">
-          <text :class="item.icon" class="uc-grid__glyph" />
+          <text :class="orderIcon(userCenterOrderIds[index], item.icon)" class="uc-grid__glyph" />
           <text v-if="orderBadge(item.status)" class="uc-grid__badge">
             {{ orderBadge(item.status) }}
           </text>
@@ -675,112 +752,72 @@ onPageScroll(handlePageScroll)
       </view>
     </view>
   </view>
-  <!-- 我的服务 -->
-  <view class="uc-card">
+  <view v-if="userCenter.services.order.length || visibleWorkbenchIds.length" class="uc-card">
     <view class="uc-card__head">
       <text class="uc-card__title">
         {{ t('userCenter.myServices') }}
       </text>
     </view>
-    <view class="uc-grid uc-grid--4">
+    <view v-if="userCenter.services.order.length" class="uc-grid" :class="`uc-grid--${userCenter.services.columns}`">
       <view
-        v-for="item in myService"
-        :key="item.url"
+        v-for="id in userCenter.services.order"
+        :key="id"
         class="uc-grid__item"
         hover-class="uc-grid__item--pressed"
-        @click="toRoute(item.url)"
+        @click="toRoute(serviceById[id].url)"
       >
         <view class="uc-grid__icon">
-          <text :class="item.icon" class="uc-grid__glyph" />
-          <text
-            v-if="item.url === '/sub-pages/message/notice/index' && formatBadge(messageStore.totalUnread)"
-            class="uc-grid__badge"
-          >
+          <text :class="configuredIcon(userCenter.services.icons[id], serviceById[id].icon)" class="uc-grid__glyph" />
+          <text v-if="id === 'message' && formatBadge(messageStore.totalUnread)" class="uc-grid__badge">
             {{ formatBadge(messageStore.totalUnread) }}
           </text>
         </view>
         <text class="uc-grid__label">
-          {{ item.name }}
+          {{ serviceById[id].name }}
         </text>
       </view>
     </view>
-    <!-- 角色入口并入服务卡：两张独立横幅卡会把页面中段切成多张白卡、连出灰缝，行间只留发丝线 -->
-    <!-- 配送工作台入口：仅已登录且具备配送资格的用户可见 -->
     <view
-      v-if="deliveryEntranceVisible"
+      v-for="id in visibleWorkbenchIds"
+      :key="id"
       class="uc-entry"
-      :class="{
-        'uc-entry--muted': deliveryEligibility && !deliveryEligibility.eligible,
-        'uc-entry--busy': deliveryEntering,
-      }"
+      :class="[
+        `uc-skin--${userCenter.workbenches.style}`,
+        { 'uc-entry--muted': workbenchById[id].muted, 'uc-entry--busy': workbenchById[id].busy },
+      ]"
       hover-class="uc-entry--pressed"
-      @click="enterDeliveryWorkspace"
+      @click="openWorkbench(id)"
     >
       <view class="uc-entry__icon">
-        <text class="i-carbon:delivery-truck uc-entry__glyph" />
+        <text :class="configuredIcon(userCenter.workbenches.icons[id], workbenchById[id].icon)" class="uc-entry__glyph" />
       </view>
       <view class="uc-entry__body">
         <text class="uc-entry__title">
-          {{ t('userCenter.deliveryWorkbench') }}
+          {{ workbenchById[id].title }}
         </text>
         <text class="uc-entry__desc">
-          {{ deliveryEntranceSubtitle }}
+          {{ workbenchById[id].description }}
         </text>
       </view>
-      <text v-if="deliveryEntranceBadge" class="uc-entry__count">
-        {{ deliveryEntranceBadge }}
+      <text v-if="workbenchById[id].badge" class="uc-entry__count">
+        {{ workbenchById[id].badge }}
       </text>
       <text class="i-carbon:chevron-right uc-entry__arrow" />
     </view>
-    <!-- 船舶入口：首页状态条只服务「有船用户」，未绑定用户的出路收进这里 -->
-    <view
-      v-if="vesselEntranceVisible"
-      class="uc-entry"
-      hover-class="uc-entry--pressed"
-      @click="toRoute('/sub-pages/vessel/bind/index')"
-    >
-      <view class="uc-entry__icon">
-        <text class="i-carbon:sailboat-coastal uc-entry__glyph" />
-      </view>
-      <view class="uc-entry__body">
-        <text class="uc-entry__title">
-          {{ t('userCenter.myVessels') }}
-        </text>
-        <text class="uc-entry__desc">
-          {{ vesselEntranceSubtitle }}
-        </text>
-      </view>
-      <text class="i-carbon:chevron-right uc-entry__arrow" />
-    </view>
-    <!-- 销售工作台入口：仅已登记为在职销售的会员可见（销售提成随工资发放，工作台只读） -->
-    <view
-      v-if="isSales"
-      class="uc-entry"
-      hover-class="uc-entry--pressed"
-      @click="toRoute('/sub-pages/user/sales/index')"
-    >
-      <view class="uc-entry__icon">
-        <text class="i-carbon:chart-line uc-entry__glyph" />
-      </view>
-      <view class="uc-entry__body">
-        <text class="uc-entry__title">
-          {{ t('userCenter.salesWorkbench') }}
-        </text>
-        <text class="uc-entry__desc">
-          {{ t('userCenter.salesWorkbenchDesc') }}
-        </text>
-      </view>
-      <text class="i-carbon:chevron-right uc-entry__arrow" />
-    </view>
   </view>
-  <view class="uc-like">
-    <view class="uc-like__rule" />
-    <text class="uc-like__text">
-      {{ t('userCenter.guessYouLike') }}
-    </text>
-    <view class="uc-like__rule" />
+  <view v-if="userCenter.contentPosition === 'afterServices' && embeddedContent" class="uc-decoration">
+    <DiyPage :page-content-data="embeddedContent" embedded />
   </view>
-  <WaterfallGoods />
+  <template v-if="!decorationLoading && userCenter.recommendations.visible">
+    <view class="uc-like">
+      <view class="uc-like__rule" />
+      <text class="uc-like__text">
+        {{ localized(userCenter.recommendations.title, t('userCenter.guessYouLike')) }}
+      </text>
+      <view class="uc-like__rule" />
+    </view>
+    <WaterfallGoods :source="userCenter.recommendations.source" />
+  </template>
   <!-- 悬浮玻璃底栏是 fixed 覆盖层：留一条等高空白，推荐流最后一行能滚到栏上方 -->
   <view class="tabbar-bottom-space" />
   <!--
@@ -845,10 +882,10 @@ onPageScroll(handlePageScroll)
         class="uc-ent-sheet__reserved"
       >
         <text v-if="enterpriseBenefits.rebateRate" class="uc-ent-sheet__reserved-item">
-          {{ t('userCenter.enterpriseSheet.reserved') }} · 返利
+          {{ t('userCenter.enterpriseSheet.reserved') }} · {{ t('userCenter.enterpriseSheet.rebate') }}
         </text>
         <text v-if="enterpriseBenefits.creditDays" class="uc-ent-sheet__reserved-item">
-          {{ t('userCenter.enterpriseSheet.reserved') }} · 账期 {{ enterpriseBenefits.creditDays }} 天
+          {{ t('userCenter.enterpriseSheet.reserved') }} · {{ t('userCenter.enterpriseSheet.creditDays', { days: enterpriseBenefits.creditDays }) }}
         </text>
       </view>
       <text class="uc-ent-sheet__hint">
@@ -1030,6 +1067,7 @@ $uc-gutter: 20rpx;
 /* ===================== 资产条 ===================== */
 
 .uc-assets {
+  position: relative;
   display: flex;
   align-items: stretch;
   margin: -72rpx $uc-gutter 0;
@@ -1122,6 +1160,10 @@ $uc-gutter: 20rpx;
 
   &--5 &__item {
     width: 20%;
+  }
+
+  &--3 &__item {
+    width: calc(100% / 3);
   }
 
   &--4 &__item {
@@ -1357,5 +1399,25 @@ $uc-gutter: 20rpx;
     margin-top: 24rpx;
     text-align: center;
   }
+}
+
+.uc-hero--solid .uc-hero__level {
+  color: #172b42;
+  background: #fff;
+}
+
+.uc-skin--outline {
+  box-shadow: inset 0 0 0 1px var(--app-border, #dce3ea);
+}
+
+.uc-skin--tinted {
+  background: var(--app-card-2);
+}
+
+.uc-entry.uc-skin--outline,
+.uc-entry.uc-skin--tinted {
+  margin-top: 12rpx;
+  padding-inline: 16rpx;
+  border-radius: 16rpx;
 }
 </style>

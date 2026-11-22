@@ -160,6 +160,7 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean updatePageDesignById(PageDesign pageDesign) {
+		pageDesign.setCampaignDraftId(null);
 		if (!CommonConstants.YES.equals(pageDesign.getHomeStatus())) {
 			return updateAndEvictCache(pageDesign);
 		}

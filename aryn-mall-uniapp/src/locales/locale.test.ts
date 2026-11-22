@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { getLocale, setStoredLocale, translate } from './index'
 import enUS from './en-US'
-import zhCN from './zh-CN'
+import mainZh from './zh-CN'
+import { subpageMessages } from '@/sub-pages/locales/messages'
+import { compileMessages } from './compile-messages'
+import { i18n } from './index'
+const zhCN = { ...mainZh, ...subpageMessages['zh-CN'] }
+const mergedEn = { ...enUS, ...subpageMessages['en-US'] }
+for (const locale of ['zh-CN', 'en-US'] as const) i18n.global.mergeLocaleMessage(locale, compileMessages(subpageMessages[locale]))
 
 function collectKeys(value: Record<string, unknown>, prefix = ''): string[] {
   return Object.entries(value).flatMap(([key, child]) => {
@@ -29,12 +35,12 @@ const EN_ALLOWED_CJK_KEYS = new Set(['common.chinese'])
 
 describe('locale messages', () => {
   it('keeps en-US keys in sync with zh-CN', () => {
-    expect(collectKeys(enUS).sort()).toEqual(collectKeys(zhCN).sort())
+    expect(collectKeys(mergedEn).sort()).toEqual(collectKeys(zhCN).sort())
   })
 
   it('has no Chinese left in en-US messages', () => {
     const han = /[\u4E00-\u9FFF]/
-    const offenders = collectEntries(enUS)
+    const offenders = collectEntries(mergedEn)
       .filter(([key, text]) => !EN_ALLOWED_CJK_KEYS.has(key) && han.test(text))
       .map(([key, text]) => `${key}: ${text}`)
     expect(offenders).toEqual([])
@@ -76,7 +82,7 @@ describe('locale messages', () => {
         setStoredLocale(locale)
         // 把两种语言里出现过的占位符都喂进去，避免因缺参触发 message 编译警告
         const params: Record<string, string | number> = {}
-        for (const [key, text] of [...collectEntries(zhCN), ...collectEntries(enUS)]) {
+        for (const [key, text] of [...collectEntries(zhCN), ...collectEntries(mergedEn)]) {
           void key
           for (const match of text.matchAll(/\{([a-zA-Z0-9_]+)\}/g))
             params[match[1]] = 1

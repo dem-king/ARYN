@@ -48,14 +48,11 @@ class EmbeddingClientTest {
 	}
 
 	@Test
-	@DisplayName("可用性：未配 key 或开关关闭都不可用，matchRows 跳过向量步")
-	void availabilityGate() {
-		assertFalse(new EmbeddingClient(true, "", "embedding-3",
-				"https://open.bigmodel.cn/api/paas/v4", 1024, 20000).isAvailable());
-		assertFalse(new EmbeddingClient(false, "some-key", "embedding-3",
-				"https://open.bigmodel.cn/api/paas/v4", 1024, 20000).isAvailable());
-		assertTrue(new EmbeddingClient(true, "some-key", "embedding-3",
-				"https://open.bigmodel.cn/api/paas/v4", 1024, 20000).isAvailable());
-	}
-
+    void availabilityComesFromRuntimeOnly() {
+        var runtime=org.mockito.Mockito.mock(ProductAiRuntime.class);
+        var client=new EmbeddingClient(runtime);
+        assertFalse(client.isAvailable());
+        org.mockito.Mockito.when(runtime.available(com.aryn.cloud.common.ai.contract.AiUsage.CATALOG_EMBEDDING)).thenReturn(true);
+        assertTrue(client.isAvailable());
+    }
 }

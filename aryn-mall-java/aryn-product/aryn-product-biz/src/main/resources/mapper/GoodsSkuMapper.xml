@@ -14,6 +14,16 @@
         goods_sku.original_price,
         goods_sku.cost_price,
         goods_sku.stock,
+        goods_sku.sales_unit,
+        goods_sku.base_dimension,
+        goods_sku.base_unit,
+        goods_sku.base_qty_per_sales_unit,
+        goods_sku.quantity_precision,
+        goods_sku.min_order_qty,
+        goods_sku.step_qty,
+        goods_sku.unit_spec_text,
+        goods_sku.measurement_revision,
+
         goods_sku.`status`,
         goods_sku.create_time,
         goods_sku.update_time,
@@ -99,4 +109,18 @@
                     ofType="com.aryn.cloud.product.api.entity.GoodsSpu"
                     select="com.aryn.cloud.product.mapper.GoodsSpuMapper.selectById"></collection>
     </resultMap>
+    <!-- 显式写NULL支持清除已审核度量；仅由通过SKU乐观锁的商品保存事务调用。 -->
+    <update id="updateMeasurement">
+        UPDATE goods_sku SET
+        sales_unit = #{sku.salesUnit},
+        base_dimension = #{sku.baseDimension},
+        base_unit = #{sku.baseUnit},
+        base_qty_per_sales_unit = #{sku.baseQtyPerSalesUnit},
+        quantity_precision = #{sku.quantityPrecision},
+        min_order_qty = #{sku.minOrderQty},
+        step_qty = #{sku.stepQty},
+        unit_spec_text = #{sku.unitSpecText},
+        measurement_revision = #{sku.measurementRevision}
+        WHERE id = #{sku.id} AND spu_id = #{sku.spuId} AND del_flag = '0'
+    </update>
 </mapper>

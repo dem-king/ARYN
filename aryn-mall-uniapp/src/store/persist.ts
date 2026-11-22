@@ -11,6 +11,8 @@ import type { PiniaPluginContext } from 'pinia'
 
 const EXCLUDED_STORE_IDS = new Set([
   'temp',
+  // 采购状态用tenant/用户/场景/主体专用缓存，不能落全局store key
+  'procurement',
   'shoppingCart',
   'shipContext',
   'global-loading',

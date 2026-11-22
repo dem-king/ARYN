@@ -315,4 +315,25 @@
           AND order_info.pay_status = '1'
           AND order_info.channel_type = '3'
     </select>
+
+    <!-- 企业采购额月度聚合（企业等级月度对账 Job，2026-11-15）：
+         已支付且完成收货的企业场景订单按完成月份归属；剔除已退款明细与赠品，金额不含运费 -->
+    <select id="aggregateEnterprisePurchase" resultType="com.aryn.cloud.order.api.vo.EnterprisePurchaseAggVO">
+        SELECT DATE_FORMAT(o.receiver_time, '%Y-%m') AS period,
+               CASE o.purchase_scene WHEN '2' THEN '2' ELSE '1' END AS subjectType,
+               CASE o.purchase_scene WHEN '2' THEN o.vessel_id ELSE o.buyer_org_id END AS subjectId,
+               COALESCE(SUM(i.payment_price - i.freight_price), 0) AS amount
+        FROM order_info o
+        JOIN order_item i ON i.order_id = o.id AND i.del_flag = '0'
+        WHERE o.tenant_id = #{tenantId}
+          AND o.del_flag = '0'
+          AND o.pay_status = '1'
+          AND o.receiver_time IS NOT NULL
+          AND DATE_FORMAT(o.receiver_time, '%Y-%m') &gt;= #{startMonth}
+          AND ((o.purchase_scene = '2' AND o.vessel_id IS NOT NULL AND o.vessel_id != '')
+            OR (o.purchase_scene = '3' AND o.buyer_org_id IS NOT NULL AND o.buyer_org_id != ''))
+          AND i.status != '6'
+          AND (i.gift_flag IS NULL OR i.gift_flag != '1')
+        GROUP BY period, subjectType, subjectId
+    </select>
 </mapper>

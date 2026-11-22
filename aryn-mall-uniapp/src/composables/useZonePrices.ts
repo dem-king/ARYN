@@ -1,25 +1,31 @@
 /**
  * 商品列表「专区价」批量取数 composable。
  *
- * 会员价按用户身份下发、出清价对所有用户一致，二者都不在商品列表接口里：
- * 列表卡片渲染后必须按本页 SPU 批量补一次价（各一次请求），失败静默回落原价。
- * 商品卡营销标签（新人价/秒杀价，`card-tags` 端点）同属「列表后批量补」管线：
- * 新人价按登录身份判定资格、秒杀价全局一致，SPU 级聚合一次拉全。
+ * 会员价按用户身份下发、出清价对所有用户一致、协议价按主体/船舶圈定、档期特供按
+ * 采购场景/船舶圈定，四者都不在商品列表接口里：列表卡片渲染后必须按本页 SPU 批量
+ * 补一次价，失败静默回落原价。商品卡营销标签（新人价/秒杀价，`card-tags` 端点）
+ * 同属「列表后批量补」管线：新人价按登录身份判定资格、秒杀价全局一致，SPU 级聚合一次拉全。
  *
  * 设计要点：
  * - **模块级缓存**：多个楼层/多个 Tab/翻页会重复请求同一批 SPU，按 spuId 缓存 60s，
- *   只补「缺失或过期」的 SPU，避免首页多楼层把价格接口打爆；
+ *   只补「缺失或过期」的 SPU，避免首页多楼层把价格接口打爆；特供接口不分 SPU（整量
+ *   按场景/船舶下发），因此按「上下文指纹 + 60s」缓存一份 SPU/SKU 索引；
+ * - **上下文指纹失效**：登录态（token）与采购上下文（buyerOrgId/vesselId/purchaseScene）
+ *   任一变化即整体失效——切船后不得继续显示上一条船的合同价/特供价；
  * - **响应式 revision**：列表先渲染、价格晚一帧回来，computed 通过读取 revision
  *   自动重算，用户看到的是渐进增强而不是白屏等待；
  * - **口径唯一**：会员价复用 `utils/member-price#resolveListMemberPrice`（含资格取优、
  *   未达标引导），出清价复用 `utils/clearance-price#resolveListClearanceDisplay`，
  *   卡片收敛统一走 `utils/zone-price#resolveListZonePrice`，各页面不再自行乘折扣/比价；
+ * - **游客可访问**：协议价/特供价接口免登，服务端对游客/非成员自动清空主体上下文，
+ *   前端不做登录门槛（无上下文也请求，命中即为可享价）；
  * - **失败静默**：价格标注属增强展示，接口异常绝不影响商品流渲染。
  */
 
 import type { GoodsCardTagItem } from '@/api/product/spu'
 import type { AppMemberSkuPriceVO } from '@/api/promotion'
 import type { PolicyPriceItem } from '@/api/promotion/policy-price'
+import type { CalendarSpecialItem } from '@/api/promotion/trade-calendar'
 import type { ListMemberPriceDisplay } from '@/components/diy/retail-types'
 import type { AppClearancePriceItem, ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { ListZonePrice } from '@/utils/zone-price'
@@ -28,6 +34,7 @@ import { ref } from 'vue'
 import { getCardTags, getClearanceSpuPrices } from '@/api/product/spu'
 import { getMemberSpuPrices } from '@/api/promotion'
 import { getPolicyPrices } from '@/api/promotion/policy-price'
+import { getCalendarSpecials } from '@/api/promotion/trade-calendar'
 import { useShipContextStore } from '@/store/shipContextStore'
 import {
   clearanceItemsBySpuId,
@@ -87,20 +94,42 @@ let memberEligible: boolean | null = null
 let memberDiscountRate: number | null = null
 
 /**
- * 协议价上下文解析器：返回当前会话的采购主体/船舶上下文（无则 null，不打协议价接口）。
+ * 档期特供索引（整量拉取，非按 SPU 分片）。
  *
- * 默认读船上下文（协议价按 vessel 圈定的合同价自动生效；pinia 未激活/无船回落 null，
- * 测试环境无需建 pinia）；岸上企业上下文页面可 setPolicyPriceContextResolver 临时覆盖
- * （C 端无持久企业上下文 store）。
+ * `/app/calendar/specials` 只按场景/船舶圈定、不接受 spuIds，因此一次拉全后在本地
+ * 建 SPU 索引（卡面按 SPU 取最低价）；`scopeKey` 记录拉取时的上下文指纹，
+ * 切船/切场景/换登录态即失效。服务端已剔除限量耗尽活动，前端不再按 remainingQuota 过滤。
  */
-type PolicyContextResolver = () => { buyerOrgId?: string, vesselId?: string } | null
+interface SpecialIndex {
+  bySpu: Map<string, CalendarSpecialItem[]>
+  fetchedAt: number
+  scopeKey: string
+}
+let specialIndex: SpecialIndex | null = null
+
+/** 采购上下文（协议价/特供价共用；岸上企业上下文页面可覆盖默认解析器） */
+interface PriceContext {
+  buyerOrgId?: string
+  purchaseScene?: string
+  vesselId?: string
+}
+
+/**
+ * 价格上下文解析器：返回当前会话的采购主体/船舶/场景上下文。
+ *
+ * 默认读船上下文（协议价按 vessel 圈定的合同价自动生效；pinia 未激活时回落 null，
+ * 测试环境无需建 pinia）；岸上企业上下文页面可 setPolicyPriceContextResolver 临时覆盖
+ * （C 端无持久企业上下文 store）。**无上下文也照常请求**：接口免登，服务端对游客/
+ * 非成员自动清空主体上下文，不会下发合同价。
+ */
+type PolicyContextResolver = () => PriceContext | null
 let policyContextResolver: PolicyContextResolver = defaultPolicyContext
 
-function defaultPolicyContext(): { buyerOrgId?: string, vesselId?: string } | null {
+function defaultPolicyContext(): PriceContext | null {
   try {
     // 函数内 use store：模块加载期 pinia 可能未安装（测试/首帧），异常回落无上下文
     const store = useShipContextStore()
-    return store.vesselId ? { vesselId: store.vesselId } : null
+    return { purchaseScene: store.purchaseScene, vesselId: store.vesselId || undefined }
   }
   catch {
     return null
@@ -130,15 +159,17 @@ let memberInflight: Promise<void> | null = null
 let clearanceInflight: Promise<void> | null = null
 let cardTagInflight: Promise<void> | null = null
 let policyInflight: Promise<void> | null = null
+let specialInflight: Promise<void> | null = null
 
 /**
- * 缓存所属的登录态指纹（当前 token 串）。
+ * 缓存所属的「登录态 + 采购上下文」指纹。
  *
- * 会员价资格（eligible / userDiscountRate）是用户身份相关的：登录、退出、
- * 切换账号后，60s 内的缓存若继续复用，会把游客/旧等级的会员价展示给新身份。
- * 在每次补价入口比对 token 指纹，变化即整体失效——不依赖各页面手动调用。
+ * 会员价资格（eligible / userDiscountRate）是用户身份相关的，协议价/特供价还额外
+ * 按 buyerOrgId/vesselId/purchaseScene 圈定：登录、退出、切换账号、**切船/切采购场景**后，
+ * 60s 内的缓存若继续复用，会把游客/旧等级/上一条船的合同价展示给新上下文。
+ * 在每次补价入口比对指纹，变化即整体失效——不依赖各页面手动调用。
  */
-let cacheAuthKey: string | null = null
+let cacheScopeKey: string | null = null
 
 /** 当前登录态指纹：只取 token（未登录为空串）；storage 异常按未登录处理 */
 function currentAuthKey(): string {
@@ -151,21 +182,31 @@ function currentAuthKey(): string {
   }
 }
 
+/** 上下文指纹：token + 采购主体 + 船舶 + 采购场景（任一变化都要重新补价） */
+function scopeKeyOf(context: PriceContext | null): string {
+  return [
+    currentAuthKey(),
+    context?.buyerOrgId || '',
+    context?.vesselId || '',
+    context?.purchaseScene || '',
+  ].join('|')
+}
+
 /**
- * 登录态变化时整体失效价格缓存。
+ * 登录态/采购上下文变化时整体失效价格缓存。
  *
  * @returns 是否发生了失效（调用方据此触发重渲染）
  */
-function syncAuthScope(): boolean {
-  const key = currentAuthKey()
-  if (cacheAuthKey === null) {
-    cacheAuthKey = key
+function syncCacheScope(context: PriceContext | null): boolean {
+  const key = scopeKeyOf(context)
+  if (cacheScopeKey === null) {
+    cacheScopeKey = key
     return false
   }
-  if (cacheAuthKey === key)
+  if (cacheScopeKey === key)
     return false
   clearCaches()
-  cacheAuthKey = key
+  cacheScopeKey = key
   revision.value++
   return true
 }
@@ -282,7 +323,8 @@ function cardTagEntryFrom(items: GoodsCardTagItem[], now: number): CardTagCacheE
   return { fetchedAt: now, newbiePrice, seckillPrice, socialProofKind, socialProofText, priceTagText }
 }
 
-async function fetchCardTags(ids: string[]): Promise<void> {  if (!ids.length)
+async function fetchCardTags(ids: string[]): Promise<void> {
+  if (!ids.length)
     return
   for (const part of chunk(ids, CARD_TAG_CHUNK)) {
     try {
@@ -311,20 +353,16 @@ async function fetchCardTags(ids: string[]): Promise<void> {  if (!ids.length)
 }
 
 /**
- * 协议价批量拉取（需登录 + 有上下文）。
+ * 协议价批量拉取（免登可访问，游客也请求）。
  *
- * 协议价是主体/船舶/客群 scoped 的合同价：未登录（网关层即拒绝）或无上下文时
- * 写空缓存占位（避免同页反复尝试）；接口失败静默回落原价，不影响商品流。
- * 缓存同样吃登录态指纹失效（syncAuthScope）与 60s TTL。
+ * 协议价是主体/船舶/客群 scoped 的合同价：服务端对游客/非成员自动清空主体上下文，
+ * 因此前端不做登录/上下文门槛——有船/企业上下文就带上，没有就按游客口径请求。
+ * 接口失败静默回落原价（写空缓存占位，避免同页反复尝试），不影响商品流。
+ * 缓存吃「登录态 + 上下文」指纹失效（syncCacheScope）与 60s TTL；请求飞行期间上下文
+ * 变化时丢弃本次结果，避免把上一条船的合同价写进新上下文的缓存。
  */
-async function fetchPolicyPrices(ids: string[], context: { buyerOrgId?: string, vesselId?: string }): Promise<void> {
-  const now = Date.now()
-  if (!currentAuthKey()) {
-    for (const spuId of ids)
-      policyCache.set(spuId, { fetchedAt: now, items: [] })
-    ids.forEach(id => pendingPolicy.delete(id))
-    return
-  }
+async function fetchPolicyPrices(ids: string[], context: PriceContext): Promise<void> {
+  const startScopeKey = scopeKeyOf(context)
   for (const part of chunk(ids, POLICY_SPU_CHUNK)) {
     try {
       const items = await getPolicyPrices({
@@ -332,6 +370,8 @@ async function fetchPolicyPrices(ids: string[], context: { buyerOrgId?: string, 
         spuIds: part,
         vesselId: context.vesselId,
       })
+      if (cacheScopeKey !== startScopeKey)
+        continue
       const itemsBySpu = new Map<string, PolicyPriceItem[]>()
       for (const item of items || []) {
         const spuId = String(item?.spuId || '').trim()
@@ -346,15 +386,83 @@ async function fetchPolicyPrices(ids: string[], context: { buyerOrgId?: string, 
         policyCache.set(spuId, { fetchedAt: stamped, items: itemsBySpu.get(spuId) || [] })
     }
     catch {
+      if (cacheScopeKey !== startScopeKey)
+        continue
       const stamped = Date.now()
       for (const spuId of part)
         policyCache.set(spuId, { fetchedAt: stamped, items: [] })
     }
-    part.forEach(id => pendingPolicy.delete(id))
+    finally {
+      part.forEach(id => pendingPolicy.delete(id))
+    }
   }
 }
 
-/** 某 SPU 的卡面协议价（同 SPU 多 SKU 取最低；倒挂/非正数由 resolveListZonePrice 再防御） */
+/**
+ * 档期特供整量拉取（免登可访问，按采购场景/船舶圈定）。
+ *
+ * 接口不接受 spuIds：一次拉全后建 SPU 索引，同 SPU 命中多活动保留全部项，
+ * 由取价 helper 取最低（与商详/结算同口径）。服务端已剔除限量耗尽活动。
+ * 失败静默写空索引（60s 内不再重复打接口）；上下文变化时丢弃本次结果。
+ */
+async function fetchSpecials(context: PriceContext): Promise<void> {
+  const startScopeKey = scopeKeyOf(context)
+  const empty = (): SpecialIndex => ({
+    bySpu: new Map(),
+    fetchedAt: Date.now(),
+    scopeKey: startScopeKey,
+  })
+  try {
+    const specials = await getCalendarSpecials({
+      purchaseScene: context.purchaseScene,
+      vesselId: context.vesselId,
+    })
+    if (cacheScopeKey !== startScopeKey)
+      return
+    const index = empty()
+    for (const activity of specials || []) {
+      for (const item of activity?.items || []) {
+        const price = Number(item?.price)
+        if (!Number.isFinite(price) || price <= 0)
+          continue
+        const spuId = String(item?.spuId || '').trim()
+        if (!spuId)
+          continue
+        index.bySpu.set(spuId, [...(index.bySpu.get(spuId) || []), item])
+      }
+    }
+    specialIndex = index
+  }
+  catch {
+    if (cacheScopeKey !== startScopeKey)
+      return
+    specialIndex = empty()
+  }
+}
+
+/** 某 SPU 的卡面特供价（同 SPU 多活动/多 SKU 取最低；倒挂由 resolveListZonePrice 再防御） */
+function specialCardPriceOf(spuId: string): number | null {
+  return lowestSpecialPrice(specialIndex?.bySpu.get(spuId))
+}
+
+function lowestSpecialPrice(items: CalendarSpecialItem[] | undefined): number | null {
+  let best: number | null = null
+  for (const item of items || []) {
+    const price = Number(item?.price)
+    if (!Number.isFinite(price) || price <= 0)
+      continue
+    if (best === null || price < best)
+      best = price
+  }
+  return best
+}
+
+/**
+ * 某 SPU 的卡面协议价（同 SPU 多 SKU 取最低；倒挂/非正数由 resolveListZonePrice 再防御）。
+ *
+ * **minQty 参与成交校验**：卡片数量未定（按 1 件口径展示），因此起订量 > 1 的政策
+ * 不上卡——否则卡面标合同价、结算按售价，价差观感重现。商详/购物车按实际数量另行 gating。
+ */
 function policyCardPriceOf(spuId: string): number | null {
   const entry = policyCache.get(spuId)
   if (!entry)
@@ -364,10 +472,18 @@ function policyCardPriceOf(spuId: string): number | null {
     const price = Number(item?.policyPrice)
     if (!Number.isFinite(price) || price <= 0)
       continue
+    if (policyMinQtyOf(item) > 1)
+      continue
     if (best === null || price < best)
       best = price
   }
   return best
+}
+
+/** 协议起订量（缺省/脏数据按 1 件，即无门槛） */
+function policyMinQtyOf(item: PolicyPriceItem | null | undefined): number {
+  const minQty = Math.floor(Number(item?.minQty))
+  return Number.isFinite(minQty) && minQty > 0 ? minQty : 1
 }
 
 function pickMissing(
@@ -396,16 +512,18 @@ function clearCaches(): void {
   pendingPolicy.clear()
   memberEligible = null
   memberDiscountRate = null
+  specialIndex = null
   memberInflight = null
   clearanceInflight = null
   cardTagInflight = null
   policyInflight = null
+  specialInflight = null
 }
 
-/** 清理模块级缓存（登录态切换后资格/价格可能整体变化；测试也用它隔离） */
+/** 清理模块级缓存（登录态/采购上下文切换后资格与价格可能整体变化；测试也用它隔离） */
 export function resetZonePriceCache(): void {
   clearCaches()
-  cacheAuthKey = currentAuthKey()
+  cacheScopeKey = scopeKeyOf(policyContextResolver())
   revision.value++
 }
 
@@ -416,8 +534,10 @@ export interface ZonePriceLoadOptions {
   clearance?: boolean
   /** 是否补卡面营销标签（默认 true）：新人价/秒杀价（card-tags 端点） */
   cardTag?: boolean
-  /** 是否补协议价（默认 true；需登录且有主体/船舶上下文，否则跳过） */
+  /** 是否补协议价（默认 true；免登可访问，游客/无上下文也请求，服务端自动清空主体） */
   policy?: boolean
+  /** 是否补档期特供价（默认 true；免登可访问，按采购场景/船舶圈定） */
+  special?: boolean
 }
 
 export interface ZonePriceLookup {
@@ -519,6 +639,7 @@ export function useZonePrices(): ZonePriceLookup {
       originalPrice: item?.originalPrice,
       showOriginal,
       policyPrice: policyCardPriceOf(id),
+      specialPrice: specialCardPriceOf(id),
       memberDisplay: memberDisplayOf(id, sales),
       clearanceDisplay: clearanceDisplayOf(id, sales),
       seckillPrice: tags?.seckillPrice,
@@ -545,7 +666,8 @@ export function useZonePrices(): ZonePriceLookup {
     const result: Record<string, number> = {}
     if (!id)
       return result
-    // 协议价（合同价）锁定成交基价：按 SKU 覆盖，会员/出清一律让位（与引擎锁定语义一致）
+    // 协议价（合同价）锁定成交基价：按 SKU 覆盖，特供/会员/出清一律让位（与引擎锁定语义一致）。
+    // 本 map 与数量无关（快捷加购确认弹层按单件口径取价），故起订量 > 1 的政策不锁定。
     const policyLockedSkus = new Set<string>()
     const policy = policyCache.get(id)
     if (policy) {
@@ -554,8 +676,30 @@ export function useZonePrices(): ZonePriceLookup {
         const price = Number(item?.policyPrice)
         if (!skuId || !Number.isFinite(price) || price <= 0)
           continue
+        if (policyMinQtyOf(item) > 1)
+          continue
         result[skuId] = Math.round(price * 100) / 100
         policyLockedSkus.add(skuId)
+      }
+    }
+    // 档期特供：身份价家族里归属最高（同价压过会员/出清），先写入再由后两者「严格更低才覆盖」
+    const special = specialIndex?.bySpu.get(id)
+    if (special) {
+      for (const item of special) {
+        const skuId = String(item?.skuId || '').trim()
+        const price = Number(item?.price)
+        const original = Number(item?.originalPrice)
+        if (!skuId || !Number.isFinite(price) || price <= 0)
+          continue
+        if (policyLockedSkus.has(skuId))
+          continue
+        // 倒挂防御：服务端回填的当前售价存在时，特供价必须严格更低
+        if (Number.isFinite(original) && original > 0 && price >= original)
+          continue
+        const current = result[skuId]
+        const rounded = Math.round(price * 100) / 100
+        if (current === undefined || rounded < current)
+          result[skuId] = rounded
       }
     }
     const member = memberCache.get(id)
@@ -576,7 +720,11 @@ export function useZonePrices(): ZonePriceLookup {
           price = Math.min(memberPrice, Math.round(original * rate * 100) / 100)
         if (Number.isFinite(original) && original > 0 && price >= original)
           continue
-        result[skuId] = Math.round(price * 100) / 100
+        const rounded = Math.round(price * 100) / 100
+        const current = result[skuId]
+        // 同价归属特供：会员价只有严格更低才覆盖（家族取低口径见 utils/zone-price）
+        if (current === undefined || rounded < current)
+          result[skuId] = rounded
       }
     }
     const clearance = clearanceCache.get(id)
@@ -620,12 +768,14 @@ export function useZonePrices(): ZonePriceLookup {
     const ids = uniqueSpuIds(spuIds)
     if (!ids.length)
       return
-    // 登录/退出/切号后先整体失效，再按新身份补价（失败静默由各请求分支兜住）
-    syncAuthScope()
+    // 登录/退出/切号/切船/切采购场景后先整体失效，再按新上下文补价（失败静默由各请求分支兜住）
+    const context = policyContextResolver() || {}
+    syncCacheScope(context)
     const wantMember = options.member !== false
     const wantClearance = options.clearance !== false
     const wantCardTag = options.cardTag !== false
     const wantPolicy = options.policy !== false
+    const wantSpecial = options.special !== false
     const tasks: Promise<void>[] = []
 
     if (wantMember) {
@@ -672,22 +822,32 @@ export function useZonePrices(): ZonePriceLookup {
       }
     }
     if (wantPolicy) {
-      // 协议价是主体/船舶 scoped 合同价：无上下文（游客/个人无船）直接跳过，不打接口
-      const context = policyContextResolver()
-      const hasContext = !!(context && (context.buyerOrgId || context.vesselId))
-      if (hasContext && context) {
-        const missing = pickMissing(ids, policyCache, pendingPolicy)
-        if (missing.length) {
-          missing.forEach(id => pendingPolicy.add(id))
-          const run = async () => {
-            if (policyInflight)
-              await policyInflight.catch(() => {})
-            policyInflight = fetchPolicyPrices(missing, context)
-            await policyInflight
-            policyInflight = null
-          }
-          tasks.push(run())
+      // 协议价免登可访问：游客/无上下文也请求（服务端自动清空主体，不会下发合同价），
+      // 有船/企业上下文就带上，与结算计价上下文同源
+      const missing = pickMissing(ids, policyCache, pendingPolicy)
+      if (missing.length) {
+        missing.forEach(id => pendingPolicy.add(id))
+        const run = async () => {
+          if (policyInflight)
+            await policyInflight.catch(() => {})
+          policyInflight = fetchPolicyPrices(missing, context)
+          await policyInflight
+          policyInflight = null
         }
+        tasks.push(run())
+      }
+    }
+    if (wantSpecial) {
+      // 特供接口不分 SPU：整量按上下文拉一次，60s 内复用（切船/切场景由指纹失效兜住）
+      if (!specialIndex || !isFresh(specialIndex.fetchedAt)) {
+        const run = async () => {
+          if (specialInflight)
+            await specialInflight.catch(() => {})
+          specialInflight = fetchSpecials(context)
+          await specialInflight
+          specialInflight = null
+        }
+        tasks.push(run())
       }
     }
     if (!tasks.length)

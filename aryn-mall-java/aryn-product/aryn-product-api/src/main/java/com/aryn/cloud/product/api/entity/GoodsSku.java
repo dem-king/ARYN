@@ -127,6 +127,21 @@ public class GoodsSku extends Model<GoodsSku> {
 	@Schema(description = "SKU出清截止时间覆盖；空=继承SPU")
 	private LocalDateTime clearanceExpireTime;
 
+	@Schema(description = "销售单位；旧商品默认件，重量未知")
+	private String salesUnit;
+	@Schema(description = "基准量纲：MASS/VOLUME/LENGTH/COUNT，未知为空")
+	private String baseDimension;
+	@Schema(description = "固定基准单位：g/ml/mm/pcs")
+	private String baseUnit;
+	private BigDecimal baseQtyPerSalesUnit;
+	@Schema(description = "度量精度：EXACT/APPROX/UNKNOWN")
+	private String quantityPrecision;
+	private Integer minOrderQty;
+	private Integer stepQty;
+	private String unitSpecText;
+	@Schema(description = "度量事实版本，服务端维护")
+	private Long measurementRevision;
+
 	@Data
 	@NoArgsConstructor
 	@AllArgsConstructor

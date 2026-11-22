@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPage } from '@/sub-pages/api/order/orderRefunds'
 import { useDict } from '@/sub-pages/utils/dict'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'

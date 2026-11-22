@@ -61,7 +61,7 @@ describe('mobile review contracts', () => {
     expect(workbenchSource).not.toContain("ship-supply/index?scene=2")
     expect(workbenchSource).not.toContain("'/pages/product/category/index'")
     expect(workbenchSource).toContain("'/sub-pages/product/frequent/index'")
-    expect(orderSource).toContain("'/pages/user/shopping-cart/index'")
+    expect(orderSource).toContain('/sub-pages/order/procurement/index?')
     expect(workbenchSource).not.toContain("'/pages/product/index'")
     expect(orderSource).not.toContain("'/pages/cart/index'")
     expect(pagesSource).toContain('"path": "product/ship-supply/index"')

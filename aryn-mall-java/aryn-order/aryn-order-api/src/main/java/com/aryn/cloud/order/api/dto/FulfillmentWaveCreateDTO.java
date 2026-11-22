@@ -22,6 +22,7 @@ public class FulfillmentWaveCreateDTO implements Serializable {
 	private static final long serialVersionUID = 1L;
 
 	@Schema(description = "仓库ID")
+	@NotBlank(message = "仓库不能为空")
 	private String warehouseId;
 
 	@Schema(description = "目的港口编码")

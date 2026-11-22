@@ -18,6 +18,7 @@
     <artifactId>aryn-common</artifactId>
     <modules>
         <module>aryn-common-core</module>
+        <module>aryn-common-ai</module>
         <module>aryn-common-storage</module>
         <module>aryn-common-mybatis</module>
         <module>aryn-common-log</module>

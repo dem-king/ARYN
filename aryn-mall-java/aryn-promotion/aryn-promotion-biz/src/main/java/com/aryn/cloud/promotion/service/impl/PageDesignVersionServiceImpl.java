@@ -59,6 +59,7 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 	public PageDesignVersion publish(PageDesignPublishDTO request) {
 		return withPageLock(request.getId(), () -> {
 			PageDesign page = requirePage(request.getId());
+			requireStandalone(page);
 			if (!Objects.equals(page.getDraftRevision(), request.getDraftRevision())) {
 				throw new ArynBusinessException("草稿已被其他人修改，请重新加载");
 			}
@@ -80,6 +81,7 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 	@Transactional(rollbackFor = Exception.class)
 	public PageDesignVersion publishSnapshot(PageDesign page, String pageName, String pageType, String pageContent,
 			Integer schemaVersion, String publishRemark, Long expectedDraftRevision) {
+		requireStandalone(requirePage(page.getId()));
 		return withPageLock(page.getId(), () -> createPublishedVersion(page, pageName, pageType, pageContent,
 				schemaVersion, publishRemark, expectedDraftRevision));
 	}
@@ -89,6 +91,7 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 	public PageDesignVersion createVersionSnapshot(PageDesign page, String pageName, String pageType,
 			String pageContent, Integer schemaVersion, String publishRemark) {
 		return withPageLock(page.getId(), () -> {
+			requireStandalone(requirePage(page.getId()));
 			// 灰度版本：固化主题快照并落不可变版本，但不切换稳定指针
 			String contentWithTheme = themeService.embedThemeSnapshot(pageContent);
 			PageDesignVersion latest = versionMapper.selectOne(Wrappers.<PageDesignVersion>lambdaQuery()
@@ -117,6 +120,7 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 	public PageDesignVersion rollback(String pageId, String versionId, String publishRemark) {
 		return withPageLock(pageId, () -> {
 			PageDesign page = requirePage(pageId);
+			requireStandalone(page);
 			PageDesignVersion historical = versionMapper.selectById(versionId);
 			if (historical == null || !pageId.equals(historical.getPageDesignId())) {
 				throw new ArynBusinessException("历史版本不存在或无权访问");
@@ -160,6 +164,28 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 			.stream()
 			.map(PageDesignVersionVO::from)
 			.toList();
+	}
+
+	/** 仅供同域活动包编排使用；HTTP通用页面发布和灰度入口均拒绝活动包页面。 */
+	@Transactional(rollbackFor = Exception.class)
+	public PageDesignVersion publishCampaignSnapshot(String campaignId, String pageId, String content, Long expectedRevision) {
+		return withPageLock(pageId, () -> {
+			var page = requirePage(pageId);
+			if (!Objects.equals(campaignId, page.getCampaignDraftId()) || !Objects.equals(expectedRevision, page.getDraftRevision())) {
+				throw new ArynBusinessException("活动包页面归属或修订已变化");
+			}
+			var errors = validator.validate(content, page.getPageType());
+			if (!errors.isEmpty()) { throw new ArynBusinessException("活动包页面发布校验失败：" + errors); }
+			var version = createPublishedVersion(page, page.getPageName(), page.getPageType(), content, page.getSchemaVersion(), "活动包人工发布", expectedRevision);
+			auditService.record(new PageDesignAuditService.PageDesignAuditEvent(PageDesignAuditLog.ACTION_PUBLISH,
+				pageId, null, page.getPublishedVersionId(), version.getId(), expectedRevision, expectedRevision, "活动包：" + campaignId));
+			return version;
+		});
+	}
+	private void requireStandalone(PageDesign page) {
+		if (page != null && org.springframework.util.StringUtils.hasText(page.getCampaignDraftId())) {
+			throw new ArynBusinessException("活动包页面须通过活动包人工发布流程启用或恢复");
+		}
 	}
 
 	private PageDesignVersion createPublishedVersion(PageDesign page, String pageName, String pageType,

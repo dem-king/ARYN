@@ -1,5 +1,7 @@
 package com.aryn.cloud.promotion.controller.admin;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
@@ -44,6 +46,7 @@ public class DiscountActivityController {
 	@SaCheckPermission("promotion:discount:add")
 	@PostMapping
 	public Result add(@Valid @RequestBody DiscountActivityDTO dto) {
+		B2bActivityAdmission.rejectRetired("限时折扣");
 		return Result.success(discountActivityService.saveWithGoods(dto));
 	}
 
@@ -52,6 +55,7 @@ public class DiscountActivityController {
 	@SaCheckPermission("promotion:discount:edit")
 	@PutMapping
 	public Result edit(@Valid @RequestBody DiscountActivityDTO dto) {
+		B2bActivityAdmission.rejectRetired("限时折扣");
 		return Result.success(discountActivityService.updateWithGoods(dto));
 	}
 
@@ -75,6 +79,7 @@ public class DiscountActivityController {
 	@SaCheckPermission("promotion:discount:status")
 	@PutMapping("/{id}/status")
 	public Result updateStatus(@PathVariable("id") String id, @RequestParam("status") Integer status) {
+		B2bActivityAdmission.rejectRetired("限时折扣");
 		if (status == null || !VALID_STATUS.contains(status)) {
 			return Result.fail("非法的活动状态值");
 		}

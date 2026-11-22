@@ -1,8 +1,9 @@
 <script lang="ts" setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 import { Plus, Search } from '@element-plus/icons-vue';
 import {
+  ElAlert,
   ElButton,
   ElDatePicker,
   ElDialog,
@@ -19,17 +20,29 @@ import {
   ElTag,
 } from 'element-plus';
 
+import { getBuyerOrgPage } from '#/api/order/buyer-org';
+import { getDisplayByIds } from '#/api/product/goods-sku';
 import { getPage as getGoodsPage } from '#/api/product/goods-spu';
 import {
   addPricePolicy,
   changePricePolicyStatus,
   deletePricePolicy,
   getPricePolicies,
+  getPricePolicyDetail,
   getPricePolicyDryRun,
   updatePricePolicy,
 } from '#/api/promotion/price-policy';
+import { getList as getMemberTagList } from '#/api/user/member-tag';
+import { getVesselPage } from '#/api/vessel/vessel';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
+
+import {
+  fmtPromoTime as fmtTime,
+  PROMO_STATUS,
+  PROMO_STATUS_TEXT as STATUS_TEXT,
+  PROMO_STATUS_TYPE as STATUS_TYPE,
+} from '../shared/promo-status';
 
 /**
  * 价格政策（协议价）：按采购主体/船舶/客群标签圈定专属合同价。
@@ -44,6 +57,8 @@ interface PolicyItem {
   minQty?: number;
   policyPrice?: null | number;
   policyRate?: null | number;
+  /** 售价（仅展示，供协议价倒挂参考；保存时剥离，不落库） */
+  salesPrice?: null | number | string;
   skuId: string;
   skuName?: string;
   spuId: string;
@@ -53,16 +68,6 @@ const APPLY_TYPE_TEXT: Record<string, string> = {
   1: '采购主体',
   2: '船舶',
   3: '客群标签',
-};
-const STATUS_TYPE: Record<string, 'danger' | 'info' | 'success'> = {
-  0: 'info',
-  1: 'success',
-  2: 'danger',
-};
-const STATUS_TEXT: Record<string, string> = {
-  0: '草稿',
-  1: '生效中',
-  2: '已停用',
 };
 
 const state = reactive({
@@ -88,6 +93,92 @@ const form = reactive({
 const items = ref<PolicyItem[]>([]);
 
 const range = ref<[] | [string, string]>([]);
+
+/**
+ * 适用对象下拉：applyType=1 采购主体(buyer-org) / 2 船舶(vessel) / 3 客群标签(member-tag)。
+ * 三个列表接口均已存在，按 ID 多选回填，替代此前手填 ID。
+ * form.applyValue 仍存英文逗号分隔字符串（与后端一致），下拉用数组视图读写；
+ * 候选只取前 200 条，未覆盖的 ID 仍可经 allow-create 手动补入，不形成硬回归。
+ */
+const applyOptions = ref<Array<{ label: string; value: string }>>([]);
+const applyLoading = ref(false);
+const applyValueList = computed<string[]>({
+  get: () =>
+    form.applyValue ? form.applyValue.split(',').filter(Boolean) : [],
+  set: (values) => {
+    form.applyValue = values.join(',');
+  },
+});
+
+const loadApplyOptions = async () => {
+  applyLoading.value = true;
+  try {
+    switch (form.applyType) {
+      case '1': {
+        const res: any = await getBuyerOrgPage({ current: 1, size: 200 });
+        applyOptions.value = (res.records ?? []).map((org: any) => ({
+          label: org.orgName,
+          value: org.id,
+        }));
+
+        break;
+      }
+      case '2': {
+        const res: any = await getVesselPage({ current: 1, size: 200 });
+        applyOptions.value = (res.records ?? []).map((vessel: any) => ({
+          label: vessel.vesselName,
+          value: vessel.id,
+        }));
+
+        break;
+      }
+      case '3': {
+        const res: any = await getMemberTagList();
+        const list = Array.isArray(res) ? res : (res?.records ?? []);
+        applyOptions.value = list.map((tag: any) => ({
+          label: tag.tagName,
+          value: tag.id,
+        }));
+
+        break;
+      }
+      default: {
+        applyOptions.value = [];
+      }
+    }
+  } catch {
+    // 列表加载失败降级为空选项，仍可手动输入 ID（allow-create）
+    applyOptions.value = [];
+  } finally {
+    applyLoading.value = false;
+  }
+};
+
+/** 切换适用对象类型：清空已选（跨类型 ID 不通用）并重新拉取候选 */
+const onApplyTypeChange = () => {
+  form.applyValue = '';
+  loadApplyOptions();
+};
+
+/** 按 skuId 批量补齐商品名/规格/售价（明细只落 skuId，编辑回显与批量导入都用它） */
+const enrichItemsDisplay = async (rows: PolicyItem[]) => {
+  const ids = [...new Set(rows.map((row) => row.skuId).filter(Boolean))];
+  if (ids.length === 0) return;
+  try {
+    const displays = (await getDisplayByIds(ids)) ?? [];
+    const map = new Map(displays.map((d) => [d.skuId, d]));
+    for (const row of rows) {
+      const display = map.get(row.skuId);
+      if (!display) continue;
+      row.skuName =
+        `${display.spuName ?? ''} ${display.skuName ?? ''}`.trim() || row.skuId;
+      row.spuId = display.spuId ?? row.spuId;
+      row.salesPrice = display.salesPrice ?? null;
+    }
+  } catch {
+    // 商品服务不可用：保留 skuId 兜底显示，不阻断配置
+  }
+};
 
 const load = async () => {
   loading.value = true;
@@ -119,12 +210,14 @@ const resetForm = () => {
 
 const openCreate = () => {
   resetForm();
+  loadApplyOptions();
   drawer.value = true;
 };
 
 const openEdit = async (row: any) => {
   resetForm();
   editingId.value = row.id;
+  // 先用列表行回填表单，弹窗即时可见；明细以详情接口为准（列表行不含 SKU 明细）
   Object.assign(form, {
     applyType: row.applyType,
     applyValue: row.applyValue,
@@ -137,7 +230,40 @@ const openEdit = async (row: any) => {
   });
   range.value =
     row.startTime && row.endTime ? [row.startTime, row.endTime] : [];
+  loadApplyOptions();
   drawer.value = true;
+  try {
+    const detail: any = await getPricePolicyDetail(row.id);
+    const policy = detail?.policy ?? row;
+    Object.assign(form, {
+      applyType: policy.applyType,
+      applyValue: policy.applyValue,
+      endTime: policy.endTime,
+      policyName: policy.policyName,
+      priceMode: policy.priceMode,
+      priority: policy.priority ?? 0,
+      remark: policy.remark ?? '',
+      startTime: policy.startTime,
+    });
+    range.value =
+      policy.startTime && policy.endTime
+        ? [policy.startTime, policy.endTime]
+        : [];
+    const detailItems: any[] = detail?.items ?? [];
+    items.value = detailItems.map((item) => ({
+      minQty: item.minQty ?? 1,
+      policyPrice: item.policyPrice ?? null,
+      policyRate: item.policyRate ?? null,
+      salesPrice: null,
+      skuId: item.skuId,
+      skuName: item.skuId,
+      spuId: item.spuId ?? '',
+    }));
+    // 明细只落 skuId，按 ID 批量补商品名/售价后再展示
+    await enrichItemsDisplay(items.value);
+  } catch {
+    ElMessage.error('SKU 明细加载失败，请重试');
+  }
 };
 
 // 商品选择：SPU 列表勾选后按行内 goodsSkus 展开 SKU 明细
@@ -180,6 +306,7 @@ const confirmPicker = () => {
         minQty: 1,
         policyPrice: null,
         policyRate: null,
+        salesPrice: sku.salesPrice ?? null,
         skuId: sku.id,
         skuName: `${spu.name} ${sku.specsInfo || ''}`.trim(),
         spuId: spu.id,
@@ -189,13 +316,75 @@ const confirmPicker = () => {
   picker.value = false;
 };
 
+/**
+ * SKU 明细批量导入：粘贴 SKU ID（换行/逗号/空格分隔），按 ID 批量取商品名与售价
+ * 回填明细行；查不到的 ID 明确列出。复用商品域 byIds 接口，不改后端。
+ */
+const importVisible = ref(false);
+const importText = ref('');
+const importLoading = ref(false);
+const importMissing = ref<string[]>([]);
+
+const openImport = () => {
+  importText.value = '';
+  importMissing.value = [];
+  importVisible.value = true;
+};
+
+const confirmImport = async () => {
+  const ids = [
+    ...new Set(
+      importText.value
+        .split(/[\s,，]+/)
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (ids.length === 0) {
+    ElMessage.warning('请粘贴至少一个 SKU ID');
+    return;
+  }
+  importLoading.value = true;
+  try {
+    const displays = (await getDisplayByIds(ids)) ?? [];
+    const found = new Map(displays.map((d) => [d.skuId, d]));
+    const exist = new Set(items.value.map((item) => item.skuId));
+    let added = 0;
+    for (const id of ids) {
+      const display = found.get(id);
+      if (!display || exist.has(id)) continue;
+      exist.add(id);
+      items.value.push({
+        minQty: 1,
+        policyPrice: null,
+        policyRate: null,
+        salesPrice: display.salesPrice ?? null,
+        skuId: id,
+        skuName:
+          `${display.spuName ?? ''} ${display.skuName ?? ''}`.trim() || id,
+        spuId: display.spuId ?? '',
+      });
+      added += 1;
+    }
+    importMissing.value = ids.filter((id) => !found.has(id));
+    if (added > 0) ElMessage.success(`已导入 ${added} 个 SKU 明细`);
+    if (importMissing.value.length > 0) {
+      ElMessage.warning(`未找到 ${importMissing.value.length} 个 SKU ID`);
+    } else {
+      importVisible.value = false;
+    }
+  } finally {
+    importLoading.value = false;
+  }
+};
+
 const save = async () => {
   if (!form.policyName) {
     ElMessage.warning('请填写政策名称');
     return;
   }
   if (!form.applyValue) {
-    ElMessage.warning('请填写适用对象ID（多个用英文逗号分隔）');
+    ElMessage.warning('请选择适用对象');
     return;
   }
   if (!range.value || range.value.length !== 2) {
@@ -219,7 +408,14 @@ const save = async () => {
   saving.value = true;
   try {
     const payload = {
-      items: items.value,
+      // 只提交后端 PricePolicyItem 字段；skuName/salesPrice 仅前端展示，剥离不落库
+      items: items.value.map((item) => ({
+        minQty: item.minQty,
+        policyPrice: item.policyPrice,
+        policyRate: item.policyRate,
+        skuId: item.skuId,
+        spuId: item.spuId,
+      })),
       policy: {
         ...form,
         endTime: range.value[1],
@@ -241,7 +437,7 @@ const save = async () => {
 };
 
 const publish = async (row: any) => {
-  await changePricePolicyStatus(row.id, '1');
+  await changePricePolicyStatus(row.id, PROMO_STATUS.ACTIVE);
   ElMessage.success('已发布生效');
   load();
 };
@@ -276,7 +472,7 @@ const openDryRun = async (row: any) => {
 };
 
 const pause = async (row: any) => {
-  await changePricePolicyStatus(row.id, '2');
+  await changePricePolicyStatus(row.id, PROMO_STATUS.DISABLED);
   ElMessage.success('已停用');
   load();
 };
@@ -296,9 +492,6 @@ const handleDelete = (row: any) => {
     load();
   });
 };
-
-const fmtTime = (value?: string) =>
-  value ? value.replace('T', ' ').slice(0, 16) : '-';
 
 load();
 useKeepAliveRefresh(load);
@@ -333,9 +526,9 @@ useKeepAliveRefresh(load);
               clearable
               style="width: 120px"
             >
-              <ElOption label="草稿" value="0" />
-              <ElOption label="生效中" value="1" />
-              <ElOption label="已停用" value="2" />
+              <ElOption label="草稿" :value="PROMO_STATUS.DRAFT" />
+              <ElOption label="生效中" :value="PROMO_STATUS.ACTIVE" />
+              <ElOption label="已停用" :value="PROMO_STATUS.DISABLED" />
             </ElSelect>
             <ElButton :icon="Search" @click="load"> 查询 </ElButton>
           </div>
@@ -391,7 +584,7 @@ useKeepAliveRefresh(load);
               预检
             </ElButton>
             <ElButton
-              v-if="scope.row.status !== '1'"
+              v-if="scope.row.status !== PROMO_STATUS.ACTIVE"
               link
               type="primary"
               v-access:code="'promotion:pricepolicy:publish'"
@@ -400,7 +593,7 @@ useKeepAliveRefresh(load);
               发布
             </ElButton>
             <ElButton
-              v-if="scope.row.status === '1'"
+              v-if="scope.row.status === PROMO_STATUS.ACTIVE"
               link
               type="warning"
               v-access:code="'promotion:pricepolicy:publish'"
@@ -409,7 +602,7 @@ useKeepAliveRefresh(load);
               停用
             </ElButton>
             <ElButton
-              v-if="scope.row.status !== '1'"
+              v-if="scope.row.status !== PROMO_STATUS.ACTIVE"
               link
               type="primary"
               v-access:code="'promotion:pricepolicy:save'"
@@ -450,21 +643,35 @@ useKeepAliveRefresh(load);
               >
             </ElFormItem>
             <ElFormItem label="适用对象">
-              <ElSelect v-model="form.applyType" style="width: 130px">
+              <ElSelect
+                v-model="form.applyType"
+                style="width: 130px"
+                @change="onApplyTypeChange"
+              >
                 <ElOption label="采购主体" value="1" />
                 <ElOption label="船舶" value="2" />
                 <ElOption label="客群标签" value="3" />
               </ElSelect>
             </ElFormItem>
             <ElFormItem label-width="0">
-              <ElInput
-                v-model="form.applyValue"
-                :placeholder="
-                  form.applyType === '2'
-                    ? '船舶ID，多个英文逗号分隔'
-                    : '对象ID，多个英文逗号分隔'
-                "
-              />
+              <ElSelect
+                v-model="applyValueList"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                :loading="applyLoading"
+                placeholder="选择适用对象（可多选，未列出的可直接输入ID）"
+                style="width: 100%"
+              >
+                <ElOption
+                  v-for="option in applyOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </ElSelect>
             </ElFormItem>
             <ElFormItem label="价格模式">
               <ElSelect v-model="form.priceMode">
@@ -476,7 +683,7 @@ useKeepAliveRefresh(load);
               <ElDatePicker
                 v-model="range"
                 type="datetimerange"
-                value-format="YYYY-MM-DDTHH:mm:ss"
+                value-format="YYYY-MM-DD HH:mm:ss"
               />
             </ElFormItem>
           </div>
@@ -486,9 +693,12 @@ useKeepAliveRefresh(load);
 
           <ElFormItem label="SKU 明细">
             <div class="w-full">
-              <ElButton size="small" type="primary" @click="openPicker">
-                从商品库添加
-              </ElButton>
+              <div class="flex items-center gap-2">
+                <ElButton size="small" type="primary" @click="openPicker">
+                  从商品库添加
+                </ElButton>
+                <ElButton size="small" @click="openImport"> 批量导入 </ElButton>
+              </div>
               <ElTable
                 :data="items"
                 size="small"
@@ -502,6 +712,11 @@ useKeepAliveRefresh(load);
                   min-width="180"
                 />
                 <ElTableColumn prop="skuId" label="SKU ID" width="200" />
+                <ElTableColumn label="售价" width="110">
+                  <template #default="scope">
+                    {{ scope.row.salesPrice ?? '-' }}
+                  </template>
+                </ElTableColumn>
                 <ElTableColumn label="协议价/折扣率" width="220">
                   <template #default="scope">
                     <ElInputNumber
@@ -586,6 +801,38 @@ useKeepAliveRefresh(load);
           <ElButton @click="picker = false"> 取消 </ElButton>
           <ElButton type="primary" @click="confirmPicker">
             添加所选 SKU
+          </ElButton>
+        </template>
+      </ElDialog>
+
+      <ElDialog v-model="importVisible" title="批量导入 SKU" width="560px">
+        <ElAlert type="info" :closable="false" show-icon class="mb-2">
+          粘贴 SKU ID，支持换行、逗号或空格分隔；导入后自动带出商品名称与售价，
+          未匹配到的 ID 会在下方列出。
+        </ElAlert>
+        <ElInput
+          v-model="importText"
+          type="textarea"
+          :rows="6"
+          placeholder="例如：&#10;1001&#10;1002,1003 1004"
+        />
+        <ElAlert
+          v-if="importMissing.length > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mt-2"
+        >
+          以下 SKU ID 未找到：{{ importMissing.join('、') }}
+        </ElAlert>
+        <template #footer>
+          <ElButton @click="importVisible = false"> 取消 </ElButton>
+          <ElButton
+            type="primary"
+            :loading="importLoading"
+            @click="confirmImport"
+          >
+            导入
           </ElButton>
         </template>
       </ElDialog>

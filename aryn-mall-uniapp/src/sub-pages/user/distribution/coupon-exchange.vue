@@ -2,7 +2,7 @@
 import type { DistributionCouponPack } from '@/api/distribution/entity'
 import { ref } from 'vue'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import {
   DISTRIBUTION_COUPON_EXCHANGE_RECORD_PATH,
   exchangeDistributionCouponPack,

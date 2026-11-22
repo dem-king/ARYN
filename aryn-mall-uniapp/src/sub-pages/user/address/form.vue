@@ -2,7 +2,7 @@
 import type { FormInstance } from 'wot-design-uni/components/wd-form/types'
 import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getById, saveOrUpdateAddress } from '@/api/user/address'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 // @ts-expect-error: 省市区数据为纯 js 数据文件，无类型声明

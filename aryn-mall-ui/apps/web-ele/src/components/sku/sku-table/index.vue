@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { SkuMeasurementForm } from '#/api/product/goods-spu';
+
 import { reactive, ref, watch } from 'vue';
 
 import {
@@ -14,6 +16,7 @@ import {
 
 import SelectMaterial from '#/components/select-material/index.vue';
 import { arrEquals, descartes } from '#/utils/util';
+import SkuMeasurementEditor from '#/views/product/goods-spu/sku-measurement-editor.vue';
 
 export interface SpecItem {
   specsId: string;
@@ -22,7 +25,7 @@ export interface SpecItem {
   specsValueName: string;
 }
 
-interface SkuItem {
+interface SkuItem extends SkuMeasurementForm {
   costPrice: number;
   distributionFirstValue: number;
   distributionSecondValue: number;
@@ -162,6 +165,15 @@ watch(
         sku.volume = match.volume || 0;
         sku.status = match.status || '0';
         sku.version = match.version;
+        sku.salesUnit = match.salesUnit;
+        sku.baseDimension = match.baseDimension;
+        sku.baseUnit = match.baseUnit;
+        sku.baseQtyPerSalesUnit = match.baseQtyPerSalesUnit;
+        sku.quantityPrecision = match.quantityPrecision;
+        sku.minOrderQty = match.minOrderQty;
+        sku.stepQty = match.stepQty;
+        sku.unitSpecText = match.unitSpecText;
+        sku.measurementRevision = match.measurementRevision;
         sku.distributionFirstValue = match.distributionFirstValue || 0;
         sku.distributionSecondValue = match.distributionSecondValue || 0;
         sku.picUrl = match.picUrl || '';
@@ -221,6 +233,26 @@ const popoverClose = () => {
 <template>
   <div v-if="state.skusList.length > 0">
     <ElTable :data="state.skusList" border style="width: 100%">
+      <ElTableColumn
+        label="采购度量 / 编码审核"
+        min-width="360"
+        key="measurement"
+      >
+        <template #default="{ row }">
+          <details>
+            <summary>
+              {{ row.salesUnit ?? '件' }} ·
+              {{ row.quantityPrecision ?? '待治理' }} · 起订{{
+                row.minOrderQty ?? 1
+              }}
+            </summary>
+            <SkuMeasurementEditor
+              :model-value="row"
+              @update:model-value="(value) => Object.assign(row, value)"
+            />
+          </details>
+        </template>
+      </ElTableColumn>
       <!-- Dynamic Specs Columns -->
       <ElTableColumn
         show-overflow-tooltip

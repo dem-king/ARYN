@@ -43,6 +43,10 @@ class PromotionEngineTest {
 
 	private PromotionLockMapper lockMapper;
 
+	private com.aryn.cloud.promotion.mapper.PricePolicyMapper pricePolicyMapper;
+
+	private com.aryn.cloud.promotion.mapper.PricePolicyItemMapper pricePolicyItemMapper;
+
 	private com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService buyerProfileService;
 
 	private com.aryn.cloud.product.api.remote.RemoteGoodsSkuService goodsSkuService;
@@ -57,6 +61,68 @@ class PromotionEngineTest {
 
 	private RemoteMemberLevelService memberLevelService;
 
+	@Test
+	void capturedFactsReplayWithoutAnyFurtherIoAndIgnoreLaterSourceMutation() {
+		PromotionContextDTO context = context("2", "ship-1", null, null);
+		PromotionActivity selected = activity("captured", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null,
+				"{\"tiers\":[{\"minAmount\":100,\"discountAmount\":20}]}");
+		when(activityMapper.selectList(any())).thenReturn(List.of(selected));
+		var snapshot = engine.captureFacts(context);
+		var first = new com.aryn.cloud.promotion.service.impl.PromotionScenarioEvaluator(snapshot).evaluate();
+		org.mockito.Mockito.clearInvocations(activityMapper, pricePolicyMapper, pricePolicyItemMapper,
+				buyerProfileService, memberLevelService, goodsSkuService, lockMapper);
+		selected.setRules("{}");
+		context.getSkuItems().get(0).setQuantity(999);
+		var replay = new com.aryn.cloud.promotion.service.impl.PromotionScenarioEvaluator(snapshot).evaluate();
+		assertEquals(cn.hutool.json.JSONUtil.toJsonStr(first), cn.hutool.json.JSONUtil.toJsonStr(replay));
+		org.mockito.Mockito.verifyNoInteractions(activityMapper, pricePolicyMapper, pricePolicyItemMapper,
+				buyerProfileService, memberLevelService, goodsSkuService, lockMapper);
+	}
+
+	@Test
+	void irrelevantActivitiesDoNotLoadPrivateOrUsageFacts() {
+		PromotionActivity member = activity("irrelevant-member", PromotionActivity.TYPE_MEMBER_PRICE, "5", "other-ship", null,
+				"{\"skus\":[{\"skuId\":\"sku-1\",\"memberPrice\":1}],\"minLevelId\":\"gold\",\"monthlyBudget\":10}");
+		member.setPerUserLimit(1);
+		PromotionActivity gift = activity("irrelevant-gift", PromotionActivity.TYPE_GIFT, "5", "other-ship", null,
+				"{\"gifts\":[{\"skuId\":\"gift-1\",\"quantity\":1}]}");
+		gift.setGiftStock(1);
+		when(activityMapper.selectList(any())).thenReturn(List.of(member, gift));
+		assertEquals(0, engine.preview(context("2", "ship-1", null, null)).getDetails().size());
+		org.mockito.Mockito.verifyNoInteractions(buyerProfileService, memberLevelService, goodsSkuService, lockMapper);
+	}
+
+	@Test
+	void malformedEnrichmentRulesDoNotAbortCheckout() {
+		PromotionActivity malformed = activity("bad-member", PromotionActivity.TYPE_MEMBER_PRICE, "1", null, null,
+				"{\"skus\":\"not-json\",\"minLevelId\":\"gold\"}");
+		PromotionActivity valid = activity("good-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null,
+				"{\"tiers\":[{\"minAmount\":100,\"discountAmount\":20}]}");
+		when(activityMapper.selectList(any())).thenReturn(List.of(malformed, valid));
+		PromotionCalculationVO result = assertDoesNotThrow(() -> engine.preview(context("2", "ship-1", null, null)));
+		assertEquals(0, result.getWholeDiscount().compareTo(new BigDecimal("20")));
+	}
+
+	@Test
+	void futureMonthlyBudgetUsesCapturedMonthAndReplaysWithoutReadingCurrentMonth() {
+		PromotionContextDTO context = context("2", "ship-1", null, null);
+		LocalDateTime asOf = LocalDateTime.of(2031, 2, 1, 0, 0);
+		context.setActivityTime(asOf);
+		PromotionActivity activity = activity("future-month", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null,
+				"{\"tiers\":[{\"minAmount\":100,\"discountAmount\":20}],\"monthlyBudget\":100}");
+		when(activityMapper.selectList(any())).thenReturn(List.of(activity));
+		PromotionLockUsage usage = mock(PromotionLockUsage.class);
+		when(usage.sumDiscountSince(TENANT, "future-month", asOf)).thenReturn(new BigDecimal("90"));
+		ReflectionTestUtils.setField(engine, "promotionLockUsage", usage);
+		var snapshot = engine.captureFacts(context);
+		assertEquals(asOf, snapshot.asOf());
+		verify(usage).sumDiscountSince(TENANT, "future-month", asOf);
+		org.mockito.Mockito.clearInvocations(usage);
+		var result = new com.aryn.cloud.promotion.service.impl.PromotionScenarioEvaluator(snapshot).evaluate();
+		assertEquals(0, result.getWholeDiscount().signum());
+		org.mockito.Mockito.verifyNoInteractions(usage);
+	}
+
 	@BeforeEach
 	void setUp() {
 		activityMapper = mock(PromotionActivityMapper.class);
@@ -64,9 +130,11 @@ class PromotionEngineTest {
 		buyerProfileService = mock(com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService.class);
 		memberLevelService = mock(RemoteMemberLevelService.class);
 		lockUsage = new PromotionLockUsage(lockMapper);
+		pricePolicyMapper = mock(com.aryn.cloud.promotion.mapper.PricePolicyMapper.class);
+		pricePolicyItemMapper = mock(com.aryn.cloud.promotion.mapper.PricePolicyItemMapper.class);
 		engine = new PromotionEngineServiceImpl(activityMapper,
-				mock(com.aryn.cloud.promotion.mapper.PricePolicyMapper.class),
-				mock(com.aryn.cloud.promotion.mapper.PricePolicyItemMapper.class),
+				pricePolicyMapper,
+				pricePolicyItemMapper,
 				mock(com.aryn.cloud.promotion.mapper.PromoCalendarMapper.class),
 				lockUsage);
 		ReflectionTestUtils.setField(engine, "remoteBuyerProfileService", buyerProfileService);
@@ -751,28 +819,10 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("新人专享价发布校验：范围/限购/单价/一一对应")
+	@DisplayName("已停运新人价不能再次通过发布校验，历史计价回归独立保留")
 	void validateNewbiePriceRules() {
-		PromotionActivity activity = activity("act-1", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1,sku-2", null,
-				newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9},{\"skuId\":\"sku-2\",\"price\":8}"));
-		governanceService.validateRules(activity);
-
-		// 非指定商品范围
-		activity.setScopeType("1");
-		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
-		activity.setScopeType("2");
-
-		// 限购必须为 1
-		activity.setRules("{\"registerWithinDays\":30,\"limitPerUser\":2,\"skus\":[{\"skuId\":\"sku-1\",\"price\":19.9}]}");
-		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
-
-		// skus 与 scopeValue 不一致
-		activity.setRules(newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}"));
-		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
-
-		// 价格非正数
-		activity.setScopeValue("sku-1");
-		activity.setRules(newbieRules("{\"skuId\":\"sku-1\",\"price\":0}"));
+		PromotionActivity activity = activity("act-1", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null,
+				newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}"));
 		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
 	}
 
@@ -1288,6 +1338,126 @@ class PromotionEngineTest {
 		assertEquals(PromotionActivity.TYPE_NEWBIE_PRICE, result.getLadderOverrides().get(0).getActivityType());
 		// 让利不重复计算：出清明细 + 新人明细增量 = 实际让利
 		assertEquals(2, result.getDetails().size());
+	}
+
+	// ==================== 2026-11-15 审查修复回归 ====================
+
+	private com.aryn.cloud.promotion.api.entity.PricePolicy vesselPolicy(String id, int priority) {
+		com.aryn.cloud.promotion.api.entity.PricePolicy policy = new com.aryn.cloud.promotion.api.entity.PricePolicy();
+		policy.setId(id);
+		policy.setTenantId(TENANT);
+		policy.setPolicyName("合同价-" + id);
+		policy.setApplyType(com.aryn.cloud.promotion.api.entity.PricePolicy.APPLY_VESSEL);
+		policy.setApplyValue("vessel-1");
+		policy.setPriceMode(com.aryn.cloud.promotion.api.entity.PricePolicy.MODE_FIXED_PRICE);
+		policy.setPriority(priority);
+		policy.setStatus(com.aryn.cloud.promotion.api.entity.PricePolicy.STATUS_ACTIVE);
+		policy.setStartTime(LocalDateTime.now().minusDays(1));
+		policy.setEndTime(LocalDateTime.now().plusDays(1));
+		return policy;
+	}
+
+	private com.aryn.cloud.promotion.api.entity.PricePolicyItem policyItem(String policyId, String skuId,
+			String price, int minQty) {
+		com.aryn.cloud.promotion.api.entity.PricePolicyItem item = new com.aryn.cloud.promotion.api.entity.PricePolicyItem();
+		item.setPolicyId(policyId);
+		item.setSkuId(skuId);
+		item.setPolicyPrice(new BigDecimal(price));
+		item.setMinQty(minQty);
+		item.setTenantId(TENANT);
+		return item;
+	}
+
+	@Test
+	@DisplayName("协议价订单 reserve 不扣活动预算（price_policy 无 promotion_activity 行，此前误拒单）")
+	void policyReserveSkipsActivityBudget() {
+		when(pricePolicyMapper.selectList(any())).thenReturn(List.of(vesselPolicy("policy-1", 0)));
+		when(pricePolicyItemMapper.selectList(any())).thenReturn(List.of(policyItem("policy-1", "sku-1", "20", 1)));
+		when(activityMapper.selectList(any())).thenReturn(List.of());
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		context.setOrderId("order-1");
+		context.setOrderNo("ON001");
+		PromotionCalculationVO result = assertDoesNotThrow(() -> reservation.reserve(context));
+
+		assertTrue(result.getDetails().stream()
+			.anyMatch(detail -> PromotionActivity.TYPE_POLICY_PRICE.equals(detail.getActivityType())));
+		verify(activityMapper, org.mockito.Mockito.never())
+			.consumeBudget(org.mockito.ArgumentMatchers.eq(TENANT), org.mockito.ArgumentMatchers.eq("policy-1"), any());
+	}
+
+	@Test
+	@DisplayName("协议价起订量未达：不锁定基价，公开价格层继续")
+	void policyMinQtyGatesPrice() {
+		when(pricePolicyMapper.selectList(any())).thenReturn(List.of(vesselPolicy("policy-1", 0)));
+		when(pricePolicyItemMapper.selectList(any())).thenReturn(List.of(policyItem("policy-1", "sku-1", "20", 100)));
+		when(activityMapper.selectList(any())).thenReturn(List.of());
+
+		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+
+		assertTrue(result.getLadderOverrides().isEmpty());
+	}
+
+	@Test
+	@DisplayName("阶梯价胜出时档期特供不占限量名额（明细不下发 quotaUnits，reserve 不扣减）")
+	void specialQuotaNotConsumedWhenLadderWins() {
+		String ladderRules = "{\"skuLadders\":[{\"skuId\":\"sku-1\",\"ladders\":[{\"minQty\":10,\"unitPrice\":24}]}]}";
+		String specialRules = "{\"skus\":[{\"skuId\":\"sku-1\",\"price\":25}]}";
+		PromotionActivity special = activity("act-special", PromotionActivity.TYPE_CALENDAR_SPECIAL, "2", "sku-1", "2",
+				specialRules);
+		special.setTotalQuota(100);
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-ladder", PromotionActivity.TYPE_LADDER_PRICE, "2", "sku-1", "2", ladderRules),
+				special));
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		context.setOrderId("order-1");
+		context.setOrderNo("ON001");
+		PromotionCalculationVO result = reservation.reserve(context);
+
+		assertTrue(result.getDetails().stream()
+			.noneMatch(detail -> "act-special".equals(detail.getActivityId())));
+		verify(activityMapper, org.mockito.Mockito.never())
+			.consumeQuota(org.mockito.ArgumentMatchers.eq(TENANT), org.mockito.ArgumentMatchers.eq("act-special"),
+					org.mockito.ArgumentMatchers.anyInt());
+	}
+
+	@Test
+	@DisplayName("档期特供胜出时按命中件数原子扣减限量")
+	void specialQuotaConsumedWhenSpecialWins() {
+		String specialRules = "{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20}]}";
+		PromotionActivity special = activity("act-special", PromotionActivity.TYPE_CALENDAR_SPECIAL, "2", "sku-1", "2",
+				specialRules);
+		special.setTotalQuota(100);
+		when(activityMapper.selectList(any())).thenReturn(List.of(special));
+		when(activityMapper.consumeQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(1);
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		context.setOrderId("order-1");
+		context.setOrderNo("ON001");
+		reservation.reserve(context);
+
+		verify(activityMapper).consumeQuota(TENANT, "act-special", 60);
+	}
+
+	@Test
+	@DisplayName("档期特供每人限购按件数：历史占用 8 件 + 本单 60 件 > 上限 10 件则剔除")
+	void specialPerUserLimitCountsUnits() {
+		String specialRules = "{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20}]}";
+		PromotionActivity special = activity("act-special", PromotionActivity.TYPE_CALENDAR_SPECIAL, "2", "sku-1", "2",
+				specialRules);
+		special.setPerUserLimit(10);
+		when(activityMapper.selectList(any())).thenReturn(List.of(special));
+		PromotionLock usedLock = new PromotionLock();
+		usedLock.setActivityId("act-special");
+		usedLock.setActivityType(PromotionActivity.TYPE_CALENDAR_SPECIAL);
+		usedLock.setStatus(PromotionLock.STATUS_LOCKED);
+		usedLock.setRuleSnapshot("{\"quotaUnits\":8}");
+		when(lockMapper.selectList(any())).thenReturn(List.of(usedLock));
+
+		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+
+		assertTrue(result.getLadderOverrides().isEmpty());
 	}
 
 }

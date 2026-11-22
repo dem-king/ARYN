@@ -2,6 +2,7 @@ package com.aryn.cloud.product.service.impl;
 
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.dto.GoodsZoneTagBatchDTO;
+import com.aryn.cloud.product.api.dto.GoodsZoneTagSaveDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.vo.AppClearancePriceVO;
@@ -12,6 +13,7 @@ import com.aryn.cloud.promotion.api.entity.MallZoneSetting;
 import com.aryn.cloud.promotion.api.remote.RemoteMallZonePriceService;
 import com.aryn.cloud.promotion.api.remote.RemoteMallZoneSettingService;
 import com.aryn.cloud.promotion.api.vo.MallZoneSettingSnapshotVO;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -92,6 +95,38 @@ class GoodsZoneTagServiceImplTest {
 		GoodsZoneTagBatchDTO overwrite = batchDTO(true);
 		service.batchSave(overwrite);
 		verify(goodsSkuMapper).update(any(), any());
+	}
+
+	@Test
+	@DisplayName("单专区编辑可清除存量固定价和到期时间，同时只更新本专区规则")
+	void scopedEditReplacesOnlyClearanceRules() {
+		GoodsSpu spu = clearanceSpu("spu-1", "39.90");
+		spu.setOriginalPrice(new BigDecimal("49.90"));
+		spu.setClearancePrice(new BigDecimal("39.00"));
+		GoodsSku sku = sku("sku-1", "spu-1", "39.90", "38.00");
+		sku.setMemberPriceFixed(new BigDecimal("35.00"));
+		when(goodsSpuMapper.selectById("spu-1")).thenReturn(spu);
+		when(goodsSkuMapper.selectBySpuId("spu-1")).thenReturn(List.of(sku));
+
+		GoodsZoneTagSaveDTO dto = new GoodsZoneTagSaveDTO();
+		dto.setEditZone("clearance");
+		dto.setClearanceTag(true);
+		dto.setClearanceDiscountRate(new BigDecimal("0.79"));
+		GoodsZoneTagSaveDTO.SkuTag inherit = new GoodsZoneTagSaveDTO.SkuTag();
+		inherit.setSkuId(sku.getId());
+		dto.setSkus(List.of(inherit));
+		service.saveTags("spu-1", dto);
+
+		var spuUpdate = ArgumentCaptor.<LambdaUpdateWrapper<GoodsSpu>>captor();
+		var skuUpdate = ArgumentCaptor.<LambdaUpdateWrapper<GoodsSku>>captor();
+		verify(goodsSpuMapper).update(eq(null), spuUpdate.capture());
+		verify(goodsSkuMapper).update(eq(null), skuUpdate.capture());
+		for (LambdaUpdateWrapper<?> update : List.of(spuUpdate.getValue(), skuUpdate.getValue())) {
+			assertThat(update.getSqlSet())
+				.contains("clearance_price=", "clearance_discount_rate=", "clearance_expire_time=")
+				.doesNotContain("member");
+			assertThat(update.getParamNameValuePairs().values()).containsNull();
+		}
 	}
 
 	@Test

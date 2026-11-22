@@ -411,6 +411,7 @@ export interface ZoneTagSavePayload {
   clearanceExpireTime?: null | string;
   clearancePrice?: null | number;
   clearanceTag?: boolean;
+  editZone?: ZoneType;
   memberDiscountRate?: null | number;
   memberPriceFixed?: null | number;
   memberPriceFloor?: null | number;

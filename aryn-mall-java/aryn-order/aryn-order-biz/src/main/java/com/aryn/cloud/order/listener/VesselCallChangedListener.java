@@ -40,14 +40,19 @@ public class VesselCallChangedListener implements RocketMQListener<VesselCallCha
 
 	private final org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
 
+	private final com.aryn.cloud.order.service.impl.DeliveryGroupService deliveryGroups;
+
 	@Override
 	public void onMessage(VesselCallChangedNotice notice) {
 		if (notice == null || !StringUtils.hasText(notice.getTenantId())
-				|| !StringUtils.hasText(notice.getCallId())) {
+				|| !StringUtils.hasText(notice.getCallId()) || !StringUtils.hasText(notice.getChangeLogId())) {
 			log.warn("靠港变更消息缺少关键字段，忽略");
 			return;
 		}
+		String previousTenant = com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.getTenantId();
+		com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.setTenantId(notice.getTenantId());
 		try {
+			deliveryGroups.refreshCall(notice.getTenantId(), notice.getChangeLogId(), notice.getCallId());
 			// 影响面 1：未完成订单（已支付待发货/待收货）
 			List<com.aryn.cloud.order.api.entity.OrderInfo> orders = orderInfoMapper.selectList(
 					Wrappers.lambdaQuery(com.aryn.cloud.order.api.entity.OrderInfo.class)
@@ -83,8 +88,9 @@ public class VesselCallChangedListener implements RocketMQListener<VesselCallCha
 			String summary = buildChangeSummary(notice);
 			for (String recipientId : recipientIds) {
 				sendInAppNotice(notice, recipientId, summary,
-						orders.stream().map(com.aryn.cloud.order.api.entity.OrderInfo::getOrderNo).limit(5).toList(),
-						carts.size());
+						orders.stream().filter(order -> recipientId.equals(order.getUserId()))
+							.map(com.aryn.cloud.order.api.entity.OrderInfo::getOrderNo).filter(java.util.Objects::nonNull).limit(5).toList(),
+						(int) carts.stream().filter(cart -> recipientId.equals(cart.getOwnerUserId()) || recipientId.equals(cart.getConfirmerUserId())).count());
 			}
 			log.info("靠港计划[{}]变更提醒完成：订单 {} 单、购物车 {} 个、通知 {} 人",
 					notice.getCallId(), orders.size(), carts.size(), recipientIds.size());
@@ -93,6 +99,10 @@ public class VesselCallChangedListener implements RocketMQListener<VesselCallCha
 			log.error("靠港变更提醒处理失败 callId={}", notice.getCallId(), ex);
 			// 抛出让 MQ 重试；幂等由 eventId 保证
 			throw ex instanceof RuntimeException runtimeException ? runtimeException : new IllegalStateException(ex);
+		}
+		finally {
+			if (previousTenant == null) com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.removeTenantId();
+			else com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.setTenantId(previousTenant);
 		}
 	}
 

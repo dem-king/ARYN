@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { daysUntil } from '@/utils/coupon-display'
 import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
 

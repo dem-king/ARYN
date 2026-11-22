@@ -63,4 +63,24 @@ describe('goods detail price strip spacing contract', () => {
     for (const marker of ['props.seckillInfo', 'memberGuideText.value', 'newbieLimitText.value', 'props.discountDisplay.showDiscountPrice'])
       expect(block).toContain(marker)
   })
+
+  it('标题卡根据 B2B 说明条的可见性调整间距', () => {
+    const info = source(GOODS_INFO)
+    expect(info).toContain('v-if="showB2bPriceStrip" class="b2b-price-strip"')
+
+    const b2bVisibility = info.slice(
+      info.indexOf('const showB2bPriceStrip = computed('),
+      info.indexOf('const hasPriceStrip = computed('),
+    )
+    expect(b2bVisibility).toContain('props.policyMinQtyHint')
+    expect(b2bVisibility).toContain('props.specialRemainingQuota != null')
+    expect(b2bVisibility).toContain('props.ladderTiers?.length')
+    expect(info).toMatch(/const hasPriceStrip = computed\(\(\) =>\s*showB2bPriceStrip\.value\s*\|\|/)
+  })
+
+  it('展开态的 B2B 说明条和其他活动条使用同一组卡片间距', () => {
+    const info = source(GOODS_INFO)
+    const wide = info.slice(info.indexOf('@media (min-width: 600px)'))
+    expect(wide).toMatch(/\.b2b-price-strip,\s*\.seckill-strip,[^{]+\{\s*margin: 0;/)
+  })
 })

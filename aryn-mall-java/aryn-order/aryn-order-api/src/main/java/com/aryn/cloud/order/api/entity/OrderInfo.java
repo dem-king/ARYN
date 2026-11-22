@@ -26,6 +26,9 @@ import java.util.List;
 @TableName(value = "order_info")
 public class OrderInfo extends Model<OrderInfo> {
 
+	/** 显式归组/入波次核定的仓库；不从港口或日期推断。 */
+	private String fulfillmentWarehouseId;
+
 	@Schema(description = "主键")
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;

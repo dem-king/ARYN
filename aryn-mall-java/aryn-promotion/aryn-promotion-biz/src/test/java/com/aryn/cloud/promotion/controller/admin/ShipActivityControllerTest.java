@@ -11,6 +11,9 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
+import com.aryn.cloud.promotion.api.dto.B2bActivitySaveDTO;
+import com.aryn.cloud.promotion.service.impl.B2bActivityCommandService;
+import com.aryn.cloud.promotion.mapper.PromoCalendarMapper;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
@@ -65,6 +68,8 @@ class ShipActivityControllerTest {
 
 	private ShipActivityController controller;
 
+	private B2bActivityCommandService commands;
+
 	@BeforeAll
 	static void initTableMeta() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
@@ -73,8 +78,9 @@ class ShipActivityControllerTest {
 
 	@BeforeEach
 	void setUp() {
-		controller = new ShipActivityController(activityMapper, governanceService, engineService, promotionLockUsage);
-		ReflectionTestUtils.setField(controller, "remoteGoodsSkuService", goodsSkuService);
+		commands = new B2bActivityCommandService(activityMapper, governanceService, org.mockito.Mockito.mock(PromoCalendarMapper.class));
+		controller = new ShipActivityController(activityMapper, commands, engineService, promotionLockUsage);
+		ReflectionTestUtils.setField(commands, "remoteGoodsSkuService", goodsSkuService);
 		ArynTenantContextHolder.setTenantId("tenant-1");
 	}
 
@@ -90,34 +96,28 @@ class ShipActivityControllerTest {
 		activity.setActivityName("测试活动");
 		activity.setActivityType(PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT);
 		activity.setStatus(status);
+		activity.setRevision(0L);
+		activity.setScopeType("1");
+		activity.setRules("{\"tiers\":[{\"minAmount\":100,\"discountAmount\":10}]}");
 		activity.setStartTime(start);
 		activity.setEndTime(end);
 		return activity;
 	}
 
 	@Test
-	@DisplayName("新人价长期有效：保存时把结束时间规范到远期哨兵")
-	void saveNormalizesLongTermEndTime() {
-		ActivityPublishGovernanceService realGovernance = new ActivityPublishGovernanceService(activityMapper);
-		ShipActivityController realController = new ShipActivityController(activityMapper, realGovernance,
-				engineService, promotionLockUsage);
-		ReflectionTestUtils.setField(realController, "remoteGoodsSkuService", goodsSkuService);
+	void legacyAdministrativeDryRunRequiresContractReadPermission() throws Exception {
+		var permission = ShipActivityController.class.getMethod("dryRun", PromotionContextDTO.class)
+			.getAnnotation(cn.dev33.satoken.annotation.SaCheckPermission.class);
+		assertThat(permission.value()).containsExactly("promotion:shipactivity:page", "promotion:pricepolicy:page");
+	}
 
-		PromotionActivity activity = new PromotionActivity();
-		activity.setActivityName("长期新人价");
-		activity.setActivityType(PromotionActivity.TYPE_NEWBIE_PRICE);
-		activity.setScopeType("2");
-		activity.setScopeValue("sku-1");
-		activity.setStartTime(LocalDateTime.now().minusDays(1));
-		activity.setEndTime(LocalDateTime.now().plusDays(1));
-		activity.setRules("{\"longTerm\":true,\"limitPerUser\":1,"
-				+ "\"skus\":[{\"skuId\":\"sku-1\",\"price\":1}]}");
-
-		realController.save(activity);
-
-		ArgumentCaptor<PromotionActivity> captor = ArgumentCaptor.forClass(PromotionActivity.class);
-		verify(activityMapper).insert(captor.capture());
-		assertThat(captor.getValue().getEndTime()).isEqualTo(ActivityPublishGovernanceService.LONG_TERM_END_TIME);
+	@Test
+	@DisplayName("新人价无论长期有效标记都拒绝新建")
+	void saveRejectsRetiredNewbie() {
+		B2bActivitySaveDTO dto = new B2bActivitySaveDTO();
+		dto.setActivityType("9");
+		assertThatThrownBy(() -> controller.save(dto)).isInstanceOf(ArynBusinessException.class);
+		verify(activityMapper, never()).insert(any(PromotionActivity.class));
 	}
 
 	@Test
@@ -227,10 +227,10 @@ class ShipActivityControllerTest {
 				activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now().minusDays(2),
 						LocalDateTime.now().minusDays(1)));
 
-		assertThatThrownBy(() -> controller.publish("act-1", false))
+		assertThatThrownBy(() -> controller.publish("act-1", 0L, false))
 				.isInstanceOfSatisfying(ArynBusinessException.class,
 						ex -> assertThat(ex.getMsg()).contains("结束时间已过"));
-		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(activityMapper, never()).update(any(PromotionActivity.class), any());
 	}
 
 	@Test
@@ -240,12 +240,12 @@ class ShipActivityControllerTest {
 				activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now().minusDays(1),
 						LocalDateTime.now().plusDays(1)));
 		when(governanceService.listPublishConflicts(any(), any())).thenReturn(List.of());
-		when(activityMapper.updateById(any(PromotionActivity.class))).thenReturn(1);
+		when(activityMapper.update(any(PromotionActivity.class), any())).thenReturn(1);
 
-		controller.publish("act-1", false);
+		controller.publish("act-1", 0L, false);
 
 		ArgumentCaptor<PromotionActivity> captor = ArgumentCaptor.forClass(PromotionActivity.class);
-		verify(activityMapper).updateById(captor.capture());
+		verify(activityMapper).update(captor.capture(), any());
 		assertThat(captor.getValue().getStatus()).isEqualTo(PromotionActivity.STATUS_PUBLISHED);
 		assertThat(captor.getValue().getPublishTime()).isNotNull();
 	}
@@ -265,10 +265,10 @@ class ShipActivityControllerTest {
 		sku.setSalesPrice(new BigDecimal("28.5"));
 		when(goodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(sku));
 
-		assertThatThrownBy(() -> controller.publish("act-1", false))
+		assertThatThrownBy(() -> controller.publish("act-1", 0L, false))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					ex -> assertThat(ex.getMsg()).contains("不低于当前售价"));
-		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(activityMapper, never()).update(any(PromotionActivity.class), any());
 	}
 
 	@Test
@@ -287,19 +287,19 @@ class ShipActivityControllerTest {
 		PromotionActivity expired = activity(PromotionActivity.STATUS_PUBLISHED, LocalDateTime.now().minusDays(5),
 				LocalDateTime.now().minusDays(1));
 		when(activityMapper.selectOne(any())).thenReturn(expired);
-		when(activityMapper.deleteById(any(Serializable.class))).thenReturn(1);
+		when(activityMapper.update(any(), any())).thenReturn(1);
 
-		controller.delete("act-1");
-		verify(activityMapper).deleteById(any(Serializable.class));
+		controller.delete("act-1", 0L);
+		verify(activityMapper).update(any(), any());
 
 		PromotionActivity running = activity(PromotionActivity.STATUS_PUBLISHED, LocalDateTime.now().minusDays(1),
 				LocalDateTime.now().plusDays(1));
 		when(activityMapper.selectOne(any())).thenReturn(running);
 
-		assertThatThrownBy(() -> controller.delete("act-1"))
+		assertThatThrownBy(() -> controller.delete("act-1", 0L))
 				.isInstanceOfSatisfying(ArynBusinessException.class,
 						ex -> assertThat(ex.getMsg()).contains("请先暂停"));
-		verify(activityMapper, times(1)).deleteById(any(Serializable.class));
+		verify(activityMapper, times(1)).update(any(), any());
 	}
 
 	@Test
@@ -308,12 +308,12 @@ class ShipActivityControllerTest {
 		PromotionActivity running = activity(PromotionActivity.STATUS_PUBLISHED, LocalDateTime.now().minusDays(1),
 				LocalDateTime.now().plusDays(1));
 		when(activityMapper.selectOne(any())).thenReturn(running);
-		when(activityMapper.updateById(any(PromotionActivity.class))).thenReturn(1);
+		when(activityMapper.update(any(PromotionActivity.class), any())).thenReturn(1);
 
-		controller.pause("act-1");
+		controller.pause("act-1", 0L);
 
 		ArgumentCaptor<PromotionActivity> captor = ArgumentCaptor.forClass(PromotionActivity.class);
-		verify(activityMapper).updateById(captor.capture());
+		verify(activityMapper).update(captor.capture(), any());
 		assertThat(captor.getValue().getStatus()).isEqualTo(PromotionActivity.STATUS_PAUSED);
 	}
 
@@ -324,10 +324,10 @@ class ShipActivityControllerTest {
 				LocalDateTime.now().minusDays(1));
 		when(activityMapper.selectOne(any())).thenReturn(expired);
 
-		assertThatThrownBy(() -> controller.pause("act-1"))
+		assertThatThrownBy(() -> controller.pause("act-1", 0L))
 				.isInstanceOfSatisfying(ArynBusinessException.class,
-						ex -> assertThat(ex.getMsg()).contains("仅进行中"));
-		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+						ex -> assertThat(ex.getMsg()).contains("仅未结束"));
+		verify(activityMapper, never()).update(any(PromotionActivity.class), any());
 	}
 
 	// ==== 会员价活动（type=10）已彻底下线：列表/详情/写入口全部不可用 ====
@@ -339,7 +339,7 @@ class ShipActivityControllerTest {
 				LocalDateTime.now().plusDays(7));
 		manual.setActivityType(PromotionActivity.TYPE_MEMBER_PRICE);
 
-		assertThatThrownBy(() -> controller.save(manual))
+		assertThatThrownBy(() -> controller.save(dto(manual)))
 			.isInstanceOfSatisfying(ArynBusinessException.class, ex -> assertThat(ex.getMsg())
 				.contains("会员价活动已下线").contains("专区打标").contains("专区标签"));
 		verify(activityMapper, never()).insert(any(PromotionActivity.class));
@@ -354,7 +354,7 @@ class ShipActivityControllerTest {
 		gift.setActivityType(PromotionActivity.TYPE_GIFT);
 		when(activityMapper.insert(any(PromotionActivity.class))).thenReturn(1);
 
-		controller.save(gift);
+		controller.save(dto(gift));
 
 		verify(activityMapper).insert(any(PromotionActivity.class));
 	}
@@ -381,14 +381,14 @@ class ShipActivityControllerTest {
 
 		assertThatThrownBy(() -> controller.getById("act-1"))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
-					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线").contains("商品专区标签"));
-		assertThatThrownBy(() -> controller.update("act-1", new PromotionActivity()))
+					ex -> assertThat(ex.getMsg()).contains("商品专区标签"));
+		assertThatThrownBy(() -> controller.update("act-1", new B2bActivitySaveDTO()))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
-		assertThatThrownBy(() -> controller.publish("act-1", false))
+		assertThatThrownBy(() -> controller.publish("act-1", 0L, false))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
-		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(activityMapper, never()).update(any(PromotionActivity.class), any());
 		verify(governanceService, never()).validateRules(any(PromotionActivity.class));
 	}
 
@@ -400,14 +400,21 @@ class ShipActivityControllerTest {
 		running.setActivityType(PromotionActivity.TYPE_MEMBER_PRICE);
 		when(activityMapper.selectOne(any())).thenReturn(running);
 
-		assertThatThrownBy(() -> controller.pause("act-1"))
+		assertThatThrownBy(() -> controller.pause("act-1", 0L))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
-		assertThatThrownBy(() -> controller.delete("act-1"))
+		assertThatThrownBy(() -> controller.delete("act-1", 0L))
 			.isInstanceOfSatisfying(ArynBusinessException.class,
 					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
-		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(activityMapper, never()).update(any(PromotionActivity.class), any());
 		verify(activityMapper, never()).deleteById(any(Serializable.class));
+	}
+
+	private B2bActivitySaveDTO dto(PromotionActivity activity) {
+		B2bActivitySaveDTO dto = new B2bActivitySaveDTO();
+		org.springframework.beans.BeanUtils.copyProperties(activity, dto);
+		dto.setExpectedRevision(activity.getRevision());
+		return dto;
 	}
 
 	@SuppressWarnings("unchecked")

@@ -89,6 +89,9 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 展示态（不落库，管理端出参按时间窗派生）：已发布且未到开始时间 */
 	public static final String STATUS_UPCOMING = "5";
 
+	/** 人工配置修订号；库存/预算占用不改变配置修订。 */
+	private Long revision;
+
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
 

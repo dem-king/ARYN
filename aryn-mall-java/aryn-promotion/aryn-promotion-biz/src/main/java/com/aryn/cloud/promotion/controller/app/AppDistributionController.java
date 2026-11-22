@@ -1,5 +1,7 @@
 package com.aryn.cloud.promotion.controller.app;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -46,6 +48,7 @@ public class AppDistributionController {
 	@Operation(summary = "注册分销用户")
 	@PostMapping("/register")
 	public Result<DistributionUser> register(@Valid @RequestBody DistributionUserRegisterDTO dto) {
+		B2bActivityAdmission.rejectRetired("分销注册");
 		StpUtil.isLogin();
 		// 确保userId为当前登录用户
 		dto.setUserId(SecurityUtils.getUser().getUserId());

@@ -167,7 +167,7 @@ public class ZoneGoodsQueryServiceImpl implements IZoneGoodsQueryService {
 		row.setClearancePrice(spu.getClearancePrice());
 		row.setClearanceDiscountRate(spu.getClearanceDiscountRate());
 		row.setClearanceExpireTime(spu.getClearanceExpireTime());
-		row.setSkuOverrideCount(zoneTagStateResolver.skuOverrideCount(skus));
+		row.setSkuOverrideCount(zoneTagStateResolver.skuOverrideCount(skus, zoneType));
 		row.setZoneType(zoneType);
 		// 与预检共用同一生效口径；clearance 用 clearance 默认折扣，member 只用 member 默认折扣
 		GoodsZoneTagStateResolver.EffectiveZone effective = "member".equals(zoneType)

@@ -26,6 +26,7 @@ export const DIRECT_IMPORT_HANDOFF_TTL_MS = 24 * 60 * 60 * 1000
 
 export interface DirectImportHandoffPayload {
   scene: string
+  buyerOrgId?: string
   userAddressId?: string
   remark?: string
   vesselId?: string
@@ -43,8 +44,10 @@ export const useDirectImportOrderStore = defineStore('directImportOrder', {
     handoffId: '',
     /** 报告页解析成功后绑定的导入任务 ID */
     importId: '',
+    procurementDraftId: '',
     /** 购买场景：2 船供采购（way=4）；3 岸上企业采购（way=3） */
     scene: '',
+    buyerOrgId: '',
     /** 岸上模式：向导选定的收货地址ID（船供模式为空，靠港走交接里的 vessel 字段） */
     userAddressId: '',
     /** 备注：结算页展示/提交的唯一来源；用户清空后为空串 */
@@ -81,7 +84,9 @@ export const useDirectImportOrderStore = defineStore('directImportOrder', {
       this.active = true
       this.handoffId = createHandoffId()
       this.importId = ''
+      this.procurementDraftId = ''
       this.scene = payload.scene
+      this.buyerOrgId = payload.buyerOrgId ?? ''
       this.userAddressId = payload.userAddressId ?? ''
       this.remark = payload.remark ?? ''
       this.remarkEdited = false
@@ -92,6 +97,8 @@ export const useDirectImportOrderStore = defineStore('directImportOrder', {
       this.berth = payload.berth ?? ''
       this.createdAt = Date.now()
     },
+
+    setProcurementDraftId(draftId: string) { this.procurementDraftId = draftId },
 
     setImportId(importId: string) {
       this.importId = importId
@@ -127,7 +134,9 @@ export const useDirectImportOrderStore = defineStore('directImportOrder', {
       this.active = false
       this.handoffId = ''
       this.importId = ''
+      this.procurementDraftId = ''
       this.scene = ''
+      this.buyerOrgId = ''
       this.userAddressId = ''
       this.remark = ''
       this.remarkEdited = false

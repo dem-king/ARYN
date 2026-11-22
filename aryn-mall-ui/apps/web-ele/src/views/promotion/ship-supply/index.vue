@@ -49,6 +49,8 @@ import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { formatMoney } from '#/utils/util';
 
+import { isStackableLockedActivityType } from '../shared/promo-activity';
+
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
@@ -65,6 +67,7 @@ const loading = ref(false);
 
 const dialogVisible = ref(false);
 const editingId = ref('');
+const editingRevision = ref(0);
 /** 本次弹窗是否由「靠港日历/船舶档案 → 建活动」带入，用于顶部提示与后续清理 */
 const routedPrefill = ref(false);
 const route = useRoute();
@@ -263,8 +266,13 @@ const initPage = async () => {
 };
 
 const openDialog = (row?: any) => {
+  if (row && !['4', '5', '7', '12'].includes(row.activityType)) {
+    ElMessage.warning('历史活动仅供查阅，不能重新维护或发布');
+    return;
+  }
   routedPrefill.value = false;
   editingId.value = row?.id ?? '';
+  editingRevision.value = row?.revision ?? 0;
   isPublished.value = row?.status === '2';
   form.activityName = row?.activityName ?? '';
   form.activityType = row?.activityType ?? '4';
@@ -280,7 +288,7 @@ const openDialog = (row?: any) => {
   form.endTime = row?.endTime ?? '';
   form.remark = row?.remark ?? '';
   // 叠加策略回显：存量数据可能未带字段，缺省按类型默认补齐（新人/档期特供=关，其余=开）
-  const lockStackableType = ['9', '12'].includes(form.activityType);
+  const lockStackableType = isStackableLockedActivityType(form.activityType);
   form.couponStackable =
     row?.couponStackable ?? (lockStackableType ? '0' : '1');
   form.pointsStackable =
@@ -354,7 +362,7 @@ const loadCalendarOptions = async () => {
 
 /** 活动类型切换时按类型默认值重置叠加策略（新人/档期特供=关，其余=开） */
 const onActivityTypeChange = (value: boolean | number | string | undefined) => {
-  const lockStackable = value === '9' || value === '12';
+  const lockStackable = isStackableLockedActivityType(String(value ?? ''));
   form.couponStackable = lockStackable ? '0' : '1';
   form.pointsStackable = lockStackable ? '0' : '1';
   if (value !== '9') newbieLongTerm.value = false;
@@ -441,6 +449,7 @@ const buildPayload = () => {
   const longTerm = form.activityType === '9' && newbieLongTerm.value;
   const payload: Record<string, any> = {
     ...form,
+    expectedRevision: editingId.value ? editingRevision.value : undefined,
     endTime: longTerm ? NEWBIE_LONG_TERM_END : form.endTime,
     rules: JSON.stringify(rules),
   };
@@ -468,6 +477,10 @@ const buildPayload = () => {
 };
 
 const handleSave = () => {
+  if (!['4', '5', '7', '12'].includes(form.activityType)) {
+    ElMessage.warning('该活动类型已停运或由专区标签维护');
+    return;
+  }
   const longTerm = form.activityType === '9' && newbieLongTerm.value;
   if (!form.activityName || !form.startTime || (!longTerm && !form.endTime)) {
     ElMessage.warning('请完善活动名称与时间');
@@ -539,7 +552,7 @@ const handleSave = () => {
 };
 
 const doPublish = (row: any, force: boolean) => {
-  publishActivity(row.id, force)
+  publishActivity(row.id, row.revision, force)
     .then(() => {
       ElMessage.success('已发布');
       initPage();
@@ -547,6 +560,10 @@ const doPublish = (row: any, force: boolean) => {
     .catch(() => {});
 };
 const handlePublish = (row: any) => {
+  if (!['4', '5', '7', '12'].includes(row.activityType)) {
+    ElMessage.warning('该活动类型已停运或由专区标签维护');
+    return;
+  }
   getPublishConflicts(row.id)
     .then((conflicts: any[]) => {
       if (conflicts.length > 0) {
@@ -570,7 +587,7 @@ const handlePublish = (row: any) => {
 };
 
 const handlePause = (row: any) => {
-  pauseActivity(row.id)
+  pauseActivity(row.id, row.revision)
     .then(() => {
       ElMessage.success('已暂停');
       initPage();
@@ -580,7 +597,7 @@ const handlePause = (row: any) => {
 
 const handleDelete = (row: any) => {
   ElMessageBox.confirm('确认删除该活动?', '提示')
-    .then(() => deleteActivity(row.id))
+    .then(() => deleteActivity(row.id, row.revision))
     .then(() => {
       ElMessage.success('已删除');
       initPage();
@@ -909,6 +926,12 @@ useKeepAliveRefresh(initPage);
       <PageToolbar :total="state.page.total" total-label="个船供活动">
         <template #left>
           <ElButton
+            v-access:code="'promotion:campaign:edit'"
+            @click="router.push('/promotion/campaign-workbench')"
+          >
+            采购营销工作台
+          </ElButton>
+          <ElButton
             type="primary"
             v-access:code="'promotion:shipactivity:save'"
             @click="openDialog()"
@@ -1069,7 +1092,7 @@ useKeepAliveRefresh(initPage);
             </ElRadioGroup>
           </ElFormItem>
           <ElFormItem
-            v-if="['9', '12'].includes(form.activityType)"
+            v-if="isStackableLockedActivityType(form.activityType)"
             label="优惠叠加"
           >
             <div style="display: flex; gap: 8px; align-items: center">
@@ -1093,7 +1116,11 @@ useKeepAliveRefresh(initPage);
             </div>
           </ElFormItem>
           <ElFormItem
-            v-if="form.activityType !== '4' && form.activityType !== '9'"
+            v-if="
+              form.activityType !== '4' &&
+              form.activityType !== '9' &&
+              form.activityType !== '12'
+            "
             label="适用范围"
           >
             <ElSelect
@@ -1145,7 +1172,11 @@ useKeepAliveRefresh(initPage);
           </ElFormItem>
           <ElFormItem v-else label="适用范围">
             <span style="color: var(--el-text-color-secondary)">
-              指定SKU（由活动商品自动带出，无需手填）
+              {{
+                form.activityType === '12'
+                  ? '档期特供固定按 SKU 圈定'
+                  : '指定SKU（由活动商品自动带出，无需手填）'
+              }}
             </span>
           </ElFormItem>
           <ElFormItem label="限定场景">

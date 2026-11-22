@@ -33,3 +33,10 @@ mysql -u root -p < db/boot/aryn_boot_full.sql
 - **`25delivery_menu_fix.sql` 为存量库修复脚本**，新库初始化不需要（`25delivery_module.sql` + `27` 号增量已覆盖）。
 - **警告**：`aryn_boot_full.sql`、`25delivery_module.sql`、`25seckill_discount.sql` 含 `DROP TABLE`，仅用于空库初始化，严禁对存量库执行；存量库升级一律使用对应的增量/修复脚本。
 - 修改菜单/权限种子时，保持 boot 与 cloud 两份脚本及 `25delivery_module.sql`、`25delivery_menu_fix.sql`、`27delivery_fulfillment_incremental.sql` 三处菜单清单一致（可用 `rg -o "^\('2100000000000000[0-9]{3}'" <file> | sort -u` 比对集合）。
+
+
+## AI、采购与营销增量（2026-11-15）
+
+本次存量升级的明确编号为Boot247—259、Cloud1000—1012；前置B2B迁移与各库基线需先核定，不能把完整dump用于存量库。两模式脚本及Cloud完整基线已同步，Boot全量已重新生成；隔离验证不代表业务库已迁移。
+
+迁移顺序、Secret配置、角色授权、发布恢复和留存操作见[部署运维手册](../../docs/50-需求文档/2026-11-14-主流同类产品AI能力调研/06-部署迁移与运维手册.md)。`db/maintenance/ai-retention.py`默认只预览，需停写后显式apply；维护脚本不是初始化sections的一部分，不自动清理任何业务环境。复验脚本`verify-ai-retention.py`只允许指定`aryn_ai_verify_*`隔离schema。

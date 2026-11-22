@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, nextTick, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { delAddress, getPage, saveOrUpdateAddress } from '@/api/user/address'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useMallThemeStore } from '@/store/mallThemeStore'

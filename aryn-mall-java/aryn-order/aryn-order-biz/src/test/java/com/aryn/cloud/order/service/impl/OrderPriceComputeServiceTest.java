@@ -57,6 +57,21 @@ class OrderPriceComputeServiceTest {
 				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 	}
 
+    @Test
+    void finalSettlementUsesCurrentMoqAndOffsetStepForAggregatedSku() {
+        GoodsSpu spu = new GoodsSpu().setId("spu").setName("商品");
+        GoodsSku sku = new GoodsSku().setId("sku").setGoodsSpu(spu).setSalesPrice(BigDecimal.TEN).setMinOrderQty(3).setStepQty(2);
+        CreateOrderSkuReqDTO one = new CreateOrderSkuReqDTO(); one.setSkuId("sku"); one.setQuantity(2);
+        CreateOrderSkuReqDTO two = new CreateOrderSkuReqDTO(); two.setSkuId("sku"); two.setQuantity(3);
+        assertThat(service.generateOrderItems(List.of(sku), List.of(one, two))).hasSize(2);
+        one.setQuantity(1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.generateOrderItems(List.of(sku), List.of(one, two)))
+            .isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+        two.setQuantity(Integer.MAX_VALUE);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.generateOrderItems(List.of(sku), List.of(one, two)))
+            .isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+    }
+
 	@Test
 	void memberDiscountIsAppliedBeforeCoupon() {
 		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");

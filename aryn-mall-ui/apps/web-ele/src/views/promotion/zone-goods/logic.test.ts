@@ -213,10 +213,10 @@ describe('规则摘要与生效状态', () => {
     expect(hasSkuOverride({})).toBe(false);
   });
 
-  it('state 映射为 5 种生效状态，未知回退 stateLabel', () => {
+  it('state 映射为 5 种试算状态，未知回退 stateLabel', () => {
     expect(resolveStateMeta('NORMAL')).toMatchObject({
       type: 'success',
-      label: '生效中',
+      label: '试算通过',
     });
     expect(resolveStateMeta('NO_RULE').type).toBe('warning');
     expect(resolveStateMeta('INVERTED').type).toBe('danger');
@@ -499,7 +499,18 @@ describe('列表价格 / 到期 / 规则标记（改版新增口径）', () => {
         { isClearanceItem: 1, clearanceExpireTime: '2026-12-31 23:59:59' },
         now,
       ),
-    ).toEqual([{ hint: '截止 2026-12-31 23:59', label: '截止 12-31 23:59' }]);
+    ).toEqual([
+      { label: '未配置规则' },
+      { hint: '截止 2026-12-31 23:59', label: '截止 12-31 23:59' },
+    ]);
+    expect(
+      buildRuleChips(
+        'clearance',
+        { isClearanceItem: 1, state: 'INVERTED' },
+        now,
+        0.8,
+      ),
+    ).toEqual([{ label: '专区默认 8折' }]);
   });
 
   it('专区开关：同步状态优先，其次专区设置，最终未知', () => {

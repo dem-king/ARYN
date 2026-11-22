@@ -1,69 +1,52 @@
 <script setup lang="ts">
+import type { UserCenterIcon, UserCenterSettings } from '../schema/user-center';
+import type {
+  UserCenterModule,
+  UserCenterPreviewMode,
+} from '../schema/user-center-preview';
+
 import type { PageDesignType } from '#/api/promotion/page-design';
 
-import {
-  Bell,
-  Box,
-  ChatDotRound,
-  Clock,
-  EditPen,
-  Location,
-  RefreshLeft,
-  Setting,
-  Share,
-  Star,
-  Ticket,
-  User,
-  Van,
-  Wallet,
-} from '@element-plus/icons-vue';
+import { computed } from 'vue';
+
+import { EditPen, Setting } from '@element-plus/icons-vue';
 import { ElIcon } from 'element-plus';
 
-defineProps<{
+import {
+  normalizeUserCenter,
+  userCenterHeroStyle,
+  userCenterOrderIds,
+} from '../schema/user-center';
+import {
+  assetLabels,
+  customIcons,
+  orders,
+  recommendationLabels,
+  services,
+  workbenches,
+} from '../schema/user-center-preview';
+
+const props = defineProps<{
+  editable?: boolean;
   pageType: PageDesignType;
+  userCenter?: UserCenterSettings;
+  userCenterMode?: UserCenterPreviewMode;
 }>();
+const emit = defineEmits<{ editModule: [section: UserCenterModule] }>();
+const settings = computed(() => normalizeUserCenter(props.userCenter));
+const heroStyle = computed(() => userCenterHeroStyle(settings.value.hero));
+const isGuest = computed(() => props.userCenterMode === 'guest');
+const isEnterprise = computed(() => props.userCenterMode === 'enterprise');
+const showAssets = computed(() => !isGuest.value && !isEnterprise.value);
+const workbenchIds = computed(() =>
+  props.userCenterMode === 'staff' ? settings.value.workbenches.order : [],
+);
 
-/**
- * 内嵌页型（商详/分类/个人中心）的原生页面示意骨架。
- *
- * 这三类页面的装修块都只是页面中的一段内容，画布若只画区块本身，
- * 运营看不到它在页面里的位置与**真实宽度**：分类页装修实际嵌在右栏商品流内
- * （左栏二级分类 rail 占 192rpx = 96px，右栏只剩 375 - 96 = 279px），
- * 按画布满宽 375px 做的 banner 到实机整体变窄。
- *
- * 尺寸口径与 C 端一致：`1rpx = 0.5px`（屏宽 750rpx 对应画布 375px），
- * 各处取自 C 端真实样式（分类页 `.category-rail` 192rpx、
- * `.sort-bar` 88rpx、`.icon-strip` 圆 96rpx 等）。
- * 骨架是**示意**：商品流、主图墙这类超长区域压缩展示，只保证位置、
- * 列宽与关键块高一致，不追求逐像素还原；但**常驻模块必须画全**——
- * 个人中心骨架曾漏掉「我的服务」「猜你喜欢」整块、订单入口不带文字标签，
- * 运营会误以为装修丢了内容（模块清单照抄 C 端 user-center 页；
- * 角色条件入口按登录与租户能力出现，示意骨架不画）。
- *
- * 原生导航栏标题用页面自己的固定文案（各页 C 端写死的 title），
- * 不能用管理端的 `pageName`——那是「分类页装修」这类后台命名，实机不显示。
- */
-
-/** 我的订单 5 入口：名称与图标对应 C 端 user-center 的 myOrder 列表 */
-const orderEntries = [
-  { icon: Wallet, label: '待付款' },
-  { icon: Box, label: '待发货' },
-  { icon: Van, label: '待收货' },
-  { icon: ChatDotRound, label: '待评价' },
-  { icon: RefreshLeft, label: '退款/售后' },
-];
-
-/** 我的服务 8 宫格：名称与图标对应 C 端 user-center 的 myService 列表 */
-const serviceEntries = [
-  { icon: Bell, label: '消息中心' },
-  { icon: User, label: '会员中心' },
-  { icon: Location, label: '收货地址' },
-  { icon: EditPen, label: '我的评价' },
-  { icon: Clock, label: '浏览记录' },
-  { icon: Star, label: '我的收藏' },
-  { icon: Ticket, label: '我的优惠券' },
-  { icon: Share, label: '分销中心' },
-];
+function icon(override: undefined | UserCenterIcon, fallback: typeof Setting) {
+  return override && override !== 'default'
+    ? customIcons[override].icon
+    : fallback;
+}
 </script>
 
 <template>
@@ -127,97 +110,233 @@ const serviceEntries = [
     </div>
   </div>
 
-  <!-- 个人中心页：品牌页头（设置入口）+ 资产条 + 装修区 + 订单/服务宫格 + 猜你喜欢 -->
   <div v-else-if="pageType === '4'" class="shell" data-shell="usercenter">
-    <div class="uc-navbar">个人中心</div>
-    <div class="uc-hero">
+    <div
+      class="uc-navbar"
+      :style="{ backgroundColor: heroStyle.backgroundColor }"
+    >
+      个人中心
+    </div>
+    <div
+      class="uc-hero uc-editable"
+      :class="{ 'uc-hero--short': !showAssets }"
+      :style="heroStyle"
+    >
       <div class="uc-hero__profile">
         <span class="uc-hero__avatar"></span>
         <div class="uc-hero__meta">
-          <span class="uc-hero__name">用户名</span>
-          <span class="uc-hero__hint">登录后同步订单、优惠券与积分</span>
+          <span class="uc-hero__name">{{
+            isGuest ? '登录 / 注册' : '用户名'
+          }}</span>
+          <span
+            v-if="!isGuest"
+            class="uc-hero__level"
+            :class="{
+              'uc-hero__level--solid': settings.hero.memberStyle === 'solid',
+            }"
+          >
+            {{ isEnterprise ? '企业会员' : '个人会员' }}
+          </span>
+          <span
+            v-if="isGuest || settings.hero.memberDescription.zh.trim()"
+            class="uc-hero__hint"
+          >
+            {{
+              isGuest
+                ? settings.hero.loginHint.zh.trim() ||
+                  '登录后同步订单、优惠券与积分'
+                : settings.hero.memberDescription.zh.trim()
+            }}
+          </span>
         </div>
       </div>
-      <!-- 右上角设置入口：C 端页头齿轮（36px 半透明白圆） -->
-      <span class="uc-hero__setting">
-        <ElIcon :size="18" class="uc-hero__gear"><Setting /></ElIcon>
-      </span>
+      <span class="uc-hero__setting"
+        ><ElIcon :size="18"><Setting /></ElIcon
+      ></span>
+      <button
+        v-if="editable"
+        type="button"
+        class="uc-module-edit uc-module-edit--hero"
+        aria-label="编辑页头与会员"
+        title="编辑页头与会员"
+        @click="emit('editModule', 'hero')"
+      >
+        <ElIcon><EditPen /></ElIcon>
+      </button>
     </div>
-    <div class="uc-assets">
+
+    <div
+      v-if="showAssets"
+      class="uc-assets uc-editable"
+      :class="`uc-skin--${settings.assets.style}`"
+    >
       <div
-        v-for="item in ['优惠券', '积分', '余额']"
-        :key="item"
+        v-for="id in settings.assets.order"
+        :key="id"
         class="uc-assets__item"
       >
         <span class="uc-assets__value">--</span>
-        <span class="uc-assets__label">{{ item }}</span>
+        <span class="uc-assets__label">{{ assetLabels[id] }}</span>
       </div>
+      <button
+        v-if="editable"
+        type="button"
+        class="uc-module-edit"
+        aria-label="编辑个人资产"
+        title="编辑个人资产"
+        @click="emit('editModule', 'assets')"
+      >
+        <ElIcon><EditPen /></ElIcon>
+      </button>
     </div>
 
-    <div class="shell-slot">
+    <div v-if="settings.contentPosition === 'beforeOrders'" class="shell-slot">
       <slot></slot>
     </div>
 
-    <div class="uc-card">
+    <div
+      class="uc-card uc-editable"
+      :class="`uc-skin--${settings.orders.style}`"
+    >
       <div class="uc-card__head">
-        <span class="uc-card__title">我的订单</span>
+        <span class="uc-card__title">{{
+          settings.orders.title.zh.trim() || '我的订单'
+        }}</span>
         <span class="uc-card__more">查看全部</span>
       </div>
       <div class="uc-grid uc-grid--5">
-        <div
-          v-for="item in orderEntries"
-          :key="item.label"
-          class="uc-grid__item"
-        >
+        <div v-for="id in userCenterOrderIds" :key="id" class="uc-grid__item">
           <span class="uc-grid__icon">
-            <ElIcon :size="18" class="uc-grid__glyph">
-              <component :is="item.icon" />
-            </ElIcon>
+            <ElIcon :size="18" class="uc-grid__glyph"
+              ><component
+                :is="icon(settings.orders.icons[id], orders[id].icon)"
+            /></ElIcon>
           </span>
-          <span class="uc-grid__label">{{ item.label }}</span>
+          <span class="uc-grid__label">{{ orders[id].label }}</span>
         </div>
       </div>
+      <button
+        v-if="editable"
+        type="button"
+        class="uc-module-edit"
+        aria-label="编辑我的订单"
+        title="编辑我的订单"
+        @click="emit('editModule', 'orders')"
+      >
+        <ElIcon><EditPen /></ElIcon>
+      </button>
     </div>
-    <div class="uc-card">
+
+    <div
+      v-if="settings.services.order.length > 0 || workbenchIds.length > 0"
+      class="uc-card uc-editable"
+    >
       <div class="uc-card__head">
         <span class="uc-card__title">我的服务</span>
       </div>
-      <div class="uc-grid uc-grid--4">
+      <div
+        v-if="settings.services.order.length > 0"
+        class="uc-grid"
+        :class="`uc-grid--${settings.services.columns}`"
+      >
         <div
-          v-for="item in serviceEntries"
-          :key="item.label"
+          v-for="id in settings.services.order"
+          :key="id"
           class="uc-grid__item"
         >
           <span class="uc-grid__icon">
-            <ElIcon :size="18" class="uc-grid__glyph">
-              <component :is="item.icon" />
-            </ElIcon>
+            <ElIcon :size="18" class="uc-grid__glyph"
+              ><component
+                :is="icon(settings.services.icons[id], services[id].icon)"
+            /></ElIcon>
           </span>
-          <span class="uc-grid__label">{{ item.label }}</span>
+          <span class="uc-grid__label">{{ services[id].label }}</span>
         </div>
       </div>
-    </div>
-    <!-- 猜你喜欢分隔线 + 商品流占位：实机是瀑布流，这里压缩成两列示意 -->
-    <div class="uc-like">
-      <span class="uc-like__rule"></span>
-      <span class="uc-like__text">猜你喜欢</span>
-      <span class="uc-like__rule"></span>
-    </div>
-    <div class="uc-goods">
-      <div v-for="index in 4" :key="index" class="uc-goods__card">
-        <div class="uc-goods__pic"></div>
-        <span class="uc-goods__line"></span>
-        <span class="uc-goods__line uc-goods__line--short"></span>
+      <div v-if="workbenchIds.length > 0" class="uc-workbenches uc-editable">
+        <div
+          v-for="id in workbenchIds"
+          :key="id"
+          class="uc-workbench"
+          :class="`uc-skin--${settings.workbenches.style}`"
+        >
+          <ElIcon :size="18">
+            <component
+              :is="icon(settings.workbenches.icons[id], workbenches[id].icon)"
+            />
+          </ElIcon>
+          <span>{{ workbenches[id].label }}</span>
+        </div>
+        <button
+          v-if="editable"
+          type="button"
+          class="uc-module-edit"
+          aria-label="编辑角色工作台"
+          title="编辑角色工作台"
+          @click="emit('editModule', 'workbenches')"
+        >
+          <ElIcon><EditPen /></ElIcon>
+        </button>
       </div>
+      <button
+        v-if="editable"
+        type="button"
+        class="uc-module-edit"
+        aria-label="编辑我的服务"
+        title="编辑我的服务"
+        @click="emit('editModule', 'services')"
+      >
+        <ElIcon><EditPen /></ElIcon>
+      </button>
+    </div>
+
+    <div v-if="settings.contentPosition === 'afterServices'" class="shell-slot">
+      <slot></slot>
+    </div>
+
+    <div v-if="settings.recommendations.visible" class="uc-editable">
+      <div class="uc-like">
+        <span class="uc-like__rule"></span>
+        <span class="uc-like__text">{{
+          settings.recommendations.title.zh.trim() || '猜你喜欢'
+        }}</span>
+        <span class="uc-like__rule"></span>
+      </div>
+      <div v-if="editable" class="uc-recommendation-source">
+        {{ recommendationLabels[settings.recommendations.source] }}
+      </div>
+      <div class="uc-goods">
+        <div v-for="index in 4" :key="index" class="uc-goods__card">
+          <div class="uc-goods__pic"></div>
+          <span class="uc-goods__line"></span>
+          <span class="uc-goods__line uc-goods__line--short"></span>
+        </div>
+      </div>
+      <button
+        v-if="editable"
+        type="button"
+        class="uc-module-edit"
+        aria-label="编辑底部推荐"
+        title="编辑底部推荐"
+        @click="emit('editModule', 'recommendations')"
+      >
+        <ElIcon><EditPen /></ElIcon>
+      </button>
     </div>
   </div>
 
-  <!-- 商品详情页：导航栏 + 主图区 + 装修区 + 评价区 -->
+  <!-- 商品详情页：导航栏、主图区、原生商品信息、装修区和评价区 -->
   <div v-else-if="pageType === '2'" class="shell" data-shell="detail">
     <div class="uc-navbar">商品详情</div>
     <div class="detail-gallery">
       <!-- 实机主图墙 820rpx（410px）高，这里压缩到 200px，便于同时看到下方装修区 -->
       <span class="shell-hint">商品主图 / 价格 / 规格（示意）</span>
+    </div>
+
+    <div class="detail-comment">
+      <div class="detail-comment__head">商品参数</div>
+      <span class="detail-comment__row"></span>
+      <span class="detail-comment__row"></span>
     </div>
 
     <div class="shell-slot">
@@ -716,5 +835,95 @@ const serviceEntries = [
   height: 32px;
   background: #f5f6f8;
   border-radius: 8px;
+}
+
+.uc-editable {
+  position: relative;
+}
+
+.uc-module-edit {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+}
+
+.uc-card > .uc-module-edit {
+  top: 46px;
+}
+
+.uc-module-edit--hero {
+  top: 2px;
+}
+
+.uc-module-edit:hover,
+.uc-module-edit:focus-visible {
+  border-color: var(--el-color-primary);
+}
+
+.uc-hero--short {
+  padding-bottom: 22px;
+}
+
+.uc-hero__level {
+  align-self: flex-start;
+  padding: 2px 7px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #fff;
+  background: rgb(255 255 255 / 18%);
+  border-radius: 10px;
+}
+
+.uc-hero__level--solid {
+  color: #172b42;
+  background: #fff;
+}
+
+.uc-grid--3 .uc-grid__item {
+  width: calc(100% / 3);
+}
+
+.uc-skin--outline {
+  box-shadow: inset 0 0 0 1px #dce3ea;
+}
+
+.uc-skin--tinted {
+  background: #f2f4f7;
+}
+
+.uc-workbenches {
+  margin: 0 12px 10px;
+}
+
+.uc-workbench {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px;
+  font-size: 12px;
+  border-bottom: 1px solid #e9edf2;
+}
+
+.uc-workbench.uc-skin--outline,
+.uc-workbench.uc-skin--tinted {
+  margin-top: 4px;
+  border-radius: 8px;
+}
+
+.uc-recommendation-source {
+  font-size: 11px;
+  color: #606976;
+  text-align: center;
 }
 </style>

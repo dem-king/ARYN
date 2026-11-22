@@ -57,6 +57,8 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 
 	private final com.aryn.cloud.order.mapper.SharedCartMapper sharedCartMapper;
 
+	private final com.aryn.cloud.order.support.DeliveryGroupFulfillment groupFulfillment;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public FulfillmentWave createWave(String tenantId, String operatorId, String operatorName,
@@ -77,6 +79,7 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 		wave.setTenantId(tenantId);
 		wave.setCreateTime(LocalDateTime.now());
 		wave.setDelFlag("0");
+		groupFulfillment.validateWarehouse(tenantId, wave);
 		fulfillmentWaveMapper.insert(wave);
 		return wave;
 	}
@@ -84,33 +87,35 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public List<FulfillmentPickItem> addOrderToWave(String tenantId, String waveId, String orderId) {
+		return addOrdersToWave(tenantId, waveId, List.of(orderId));
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public List<FulfillmentPickItem> addOrdersToWave(String tenantId, String waveId, List<String> orderIds) {
+		if (orderIds == null || orderIds.isEmpty() || orderIds.size() > 100 || orderIds.stream().anyMatch(id -> id == null || id.isBlank())
+				|| new java.util.HashSet<>(orderIds).size() != orderIds.size()) throw new ArynBusinessException("请选择1至100个不重复订单");
+		List<OrderInfo> orders = orderIds.stream().sorted().map(id -> lockOrder(tenantId, id)).toList();
+		var associations = groupFulfillment.lockGroups(tenantId, orderIds);
 		FulfillmentWave wave = requireWave(tenantId, waveId);
-		if (!FulfillmentWave.STATUS_PENDING_PICK.equals(wave.getStatus())) {
-			throw new ArynBusinessException("波次已开始拣货，不能再加入订单");
-		}
-		OrderInfo orderInfo = orderInfoMapper.selectById(orderId);
-		if (orderInfo == null || !Objects.equals(orderInfo.getTenantId(), tenantId)) {
-			throw new ArynBusinessException("订单不存在");
-		}
-		if (!OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(orderInfo.getStatus())) {
-			throw new ArynBusinessException("订单当前状态不能加入波次");
-		}
-		if (!Objects.equals(orderInfo.getPortCode(), wave.getPortCode())) {
-			throw new ArynBusinessException("订单目的港口与波次港口不一致");
-		}
-		Long duplicated = fulfillmentPickItemMapper.selectCount(Wrappers.lambdaQuery(FulfillmentPickItem.class)
-				.eq(FulfillmentPickItem::getTenantId, tenantId)
-				.eq(FulfillmentPickItem::getOrderId, orderId)
-				.eq(FulfillmentPickItem::getDelFlag, "0"));
-		if (duplicated != null && duplicated > 0) {
-			throw new ArynBusinessException("订单已加入其他波次");
-		}
-		List<OrderItemEntity> orderItems = orderItemMapper.selectList(Wrappers.lambdaQuery(OrderItemEntity.class)
-				.eq(OrderItemEntity::getTenantId, tenantId)
-				.eq(OrderItemEntity::getOrderId, orderId));
-		if (CollectionUtils.isEmpty(orderItems)) {
-			throw new ArynBusinessException("订单没有可拣货明细");
-		}
+		if (!FulfillmentWave.STATUS_PENDING_PICK.equals(wave.getStatus())) throw new ArynBusinessException("波次已开始拣货，不能再加入订单");
+		groupFulfillment.validateWarehouse(tenantId, wave);
+		var result = new java.util.ArrayList<FulfillmentPickItem>();
+		for (OrderInfo orderInfo : orders) {
+			String orderId = orderInfo.getId();
+			if (!OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(orderInfo.getStatus())) throw new ArynBusinessException("订单当前状态不能加入波次");
+			if (!Objects.equals(orderInfo.getPortCode(), wave.getPortCode()) || !Objects.equals(orderInfo.getVesselCallId(), wave.getVesselCallId()))
+				throw new ArynBusinessException("订单与波次港口或靠港不一致");
+			groupFulfillment.bind(tenantId, orderInfo, wave, associations);
+			var existing = fulfillmentPickItemMapper.selectList(Wrappers.<FulfillmentPickItem>lambdaQuery()
+				.eq(FulfillmentPickItem::getTenantId, tenantId).eq(FulfillmentPickItem::getOrderId, orderId).last("FOR UPDATE"));
+			if (!existing.isEmpty()) {
+				if (existing.stream().anyMatch(item -> !waveId.equals(item.getWaveId()))) throw new ArynBusinessException("订单已加入其他波次");
+				result.addAll(existing); continue;
+			}
+			List<OrderItemEntity> orderItems = orderItemMapper.selectList(Wrappers.lambdaQuery(OrderItemEntity.class)
+				.eq(OrderItemEntity::getTenantId, tenantId).eq(OrderItemEntity::getOrderId, orderId));
+			if (CollectionUtils.isEmpty(orderItems)) throw new ArynBusinessException("订单没有可拣货明细");
 		List<FulfillmentPickItem> pickItems = orderItems.stream().map(orderItem -> {
 			FulfillmentPickItem pickItem = new FulfillmentPickItem();
 			pickItem.setId(IdWorker.getIdStr());
@@ -132,10 +137,45 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 			fulfillmentPickItemMapper.insert(pickItem);
 			return pickItem;
 		}).toList();
+			result.addAll(pickItems);
+			orderInfoMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate().eq(OrderInfo::getTenantId, tenantId).eq(OrderInfo::getId, orderId)
+				.set(OrderInfo::getFulfillmentWarehouseId, wave.getWarehouseId()));
+		}
+		return result;
+	}
 
-		wave.setStatus(FulfillmentWave.STATUS_PICKING);
-		fulfillmentWaveMapper.updateById(wave);
-		return pickItems;
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public FulfillmentWave startPicking(String tenantId, String operatorId, String waveId) {
+		var before = listWaveItems(tenantId, waveId);
+		if (before.isEmpty()) throw new ArynBusinessException("空波次不能开始拣货");
+		var ids = before.stream().map(FulfillmentPickItem::getOrderId).distinct().sorted().toList();
+		for (String id : ids) {
+			var order = lockOrder(tenantId, id);
+			if (!OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(order.getStatus())) throw new ArynBusinessException("波次含已取消或不可履约订单，请处理后再启动");
+		}
+		var associations = groupFulfillment.lockGroups(tenantId, ids);
+		var wave = requireWave(tenantId, waveId);
+		if (!FulfillmentWave.STATUS_PENDING_PICK.equals(wave.getStatus())) throw new ArynBusinessException("波次已开始或结束");
+		groupFulfillment.validateWarehouse(tenantId, wave);
+		for (String id : ids) {
+			var order = lockOrder(tenantId, id);
+			if (!Objects.equals(order.getPortCode(), wave.getPortCode()) || !Objects.equals(order.getVesselCallId(), wave.getVesselCallId()))
+				throw new ArynBusinessException(409, "订单靠港已变化，请先处理原波次的配送安排");
+			groupFulfillment.bind(tenantId, order, wave, associations);
+		}
+		var current = fulfillmentPickItemMapper.selectList(Wrappers.<FulfillmentPickItem>lambdaQuery()
+			.eq(FulfillmentPickItem::getTenantId, tenantId).eq(FulfillmentPickItem::getWaveId, waveId).last("FOR UPDATE"));
+		if (!new java.util.HashSet<>(ids).equals(current.stream().map(FulfillmentPickItem::getOrderId).collect(java.util.stream.Collectors.toSet())))
+			throw new ArynBusinessException(409, "波次新增了订单，请重载后启动");
+		groupFulfillment.start(tenantId, operatorId, wave, associations);
+		wave.setStatus(FulfillmentWave.STATUS_PICKING); wave.setOperatorId(operatorId); wave.setUpdateTime(LocalDateTime.now());
+		fulfillmentWaveMapper.updateById(wave); return wave;
+	}
+
+	private OrderInfo lockOrder(String tenantId, String id) {
+		var order = orderInfoMapper.selectOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getTenantId, tenantId).eq(OrderInfo::getId, id).last("FOR UPDATE"));
+		if (order == null || !tenantId.equals(order.getTenantId())) throw new ArynBusinessException("订单不存在"); return order;
 	}
 
 	@Override
@@ -219,6 +259,7 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 			throw new ArynBusinessException("波次当前状态不能复核");
 		}
 		List<FulfillmentPickItem> items = listWaveItems(tenantId, waveId);
+		if (items.isEmpty()) throw new ArynBusinessException("空波次不能复核");
 		boolean hasUnfinished = items.stream()
 			.anyMatch(item -> FulfillmentPickItem.PICK_PENDING.equals(item.getPickStatus()));
 		if (hasUnfinished) {
@@ -320,7 +361,7 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 	private FulfillmentWave requireWave(String tenantId, String waveId) {
 		FulfillmentWave wave = fulfillmentWaveMapper.selectOne(Wrappers.lambdaQuery(FulfillmentWave.class)
 				.eq(FulfillmentWave::getTenantId, tenantId)
-				.eq(FulfillmentWave::getId, waveId));
+				.eq(FulfillmentWave::getId, waveId).last("FOR UPDATE"));
 		if (wave == null) {
 			throw new ArynBusinessException("拣货波次不存在");
 		}
@@ -330,7 +371,7 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 	private FulfillmentPickItem requirePickItem(String tenantId, String itemId) {
 		FulfillmentPickItem item = fulfillmentPickItemMapper.selectOne(Wrappers.lambdaQuery(FulfillmentPickItem.class)
 				.eq(FulfillmentPickItem::getTenantId, tenantId)
-				.eq(FulfillmentPickItem::getId, itemId));
+				.eq(FulfillmentPickItem::getId, itemId).last("FOR UPDATE"));
 		if (item == null) {
 			throw new ArynBusinessException("拣货明细不存在");
 		}
@@ -341,11 +382,7 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 	 * 交接司机后仓库不能再修改已交接明细。
 	 */
 	private void requireWaveEditableByWarehouse(FulfillmentWave wave) {
-		if (FulfillmentWave.STATUS_HANDED_OVER.equals(wave.getStatus())
-				|| FulfillmentWave.STATUS_COMPLETED.equals(wave.getStatus())
-				|| FulfillmentWave.STATUS_CANCELED.equals(wave.getStatus())) {
-			throw new ArynBusinessException("波次已交接司机或结束，不能再修改明细");
-		}
+		if (!FulfillmentWave.STATUS_PICKING.equals(wave.getStatus())) throw new ArynBusinessException("请先显式开始拣货；复核、交接或结束后不能修改明细");
 	}
 
 	private String appendRemark(String remark, String addition) {

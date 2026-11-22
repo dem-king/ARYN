@@ -16,7 +16,7 @@ import type { SharedCart, SharedCartCreatePayload } from '@/api/order/sharedCart
 import { onPageScroll, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { createSharedCart, getMySharedCarts, SHARED_CART_TYPE_SHIP, SHARED_CART_TYPE_SHORE } from '@/api/order/sharedCart'
 import {
   BUYER_ORG_AUDIT_APPROVED,

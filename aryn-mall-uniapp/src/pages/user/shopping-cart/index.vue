@@ -10,6 +10,8 @@ import { delShoppingCart, editShoppingCart, getPage, transferCartRowsToCall } fr
 import { saveBatch } from '@/api/product/collect'
 import { getById, getClearanceSkuPrices } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
+import { getPolicyPrices } from '@/api/promotion/policy-price'
+import { getCalendarSpecials } from '@/api/promotion/trade-calendar'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
@@ -137,6 +139,19 @@ const currentCallSuffix = computed(() =>
     ? ` · ${shipContextStore.portName}${shipContextStore.berth ? ` ${shipContextStore.berth}` : ''}`
     : '',
 )
+const state = reactive<ShoppingCartState>({
+  customStyle: {
+    margin: '10rpx',
+    padding: '20rpx',
+  }, // 去结算按钮样式
+  checkedList: [], // 已勾选数组
+  cartList: [], // 购物车数据
+  shopCheckedAll: false, // 全选
+  totalAmount: '0', // 合计金额
+  isEdit: false, // 编辑按钮
+  goodsSpu: {},
+  selectArr: [],
+})
 const cartGroups = computed(() => {
   const groups: Record<string, any[]> = {}
   for (const row of state.cartList) {
@@ -251,19 +266,6 @@ function groupAction(key: string, rows: any[]) {
 const globalLoading = useGlobalLoading()
 const { success: showSuccess } = useGlobalToast()
 const { confirm } = useGlobalMessage()
-const state = reactive<ShoppingCartState>({
-  customStyle: {
-    margin: '10rpx',
-    padding: '20rpx',
-  }, // 去结算按钮样式
-  checkedList: [], // 已勾选数组
-  cartList: [], // 购物车数据
-  shopCheckedAll: false, // 全选
-  totalAmount: '0', // 合计金额
-  isEdit: false, // 编辑按钮
-  goodsSpu: {},
-  selectArr: [],
-})
 
 /**
  * 新人价展示：`skuId → display`。
@@ -305,6 +307,97 @@ const memberDisplays = ref<Record<string, MemberPriceDisplay>>({})
 /** 出清价展示：skuId → display；未命中/接口失败即空对象，回落原价 */
 const clearanceDisplays = ref<Record<string, ClearancePriceDisplay>>({})
 
+/** 协议价展示：skuId → {price, minQty}；免登接口，服务端对游客/非成员净化上下文 */
+const policyDisplays = ref<Record<string, { minQty: number, price: number }>>({})
+
+/** 档期特供价：skuId → 最低价（多活动取低，服务端已剔除限量耗尽/场景不符） */
+const specialDisplays = ref<Record<string, number>>({})
+
+/** 协议价成交单价：件数 ≥ minQty 且低于售价才生效（合同价锁定基价，优先级最高） */
+function policyUnitPriceOf(row: any): null | number {
+  const hit = policyDisplays.value[String(row?.skuId ?? '')]
+  const sales = Number(row?.goodsSku?.salesPrice)
+  const qty = Number(row?.quantity) || 0
+  if (!hit || !Number.isFinite(sales) || hit.price <= 0 || hit.price >= sales || qty < hit.minQty)
+    return null
+  return hit.price
+}
+
+/** 特供成交单价：低于售价才有效（是否胜出由 cartUnitPrice 与既有链路取低） */
+function specialUnitPriceOf(row: any): null | number {
+  const price = specialDisplays.value[String(row?.skuId ?? '')]
+  const sales = Number(row?.goodsSku?.salesPrice)
+  if (price === undefined || !Number.isFinite(sales) || price <= 0 || price >= sales)
+    return null
+  return price
+}
+
+/** B2B 角标：与 cartUnitPrice 同源——协议价命中优先，其次特供胜出 */
+function b2bBadgeOf(row: any): '' | 'policy' | 'special' {
+  if (policyUnitPriceOf(row) !== null)
+    return 'policy'
+  const special = specialUnitPriceOf(row)
+  if (special !== null && special < baseCartUnitPrice(row))
+    return 'special'
+  return ''
+}
+
+/**
+ * 加载协议价与档期特供价（免登可访问，按采购场景/船舶圈定）。
+ * 失败静默：与会员价同为增强展示，不影响购物车主流程；回来后重算合计。
+ */
+async function loadB2bPrices() {
+  const skuIds = Array.from(new Set(
+    state.cartList
+      .map((row: any) => String(row?.skuId || '').trim())
+      .filter(Boolean),
+  ))
+  if (!skuIds.length) {
+    policyDisplays.value = {}
+    specialDisplays.value = {}
+    computePrice()
+    return
+  }
+  const context = {
+    purchaseScene: shipContextStore.purchaseScene,
+    vesselId: shipContextStore.vesselId || undefined,
+  }
+  try {
+    const items = await getPolicyPrices({ skuIds, vesselId: context.vesselId })
+    const next: Record<string, { minQty: number, price: number }> = {}
+    for (const item of items || []) {
+      const price = Number(item.policyPrice)
+      if (!Number.isFinite(price) || price <= 0)
+        continue
+      const minQty = Math.floor(Number(item.minQty))
+      next[String(item.skuId)] = { minQty: Number.isFinite(minQty) && minQty > 0 ? minQty : 1, price }
+    }
+    policyDisplays.value = next
+  }
+  catch {
+    policyDisplays.value = {}
+  }
+  try {
+    const specials = await getCalendarSpecials(context)
+    const next: Record<string, number> = {}
+    for (const special of specials || []) {
+      for (const item of special.items || []) {
+        const price = Number(item.price)
+        if (!Number.isFinite(price) || price <= 0)
+          continue
+        const key = String(item.skuId)
+        if (next[key] === undefined || price < next[key])
+          next[key] = price
+      }
+    }
+    specialDisplays.value = next
+  }
+  catch {
+    specialDisplays.value = {}
+  }
+  computePrice()
+}
+
 /** 取某行的会员价展示；无活动/未命中时返回共享的空展示（不新建对象，避免每行一个） */
 function memberDisplayOf(row: any): MemberPriceDisplay {
   return memberDisplays.value[String(row?.skuId ?? '')] || emptyMemberPriceDisplay()
@@ -325,6 +418,9 @@ function clearanceWins(row: any): boolean {
 
 /** 取某行的会员价引导文案（未达标/未登录时「会员专享 ¥x」）；无则不渲染 */
 function memberGuideOf(row: any): string {
+  // B2B 价格层胜出时主价已解释成交，不再出「会员专享」引导
+  if (b2bBadgeOf(row) !== '')
+    return ''
   // 出清价胜出时主价已是捡漏价：再给「会员专享」引导会让用户以为这个价还不对，
   // 与卡片/商详的口径也冲突（身份价只会解释成一个成交价）
   if (clearanceWins(row))
@@ -376,6 +472,9 @@ function strikePriceOf(row: any): number | string | undefined {
   const sku = row?.goodsSku
   if (!sku)
     return undefined
+  // B2B 价格层胜出：划当前售价（与商详/卡片同口径，不划商品原价）
+  if (b2bBadgeOf(row) !== '')
+    return sku.salesPrice
   // 出清价胜出：整行按捡漏价解释，划线=该 SKU 的当前售价
   if (clearanceWins(row))
     return clearanceDisplayOf(row).originalPrice ?? sku.salesPrice
@@ -411,6 +510,20 @@ function strikePriceOf(row: any): number | string | undefined {
  * 行价/合计再读同一份结果，避免这里各写一遍 if/else 与商详判定漂移。
  */
 function cartUnitPrice(row: any): number {
+  // B2B 价格层（2026-11-15）：协议价锁定基价（件数 ≥ minQty 才生效）；
+  // 档期特供与其余身份价取低——低于既有链路成交价才接管，与引擎同口径
+  const policy = policyUnitPriceOf(row)
+  if (policy !== null)
+    return policy
+  const base = baseCartUnitPrice(row)
+  const special = specialUnitPriceOf(row)
+  if (special !== null && special < base)
+    return special
+  return base
+}
+
+/** 既有展示链路成交价：出清价胜出 > 会员价 > 新人价 > 限时折扣 > 售价 */
+function baseCartUnitPrice(row: any): number {
   const fallback = row?.goodsSku?.salesPrice
   const clearance = clearanceDisplayOf(row)
   // 出清价与会员价取低（同价会员价优先）：胜出时直接按出清价，且不再叠加新人价/折扣
@@ -530,44 +643,6 @@ function handleEdit() {
     if (allChecked) {
       state.shopCheckedAll = true
     }
-  }
-  computePrice()
-}
-// 全选
-function checkedAll(e: any) {
-  if (e.value) {
-    state.cartList.forEach((val: any) => {
-      const exists = state.checkedList.some(obj => obj.id === val.id)
-      if (state.isEdit || (val.goodsSku && val.goodsSku.stock > 0)) {
-        if (!exists) {
-          val.checked = e.value
-          state.checkedList.push(val)
-        }
-      }
-    })
-  }
-  else {
-    state.checkedList = []
-    state.cartList.forEach((val) => {
-      val.checked = e.value
-    })
-  }
-
-  computePrice()
-}
-// 单选
-function cartCheck(e: any, index: number) {
-  const shop = state.cartList[index]
-  shop.checked = e.value
-  if (e.value) {
-    state.checkedList.push(shop)
-  }
-  else {
-    state.checkedList.forEach((val, index) => {
-      if (shop.id === val.id) {
-        state.checkedList.splice(index, 1)
-      }
-    })
   }
   computePrice()
 }
@@ -887,6 +962,7 @@ async function getCartPage(options: { silent?: boolean } = {}) {
     void loadMemberPrices()
     void loadClearancePrices()
     void loadDiscountPrices()
+    void loadB2bPrices()
   }
   finally {
     loading.value = false
@@ -1286,7 +1362,13 @@ onPageScroll(handlePageScroll)
                     出清价胜出 → 捡漏价；会员价胜出 → 会员价；再次才是新人价/折扣角标。
                     同一 SKU 同时命中会员+出清且出清更低时，主价是捡漏价，角标不能再标会员价。
                   -->
-                  <text v-if="clearanceWins(goods)" class="clearance-badge">
+                  <text v-if="b2bBadgeOf(goods) === 'policy'" class="member-badge">
+                    {{ t('cart.policyBadge') }}
+                  </text>
+                  <text v-else-if="b2bBadgeOf(goods) === 'special'" class="clearance-badge">
+                    {{ t('cart.specialBadge') }}
+                  </text>
+                  <text v-else-if="clearanceWins(goods)" class="clearance-badge">
                     {{ t('cart.clearanceBadge') }}
                   </text>
                   <text v-else-if="memberDisplayOf(goods).showMemberPrice" class="member-badge">

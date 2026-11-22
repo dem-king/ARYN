@@ -20,10 +20,16 @@ export interface AppCalendarSpecialItem {
   originalPrice?: null | number;
   /** 每人限购件数（0/null=不限） */
   perUserLimit?: null | number;
+  /** 商品图（SKU 级图，楼层卡片展示） */
+  picUrl?: null | string;
   /** 特供价 */
   price: number;
   /** SKU ID */
   skuId: string;
+  /** SPU ID */
+  spuId?: null | string;
+  /** 商品名（楼层卡片展示，远程回填；失败为 null 前端兜底 skuId） */
+  spuName?: null | string;
 }
 
 /** 档期特供活动（与 uniapp AppCalendarSpecial 同构） */

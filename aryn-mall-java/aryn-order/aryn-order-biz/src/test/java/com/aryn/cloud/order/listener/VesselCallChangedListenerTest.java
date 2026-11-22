@@ -42,7 +42,8 @@ class VesselCallChangedListenerTest {
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		sharedCartMapper = mock(SharedCartMapper.class);
 		rocketMQTemplate = mock(RocketMQTemplate.class);
-		listener = new VesselCallChangedListener(orderInfoMapper, sharedCartMapper, rocketMQTemplate);
+		listener = new VesselCallChangedListener(orderInfoMapper, sharedCartMapper, rocketMQTemplate,
+				mock(com.aryn.cloud.order.service.impl.DeliveryGroupService.class));
 	}
 
 	private VesselCallChangedNotice notice() {
@@ -83,6 +84,11 @@ class VesselCallChangedListenerTest {
 		assertEquals("call-change:log-1:user-1", command.getEventId());
 		assertEquals("MALL_USER", command.getRecipientType());
 		assertTrue(command.getContent().contains("ON001"));
+		assertTrue(!command.getContent().contains("ON002"));
+		var recipient2 = payloadCaptor.getAllValues().stream().filter(item -> "user-2".equals(item.getRecipientId())).findFirst().orElseThrow();
+		assertTrue(recipient2.getContent().contains("ON002")); assertTrue(!recipient2.getContent().contains("ON001"));
+		var recipient3 = payloadCaptor.getAllValues().stream().filter(item -> "user-3".equals(item.getRecipientId())).findFirst().orElseThrow();
+		assertTrue(!recipient3.getContent().contains("ON001")); assertTrue(!recipient3.getContent().contains("ON002"));
 	}
 
 	@Test

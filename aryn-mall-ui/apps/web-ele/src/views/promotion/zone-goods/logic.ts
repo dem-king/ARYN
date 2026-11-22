@@ -26,9 +26,9 @@ export const ZONE_LABEL: Record<ZoneKey, string> = {
 /** 专区 tab 的副标题/说明（顶部提示用） */
 export const ZONE_DESCRIPTION: Record<ZoneKey, string> = {
   clearance:
-    '低价捡漏按「出清价」或「原价 × 出清折扣率」计算 C 端价格；截止时间到期、商品下架、规则倒挂时不生效。',
+    '出清基础价优先取固定价，其次用原价乘商品折扣，最后用原价乘专区默认折扣。规格规则和到期折扣会影响最终价格，最终出清价须严格低于对应规格售价。',
   member:
-    '会员价 = min(售价 × min(商品折扣率, 等级折扣率), 会员固定价)，不低于成本兜底下限；专区默认折扣率在商品未配规则时生效。',
+    '会员价按售价乘折扣，与会员固定价取低，再应用价格下限。规格规则、成本下限和会员资格会影响实际展示。',
 };
 
 /** 全选筛选结果时单次取 ID 的默认上限（契约：服务端 limit 默认 500） */
@@ -498,6 +498,7 @@ export function buildRuleChips(
   zone: ZoneKey,
   row: ZoneRuleRow,
   now: Date = new Date(),
+  defaultRate: null | number = null,
 ): RuleChip[] {
   if (zone === 'member') {
     if (toNumber(row.isMemberItem) !== 1) {
@@ -509,6 +510,8 @@ export function buildRuleChips(
     const floor = toNumber(row.memberPriceFloor);
     if (rate !== null) {
       chips.push({ label: `折扣 ${formatRate(rate)}` });
+    } else if (defaultRate !== null && defaultRate > 0) {
+      chips.push({ label: `专区默认 ${formatRate(defaultRate)}` });
     }
     if (fixed !== null) {
       chips.push({ label: `固定价 ${formatPrice(fixed)}` });
@@ -529,9 +532,12 @@ export function buildRuleChips(
   const rate = toNumber(row.clearanceDiscountRate);
   if (price !== null) {
     chips.push({ label: `出清价 ${formatPrice(price)}` });
-  }
-  if (rate !== null) {
+  } else if (rate !== null) {
     chips.push({ label: `折扣 ${formatRate(rate)}` });
+  } else if (defaultRate !== null && defaultRate > 0) {
+    chips.push({ label: `专区默认 ${formatRate(defaultRate)}` });
+  } else {
+    chips.push({ label: '未配置规则' });
   }
   if (row.clearanceExpireTime) {
     const expiry = resolveExpiryMeta(row.clearanceExpireTime, now);
@@ -542,7 +548,7 @@ export function buildRuleChips(
         : { hint, label: `截止 ${formatShortTime(row.clearanceExpireTime)}` },
     );
   }
-  return chips.length > 0 ? chips : [{ label: '未配置规则' }];
+  return chips;
 }
 
 /** 是否已配置本专区的有效规则（用于区分「未配置规则」与「继承默认折扣」） */
@@ -614,28 +620,28 @@ export function resolveStateMeta(
       return {
         type: 'info',
         label: stateLabel || '已到期',
-        tip: '出清截止时间已过，C 端出清价不再生效',
+        tip: '商品的出清截止时间已过',
       };
     }
     case 'INVERTED': {
       return {
         type: 'danger',
-        label: stateLabel || '倒挂不生效',
-        tip: '按规则计算的专区价不低于商品售价，C 端不会展示该专区价',
+        label: '专区价未低于售价',
+        tip: '商品规则试算价须严格低于商品售价，等于售价也会被拦截',
       };
     }
     case 'NO_RULE': {
       return {
         type: 'warning',
         label: stateLabel || '未配规则',
-        tip: '商品未配置规则且专区默认折扣率为空，该商品不产生专区价',
+        tip: '商品规则和专区默认折扣暂时无法算出商品基础价',
       };
     }
     case 'NORMAL': {
       return {
         type: 'success',
-        label: stateLabel || '生效中',
-        tip: '专区价已生效，C 端按该价格展示',
+        label: '试算通过',
+        tip: '商品规则算出的价格低于售价。实际专区价按规格及同步结果计算',
       };
     }
     case 'OFF_SHELF': {

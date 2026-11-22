@@ -31,7 +31,10 @@ public final class ProductExcelConverter {
 	// 已随船供化下线（2026-09-29）；更新定位只支持 SKU 编号，不再有匹配方式列。
 	public static final List<Column> COLUMNS = List.of(new Column("商品中文名", "name"),
 			new Column("更新匹配值(SKU编号)", "matchValue"), new Column("二级类目ID", "categorySecondId"),
-			new Column("品牌ID", "brandId"), new Column("售价(元)", "salesPrice"), new Column("库存", "stock"));
+			new Column("品牌ID", "brandId"), new Column("售价(元)", "salesPrice"), new Column("库存", "stock"),
+            new Column("销售单位", "salesUnit"), new Column("基准量纲", "baseDimension"), new Column("基准单位", "baseUnit"),
+            new Column("每销售单位基准量", "baseQtyPerSalesUnit"), new Column("度量精度(EXACT/APPROX/UNKNOWN)", "quantityPrecision"),
+            new Column("起订量", "minOrderQty"), new Column("数量步长", "stepQty"), new Column("展示规格", "unitSpecText"), new Column("度量版本", "measurementRevision"));
 
 	private static final Map<String, String> TITLE_TO_FIELD = COLUMNS.stream()
 		.collect(LinkedHashMap::new, (map, column) -> map.put(column.title(), column.field()), Map::putAll);
@@ -68,7 +71,9 @@ public final class ProductExcelConverter {
 						record.put(field, toText(value));
 					}
 				});
-				rows.add(toRowDTO(record));
+				ProductImportRowDTO row = toRowDTO(record);
+				row.setRowNo(context.readRowHolder().getRowIndex() + 1);
+				rows.add(row);
 			}
 
 			@Override
@@ -90,6 +95,15 @@ public final class ProductExcelConverter {
 		row.setBrandId(orNull(record.get("brandId")));
 		row.setSalesPrice(toDecimal(record.get("salesPrice")));
 		row.setStock(toInteger(record.get("stock")));
+		row.setSalesUnit(orNull(record.get("salesUnit")));
+		row.setBaseDimension(orNull(record.get("baseDimension")));
+		row.setBaseUnit(orNull(record.get("baseUnit")));
+		row.setBaseQtyPerSalesUnit(toDecimal(record.get("baseQtyPerSalesUnit")));
+		row.setQuantityPrecision(orNull(record.get("quantityPrecision")));
+		row.setMinOrderQty(toInteger(record.get("minOrderQty")));
+		row.setStepQty(toInteger(record.get("stepQty")));
+		row.setUnitSpecText(orNull(record.get("unitSpecText")));
+		row.setMeasurementRevision(toLong(record.get("measurementRevision")));
 		return row;
 	}
 
@@ -129,6 +143,13 @@ public final class ProductExcelConverter {
 			return new BigDecimal("-1");
 		}
 	}
+
+    private static Long toLong(String value) {
+        String text = toText(value);
+        if (text == null) return null;
+        try { return new BigDecimal(text).longValueExact(); }
+        catch (NumberFormatException | ArithmeticException exception) { return -1L; }
+    }
 
 	private static Integer toInteger(String value) {
 		String text = toText(value);

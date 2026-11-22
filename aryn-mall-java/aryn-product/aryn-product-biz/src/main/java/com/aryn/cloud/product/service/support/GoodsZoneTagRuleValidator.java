@@ -57,6 +57,7 @@ public final class GoodsZoneTagRuleValidator {
 		if (dto == null) {
 			throw new ArynBusinessException("标签内容不能为空");
 		}
+		validateEditZone(dto);
 		if (dto.getMemberTag() == null && dto.getClearanceTag() == null
 				&& !Boolean.TRUE.equals(dto.getClearMemberRule())
 				&& !Boolean.TRUE.equals(dto.getClearClearanceRule())
@@ -81,6 +82,31 @@ public final class GoodsZoneTagRuleValidator {
 				validatePositive(item.getClearancePrice(), "SKU 出清价");
 				validateExpireTime(item.getClearanceExpireTime());
 			}
+		}
+	}
+
+	private static void validateEditZone(GoodsZoneTagSaveDTO dto) {
+		if (dto.getEditZone() == null) {
+			return;
+		}
+		boolean member = dto.getMemberTag() != null || dto.getMemberDiscountRate() != null
+				|| dto.getMemberPriceFixed() != null || dto.getMemberPriceFloor() != null
+				|| Boolean.TRUE.equals(dto.getClearMemberRule());
+		boolean clearance = dto.getClearanceTag() != null || dto.getClearancePrice() != null
+				|| dto.getClearanceDiscountRate() != null || dto.getClearanceExpireTime() != null
+				|| Boolean.TRUE.equals(dto.getClearClearanceRule());
+		switch (dto.getEditZone()) {
+			case "member" -> {
+				if (dto.getMemberTag() == null || clearance) {
+					throw new ArynBusinessException("会员专区编辑只能提交会员规则");
+				}
+			}
+			case "clearance" -> {
+				if (dto.getClearanceTag() == null || member) {
+					throw new ArynBusinessException("低价捡漏编辑只能提交出清规则");
+				}
+			}
+			default -> throw new ArynBusinessException("专区类型只支持 member / clearance");
 		}
 	}
 

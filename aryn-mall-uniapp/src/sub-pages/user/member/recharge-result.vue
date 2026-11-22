@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getRechargeOrder } from '@/sub-pages/api/user/recharge'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 

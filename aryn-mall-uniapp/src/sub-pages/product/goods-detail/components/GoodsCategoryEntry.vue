@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPage } from '@/api/product/spu'
 import { useCategoryLocateStore } from '@/store/categoryLocateStore'
 import { navigateToUrl } from '@/utils/tab-bar'

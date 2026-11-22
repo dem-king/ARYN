@@ -55,4 +55,7 @@ public class OrderCompleteEvent {
 	@Schema(description = "采购主体ID（scene=3 时企业轨成长值累计主体）")
 	private String buyerOrgId;
 
+	@Schema(description = "订单完成时间（确认收货；企业轨成长值归属月份按此计算，空回退消费时刻——存量消息兼容）")
+	private java.time.LocalDateTime completeTime;
+
 }

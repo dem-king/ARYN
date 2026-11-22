@@ -637,6 +637,26 @@
             "navigationStyle": "custom",
             "navigationBarTitleText": "新人专享"
           }
+        },
+        // #endif
+        {
+          "path": "promotion/calendar-special/index",
+          "type": "page",
+          "name": "calendar-special",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "档期特供"
+          }
+        },
+        // #ifdef H5 || MP-WEIXIN
+        {
+          "path": "order/procurement/index",
+          "type": "page",
+          "name": "procurement-workbench",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "采购清单"
+          }
         }
         // #endif
       ]

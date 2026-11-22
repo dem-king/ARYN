@@ -8,6 +8,12 @@ decoration:
 
 # 秒杀开抢提醒：template-id 为空时 C 端隐藏提醒入口，Job 只落库不发送。
 aryn:
+  campaign:
+    scan-ms: ${CAMPAIGN_SCAN_MS:5000}
+  ai:
+    runtime-tokens:
+      promotion: ${AI_RUNTIME_TOKEN_PROMOTION:}
+    allowed-private-hosts: ${AI_ALLOWED_PRIVATE_HOSTS:}
   # IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
   ip:
     enabled: ${ARYN_IP_ENABLED:true}

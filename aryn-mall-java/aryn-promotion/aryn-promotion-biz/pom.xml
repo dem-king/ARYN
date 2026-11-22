@@ -17,6 +17,8 @@
 
     <artifactId>aryn-promotion-biz</artifactId>
     <dependencies>
+        <dependency><groupId>com.aryn</groupId><artifactId>aryn-common-ai</artifactId></dependency>
+        <dependency><groupId>com.aryn</groupId><artifactId>aryn-upms-api</artifactId></dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-promotion-api</artifactId>
@@ -108,6 +110,11 @@
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-order-api</artifactId>
+        </dependency>
+        <!--靠港档期窗口（vessel_call eta~etd）与协议价船舶上下文成员校验-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-vessel-api</artifactId>
         </dependency>
         <!--Excel 导出：销售业绩单 / 发放台账 / 业绩报表-->
         <dependency>

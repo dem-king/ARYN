@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { getPage as getAppraisePage, getCount } from '@/sub-pages/api/product/appraise'
+import { useI18n } from '@/sub-pages/locales'
 import { formatTime } from '@/utils/index'
 
 interface Props {
@@ -13,6 +13,7 @@ interface AppraiseCount {
   badCount: number
   negativeCount: number
   imageCount: number
+  tags: Array<{ tag: string, count: number }>
 }
 interface Emits {
   (e: 'loaded'): void
@@ -32,6 +33,7 @@ function emptyCount(): AppraiseCount {
     badCount: 0,
     negativeCount: 0,
     imageCount: 0,
+    tags: [],
   }
 }
 
@@ -69,6 +71,7 @@ async function loadReviews(id: string) {
       badCount: Number(count.badCount) || 0,
       negativeCount: Number(count.negativeCount) || 0,
       imageCount: Number(count.imageCount) || 0,
+      tags: Array.isArray(count.tags) ? count.tags : [],
     }
   }
   if (pageResult.status === 'fulfilled')
@@ -206,7 +209,7 @@ defineExpose({
     </view>
 
     <template v-if="hasReviews">
-      <view v-if="reviewTotal > 0" class="comment-summary">
+      <view v-if="reviewTotal >= 3" class="comment-summary">
         <view class="comment-summary__rate">
           <view class="comment-summary__rate-line">
             <wd-icon name="star-filled" size="20rpx" color="var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237))" />
@@ -227,6 +230,21 @@ defineExpose({
             <text class="comment-chip__label">{{ option.label }}</text>
             <text class="comment-chip__count">{{ formatCount(option.count) }}</text>
           </view>
+        </view>
+      </view>
+
+      <view v-if="appraiseCount.tags.length" class="mt-2 flex flex-wrap gap-2">
+        <view
+          v-for="tag in appraiseCount.tags"
+          :key="tag.tag"
+          class="comment-chip"
+        >
+          <text class="comment-chip__label">
+            {{ tag.tag }}
+          </text>
+          <text class="comment-chip__count">
+            {{ formatCount(tag.count) }}
+          </text>
         </view>
       </view>
 

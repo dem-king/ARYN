@@ -36,7 +36,7 @@ const QUICK_CART_BUTTON = 'src/components/quick-cart-button/index.vue'
 const USE_QUICK_CART = 'src/composables/useQuickCart.ts'
 const QUICK_CART = 'src/utils/quick-cart.ts'
 
-describe('p3 近N天最低价上卡（四张卡统一，主价旁描边小标）', () => {
+describe('p3 近N天最低价上卡（四张卡统一：社证同族 chip + 营销标签行）', () => {
   const TABS = 'src/components/diy/diy-goods-tabs/index.vue'
   const DIY_GOODS = 'src/components/diy/diy-goods/index.vue'
 
@@ -49,6 +49,62 @@ describe('p3 近N天最低价上卡（四张卡统一，主价旁描边小标）
       // 前端不做门槛/取整：不得出现自行拼「近14天」文案
       expect(code, file).not.toMatch(/近14天最低价/)
     }
+  })
+
+  it('标签与社证同族、同处营销标签行：渲染在价格行之前，样式走 hot 令牌', () => {
+    // 价格行标记（模板里都在标签行之后）：tag 必须排在它前面，否则会掉进价格行换行
+    const priceRowMarker: Record<string, string> = {
+      [GOODS_LIST_PANEL]: 'class="goods-price"',
+      [WATERFALL]: 'class="waterfall-price"',
+      [DIY_GOODS]: 'class="goods-info-price"',
+      [TABS]: 'class="goods-tabs__price-line"',
+    }
+    for (const file of [GOODS_LIST_PANEL, WATERFALL, DIY_GOODS, TABS]) {
+      const code = stripComments(source(file))
+      const tagAt = code.indexOf('priceTagText')
+      const priceAt = code.indexOf(priceRowMarker[file])
+      expect(tagAt, file).toBeGreaterThan(-1)
+      expect(priceAt, file).toBeGreaterThan(tagAt)
+      // 不得回退到已废弃的浅红描边贴纸；身份必须走浅桃底暖橙字的 hot 令牌（与社证同款）
+      expect(code, file).not.toMatch(/goods-tag-low/)
+      expect(code, file).toMatch(/\.(?:goods-tabs__|goods-)?price-tag\s*\{[^}]*@include goods-tag-hot;/)
+      // 图标同族：暖橙折线，不再用红系贴纸图标
+      expect(code, file).toMatch(/\.(?:goods-tabs__|goods-)?price-tag-icon\s*\{[^}]*@include goods-tag-hot-icon;/)
+    }
+  })
+
+  it('标签行与价格之间的垂直间距收紧：有 chip 才收边，无 chip 保持原间距', () => {
+    const tabs = stripComments(source(TABS))
+    // 判据收敛成函数，v-if 与价格区收边共用，避免两处条件漂移
+    expect(tabs).toContain('v-if="hasCardTagRow(item)"')
+    expect(tabs).toContain('goods-tabs__meta--tagged')
+    // 标签行自身不再留下边距：否则与价格区上间距叠成近 20rpx 的空档
+    expect(tabs).toMatch(/\.goods-tabs__tag-row\s*\{[^}]*margin:\s*8rpx\s+20rpx\s+0;/)
+    // 统一 13rpx + 价格列顶对齐：有无「会员专享」引导行的卡都落在同一间距
+    expect(tabs).toMatch(/\.goods-tabs__meta--tagged\s*\{[^}]*padding-top:\s*13rpx;/)
+    expect(tabs).toMatch(/\.goods-tabs__meta--tagged\s+\.goods-tabs__meta-text\s*\{[^}]*align-self:\s*flex-start;/)
+
+    const diy = stripComments(source(DIY_GOODS))
+    expect(diy).toContain('v-if="hasInfoTagRow(item)"')
+    expect(diy).toMatch(/goods-info-price--tagged/)
+    expect(diy).toMatch(/goods-info-price--tagged\s*\{[^}]*margin-top:\s*7px;/)
+
+    // 分类 / 列表 / 搜索卡：chip 到价格收边，无 chip 的卡保持原 12rpx
+    const list = stripComments(source(GOODS_LIST_PANEL))
+    expect(list).toContain('v-if="hasTagRow(item)"')
+    expect(list).toContain('goods-bottom--tagged')
+    expect(list).toMatch(/\.goods-bottom--tagged\s*\{[^}]*padding-top:\s*13rpx;/)
+    expect(list).toMatch(/\.goods-bottom--tagged\s+\.goods-price\s*\{[^}]*align-self:\s*flex-start;/)
+    expect(list).toMatch(/\.goods-bottom\s*\{[^}]*padding-top:\s*12rpx;/)
+
+    // 瀑布流推荐位：有 chip 时统一 13rpx + 价格列顶对齐，无 chip 保持 10rpx
+    const wf = stripComments(source(WATERFALL))
+    expect(wf).toContain('v-if="hasTagRow(item)"')
+    expect(wf).toContain('waterfall-price-block--tagged')
+    expect(wf).toContain('waterfall-price-col')
+    expect(wf).toMatch(/\.waterfall-price-block--tagged\s*\{[^}]*padding-top:\s*13rpx;/)
+    expect(wf).toMatch(/\.waterfall-price-block--tagged\s+\.waterfall-price-col\s*\{[^}]*align-self:\s*flex-start;/)
+    expect(wf).toMatch(/\.waterfall-price-block\s*\{[^}]*padding-top:\s*10rpx;/)
   })
 
   it('priceTagText 由 useZonePrices 管线透传（cardTagOf 带 priceTagText）', () => {

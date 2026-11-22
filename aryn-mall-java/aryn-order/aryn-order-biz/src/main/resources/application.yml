@@ -22,9 +22,15 @@ spring:
     active: @profiles.active@
 
 # 接龙报货 AI 助手（OpenAI 兼容协议，默认 DeepSeek；GLM 等同协议供应商换 base-url/model 即可）。
-# api-key 留空时 isAvailable=false，整条链路自动走纯规则解析/匹配，零影响。
-# key 建议经环境变量注入（compose-boot.yml 已透传 AI_API_KEY，可放 aryn-mall-java/.env）。
+# 模型/端点/凭证由平台启用版本读取；旧AI_*环境变量仅用于显式导入草稿。
 aryn:
+  procurement:
+    scan-ms: ${PROCUREMENT_SCAN_MS:5000}
+    max-rows: ${PROCUREMENT_MAX_ROWS:2000}
+  ai:
+    runtime-tokens:
+      order: ${AI_RUNTIME_TOKEN_ORDER:}
+    allowed-private-hosts: ${AI_ALLOWED_PRIVATE_HOSTS:}
   # IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
   ip:
     enabled: ${ARYN_IP_ENABLED:true}
@@ -43,10 +49,6 @@ aryn:
     enabled: ${AI_ENABLED:true}
     # AI 别名召回（缺品备胎，默认关）：缺品候选主路径是商品域向量召回
     alias-recall-enabled: ${AI_ALIAS_RECALL_ENABLED:false}
-    api-key: ${AI_API_KEY:}
-    model: ${AI_MODEL:deepseek-chat}
-    base-url: ${AI_BASE_URL:https://api.deepseek.com}
-    timeout-ms: ${AI_TIMEOUT_MS:20000}
 
 # 营销优惠叠加策略（活动价 × 优惠券 × 积分抵现）：enabled=false 时所有活动商品视为可叠（灰度回滚开关）。
 # cloud 模式的覆盖值放 nacos（order 服务的 {spring.application.name}-{profile}.yml），此处仅放默认值。

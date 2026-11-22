@@ -32,6 +32,17 @@
             </if>
         </where>
     </select>
+    <select id="selectGoodsAppraiseTagGroups" resultType="com.aryn.cloud.product.api.vo.AppraiseCountVO$TagCount">
+        SELECT goods_appraise.tags AS tag, COUNT(*) AS count
+        FROM goods_appraise
+        WHERE goods_appraise.del_flag = '0' AND goods_appraise.appraise_type = 0
+          AND goods_appraise.spu_id = #{query.spuId}
+          AND goods_appraise.tags IS NOT NULL AND goods_appraise.tags != ''
+        <if test="query.userId != null and query.userId != ''">
+            AND goods_appraise.user_id = #{query.userId}
+        </if>
+        GROUP BY goods_appraise.tags
+    </select>
     <select id="selectAppraisePage" resultType="com.aryn.cloud.product.api.entity.GoodsAppraise">
         SELECT
             goods_spu.`name` AS spuName,

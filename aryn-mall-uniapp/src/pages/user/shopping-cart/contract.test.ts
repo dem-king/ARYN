@@ -285,8 +285,9 @@ describe('shopping cart limited-discount price contract', () => {
 
   it('keeps newbie price ahead of limited discount and totals on the same unit price', () => {
     const cart = source(CART_PAGE)
-    // 优先级：新人价 > 限时折扣 > 售价（与后端 OrderPriceComputeService 一致）
-    const unit = functionSource(cart, 'cartUnitPrice')
+    // 优先级：新人价 > 限时折扣 > 售价（与后端 OrderPriceComputeService 一致）；
+    // B2B 价格层前置判定在 cartUnitPrice，既有链路收敛在 baseCartUnitPrice
+    const unit = functionSource(cart, 'baseCartUnitPrice')
     const newbieAt = unit.indexOf('showNewbiePrice')
     const discountAt = unit.indexOf('discountUnitPrice')
     expect(newbieAt).toBeGreaterThan(-1)

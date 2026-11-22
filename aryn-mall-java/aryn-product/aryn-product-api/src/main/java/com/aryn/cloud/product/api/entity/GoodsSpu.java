@@ -7,6 +7,10 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.common.myabtis.handler.JsonArrayStringTypeHandler;
 import com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler;
+import com.aryn.cloud.product.api.hanlder.GoodsDetailSectionListTypeHandler;
+import com.aryn.cloud.product.api.hanlder.GoodsParamListTypeHandler;
+import com.aryn.cloud.product.api.hanlder.GoodsProfileTypeHandler;
+import com.aryn.cloud.product.api.hanlder.ServiceTagListTypeHandler;
 import com.aryn.cloud.product.api.vo.GoodsSocialBubbleVO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -54,6 +58,38 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@Schema(description = "商品属性标签（商详首屏属性卡）")
 	@TableField(value = "attr_tags", typeHandler = GoodsAttrTagListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
 	private List<GoodsAttrTag> attrTags;
+
+	@Schema(description = "商品参数")
+	@TableField(value = "params_json", typeHandler = GoodsParamListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
+	private List<GoodsParam> params;
+
+	/**
+	 * 商品档案：配料、营养、过敏原、执行标准、认证。
+	 *
+	 * <p>与 params_json 分工：参数是首屏快速决策的短文本，本字段只承载食品类目
+	 * 才需要展开的深层信息，避免商详「商品档案」弹层与「商品参数」卡重复。</p>
+	 */
+	@Schema(description = "商品档案（配料/营养/标准）")
+	@TableField(value = "goods_profile", typeHandler = GoodsProfileTypeHandler.class, jdbcType = JdbcType.VARCHAR)
+	private GoodsProfile goodsProfile;
+
+	/**
+	 * 商详结构化详情段落：产地/工艺、储存/食用、适用场景等。
+	 *
+	 * <p>每段标题 + 纯文本 + 可选一张图，按顺序在「商品详情」区渲染；
+	 * 为空时不影响原有商品描述。</p>
+	 */
+	@Schema(description = "结构化详情段落")
+	@TableField(value = "detail_sections", typeHandler = GoodsDetailSectionListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
+	private List<GoodsDetailSection> detailSections;
+
+	/**
+	 * 服务承诺标签（商详首屏承诺行）：只存 code，端上按 code 出中英文案。
+	 * 空/缺省时端上回退全局三项（正品保障/破损包赔/可开发票），老商品也有承诺行。
+	 */
+	@Schema(description = "服务承诺标签（code 数组，最多 4 个）")
+	@TableField(value = "service_tags", typeHandler = ServiceTagListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
+	private List<String> serviceTags;
 
 	@Schema(description = "商品图地址")
 	@TableField(typeHandler = JsonArrayStringTypeHandler.class)

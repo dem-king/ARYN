@@ -42,6 +42,8 @@ export default {
     memberBadge: '会员价',
     memberGuide: '会员专享 ¥{price}',
     clearanceBadge: '捡漏价',
+    policyBadge: '协议价',
+    specialBadge: '档期特供',
     clearanceExpireHint: '捡漏价 · {date} 前有效',
 
     // 商品卡片

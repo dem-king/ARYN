@@ -2561,3 +2561,215 @@ INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000005', '159022980063363481
 INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000006', '1590229800633634816', '2026071709000000003', '2026-07-17 09:10:00', 'system');
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- AI 配置完整基线
+-- AI 配置与不可变凭证版本；供应商/模型/用途作为单个版本JSON原子保存。
+-- 可重复执行，不含有效密钥，不覆盖已配置数据。
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `ai_config_version` (
+  `id` varchar(64) NOT NULL,
+  `document` longtext NOT NULL,
+  `digest` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_credential_version` (
+  `id` varchar(64) NOT NULL,
+  `provider_id` varchar(64) NOT NULL,
+  `sealed_value` text NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_runtime_state` (
+  `id` varchar(64) NOT NULL,
+  `draft_version` varchar(64) DEFAULT NULL,
+  `active_version` varchar(64) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `emergency_epoch` bigint NOT NULL DEFAULT 0,
+  `disabled` tinyint NOT NULL DEFAULT 0,
+  `disabled_providers` text NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_capability_test` (
+  `id` varchar(64) NOT NULL,
+  `version_id` varchar(64) NOT NULL,
+  `model_id` varchar(64) NOT NULL,
+  `passed` tinyint NOT NULL,
+  `status` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_config_operation` (
+  `id` varchar(64) NOT NULL,
+  `operation` varchar(40) NOT NULL,
+  `version_id` varchar(64) DEFAULT NULL,
+  `previous_version` varchar(64) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_call_log` (
+  `id` varchar(64) NOT NULL,
+  `usage_code` varchar(40) NOT NULL,
+  `task_id` varchar(100) NOT NULL,
+  `version_id` varchar(64) NOT NULL,
+  `provider_id` varchar(64) NOT NULL,
+  `model_id` varchar(200) NOT NULL,
+  `result` varchar(40) NOT NULL,
+  `total_tokens` bigint DEFAULT NULL,
+  `reserved_tokens` bigint NOT NULL DEFAULT 0,
+  `elapsed_millis` bigint DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 平台专属菜单，普通租户套餐不得授权 sys_key。
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2471100000000000000','AI 配置','upms:ai-config:query','/platform/ai-config',NULL,'1881217134381326338','carbon:machine-learning','system/ai-config/index',110,'0',NOW(),'0','0','sys_key','system'),
+('2471100000000000001','AI 配置查询','upms:ai-config:query',NULL,NULL,'2471100000000000000','','',1,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000002','AI 配置编辑','upms:ai-config:edit',NULL,NULL,'2471100000000000000','','',2,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000003','AI 能力测试','upms:ai-config:test',NULL,NULL,'2471100000000000000','','',3,'1',NOW(),'0','0','sys_key','system'),
+('2471100000000000004','AI 启用与停用','upms:ai-config:activate',NULL,NULL,'2471100000000000000','','',4,'1',NOW(),'0','0','sys_key','system');
+
+CREATE TABLE IF NOT EXISTS `ai_usage_budget` (
+  `id` varchar(64) NOT NULL,
+  `usage_code` varchar(40) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_usage` (`tenant_id`,`usage_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 合送排程菜单（与1005增量一致）
+USE `aryn_upms`;
+SET NAMES utf8mb4;
+-- 合送排程复用原波次权限；只向原有同项权限的租户/角色继承，不扩大职责。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2521100000000000000','合送排程',NULL,'/order/delivery-group',NULL,'2110000000000000000','lucide:calendar-clock','order/delivery-group/index',8,'0',NOW(),'0','0','app_base','system'),
+('2521100000000000001','排程查询','fulfillment:wave:page',NULL,NULL,'2521100000000000000','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2521100000000000002','排程管理','fulfillment:wave:save',NULL,NULL,'2521100000000000000','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2521100000000000003','开始拣货','fulfillment:wave:pick',NULL,NULL,'2521100000000000000','',NULL,3,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(gr.tenant_id,':delivery-group:',m.id)),gr.tenant_id,m.id,NOW(),'system'
+FROM sys_menu m JOIN sys_menu peer ON (m.permission=peer.permission OR (m.id='2521100000000000000' AND peer.permission='fulfillment:wave:page'))
+JOIN sys_tenant_menu gr ON gr.menu_id=peer.id
+WHERE m.id IN ('2521100000000000000','2521100000000000001','2521100000000000002','2521100000000000003') AND peer.id NOT LIKE '252110000000000000%';
+INSERT IGNORE INTO sys_role_menu (id,role_id,menu_id,create_time,tenant_id)
+SELECT MD5(CONCAT(gr.tenant_id,':',gr.role_id,':delivery-group:',m.id)),gr.role_id,m.id,NOW(),gr.tenant_id
+FROM sys_menu m JOIN sys_menu peer ON (m.permission=peer.permission OR (m.id='2521100000000000000' AND peer.permission='fulfillment:wave:page'))
+JOIN sys_role_menu gr ON gr.menu_id=peer.id
+WHERE m.id IN ('2521100000000000000','2521100000000000001','2521100000000000002','2521100000000000003') AND peer.id NOT LIKE '252110000000000000%';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 情景模拟独立权限
+-- 模拟权限独立于活动发布权限；由管理员分配角色，不自动扩展既有角色职责。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2541100000000000001','活动情景模拟','promotion:campaign:simulate',NULL,NULL,m.id,'',NULL,90,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-simulate')),g.tenant_id,'2541100000000000001',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+
+-- 2026-11-15 活动包独立操作权限
+-- 权限由管理员显式分配，不自动授予角色。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000001','活动包编辑','promotion:campaign:edit',NULL,NULL,m.id,'',NULL,91,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-edit')),g.tenant_id,'2551100000000000001',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000002','活动方案生成','promotion:campaign:generate',NULL,NULL,m.id,'',NULL,92,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-generate')),g.tenant_id,'2551100000000000002',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2551100000000000003','活动包发布','promotion:campaign:publish',NULL,NULL,m.id,'',NULL,93,'1',NOW(),'0','0','app_base','system'
+FROM sys_menu m WHERE m.component='promotion/ship-supply/index' AND m.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-publish')),g.tenant_id,'2551100000000000003',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id
+WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+
+-- 采购营销工作台，权限显式分配
+-- 只提供可分配入口；不向角色自动授予AI生成、模拟、发布或价格权限。
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by)
+SELECT '2591100000000000000','采购营销工作台',NULL,'/promotion/campaign-workbench',NULL,p.parent_id,'lucide:clipboard-check','promotion/campaign-workbench/index',3,'0',NOW(),'0','0','app_base','system'
+FROM sys_menu p WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0' LIMIT 1;
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench')),g.tenant_id,'2591100000000000000',NOW(),'system'
+FROM sys_tenant_menu g JOIN sys_menu p ON p.id=g.menu_id WHERE p.component='promotion/ship-supply/index' AND p.del_flag='0';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000001','活动包编辑','promotion:campaign:edit',NULL,NULL,'2591100000000000000','',NULL,1,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:edit')),g.tenant_id,'2591100000000000001',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000002','活动包生成','promotion:campaign:generate',NULL,NULL,'2591100000000000000','',NULL,2,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:generate')),g.tenant_id,'2591100000000000002',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000003','活动包模拟','promotion:campaign:simulate',NULL,NULL,'2591100000000000000','',NULL,3,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:simulate')),g.tenant_id,'2591100000000000003',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';
+INSERT IGNORE INTO sys_menu (id,name,permission,path,redirect,parent_id,icon,component,sort,type,create_time,outer_status,del_flag,application_key,create_by) VALUES
+('2591100000000000004','活动包发布','promotion:campaign:publish',NULL,NULL,'2591100000000000000','',NULL,4,'1',NOW(),'0','0','app_base','system');
+INSERT IGNORE INTO sys_tenant_menu (id,tenant_id,menu_id,create_time,create_by)
+SELECT MD5(CONCAT(g.tenant_id,':campaign-workbench:publish')),g.tenant_id,'2591100000000000004',NOW(),'system'
+FROM sys_tenant_menu g WHERE g.menu_id='2591100000000000000';

@@ -62,7 +62,8 @@ describe('shopping cart member price contract', () => {
   it('keeps member > newbie > discount priority and totals on the same unit price', () => {
     const cart = source(CART_PAGE)
 
-    const unit = functionSource(cart, 'cartUnitPrice')
+    // B2B 价格层（协议价/特供）在 cartUnitPrice 前置判定，既有链路收敛在 baseCartUnitPrice
+    const unit = functionSource(cart, 'baseCartUnitPrice')
     const memberAt = unit.indexOf('showMemberPrice')
     const newbieAt = unit.indexOf('showNewbiePrice')
     const discountAt = unit.indexOf('discountUnitPrice')
@@ -118,7 +119,7 @@ describe('shopping cart clearance price priority contract', () => {
   const CART_EN = 'src/locales/modules/cart.en-US.ts'
 
   it('keeps clearance ahead of member in the row unit price', () => {
-    const unit = functionSource(source(CART_PAGE), 'cartUnitPrice')
+    const unit = functionSource(source(CART_PAGE), 'baseCartUnitPrice')
     // 出清价胜出时直接返回出清价（不再允许会员价/新人价/折扣覆盖）
     const clearanceAt = unit.indexOf('clearanceWins(row)')
     const memberAt = unit.indexOf('member.showMemberPrice')
@@ -129,12 +130,12 @@ describe('shopping cart clearance price priority contract', () => {
 
   it('badge follows the same clearance-first branch as the main price', () => {
     const cart = source(CART_PAGE)
-    // 角标顺序：捡漏价 → 会员价 → 新人价 → 折扣
-    expect(cart).toContain('v-if="clearanceWins(goods)"')
+    // 角标顺序：协议价 → 档期特供 → 捡漏价 → 会员价 → 新人价 → 折扣（与 cartUnitPrice 同源）
+    expect(cart).toContain('v-else-if="clearanceWins(goods)"')
     expect(cart).toContain('t(\'cart.clearanceBadge\')')
     expect(cart).toContain('clearance-badge')
 
-    const clearanceBadgeAt = cart.indexOf('v-if="clearanceWins(goods)"')
+    const clearanceBadgeAt = cart.indexOf('v-else-if="clearanceWins(goods)"')
     const memberBadgeAt = cart.indexOf('memberDisplayOf(goods).showMemberPrice')
     expect(clearanceBadgeAt).toBeGreaterThan(-1)
     expect(memberBadgeAt).toBeGreaterThan(clearanceBadgeAt)

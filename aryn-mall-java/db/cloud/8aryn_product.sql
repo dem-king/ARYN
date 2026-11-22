@@ -277,17 +277,18 @@ CREATE TABLE `goods_spu`  (
                               `sales_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '商品价格（元）',
                               `original_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '商品原价（元）',
                               `cost_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '成本价（元）',
+                              `params_json` JSON NULL COMMENT '商品参数（label/value 数组）',
                               PRIMARY KEY (`id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品spu' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of goods_spu
 -- ----------------------------
-INSERT INTO `goods_spu` VALUES ('1912867577569386497', 'Apple/苹果 iPhone 16 Pro Max（A3297）', NULL, '', '1', 1073, '1912863400222957569', '1912863683464306689', '2025-04-17 21:55:45', '2025-07-17 00:40:09', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'admin', NULL, 1129, '0', 0.00, 9299.00, 9299.00, 11299.00);
-INSERT INTO `goods_spu` VALUES ('1912870113080680449', '小米15 国家补贴 徕卡光学Summilux高速镜头 骁龙8至尊版移动平台', NULL, '', '1', 245, '1912863400222957569', '1912863683464306689', '2025-04-17 22:05:49', '2025-07-17 00:06:18', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'admin', NULL, 69954, '0', 0.00, 9999.00, 9999.00, 9999.00);
-INSERT INTO `goods_spu` VALUES ('1912882761411239938', '大疆 DJI Mini 3 优选迷你航拍机 智能高清拍摄无人机 小型遥控飞机 兼容带屏遥控器 大疆无人机', '', '', '1', 145, '1912863400222957569', '1912864294511484929', '2025-04-17 22:56:05', '2025-06-21 00:05:10', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '0', '1590229800633634816', 'admin', NULL, 973, '2', 0.00, 5999.00, 5999.00, 5999.00);
-INSERT INTO `goods_spu` VALUES ('1925543036622884866', '华为MateBook Fold 非凡大师 笔记本电脑 鸿蒙操作系统 超轻薄折叠电脑双层OLED显示屏', '华为MateBook Fold 非凡大师 笔记本电脑 鸿蒙操作系统 超轻薄折叠电脑双层OLED显示屏', '', '1', 2003, '1912863400222957569', '1925541056051564546', '2025-05-22 21:23:29', '2025-06-21 00:05:10', '0', '<p>2133333333333333333333123</p>', '1', '1590229800633634816', 'system', NULL, 3997, '0', 0.00, 25999.00, 25999.00, 25999.00);
-INSERT INTO `goods_spu` VALUES ('1925545886404988929', 'HUAWEI Mate X6 分布式玄武架构 鸿蒙大屏AI 红枫原色影像折叠旗舰手机 折叠屏', NULL, '', '1', 2000, '1912863400222957569', '1912863683464306689', '2025-05-22 21:34:49', '2025-06-22 22:02:32', '0', '<p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'system', 'admin', 0, '0', 0.00, 0.00, 0.00, 0.00);
+INSERT INTO `goods_spu` (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`, `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `update_by`, `stock`, `freight_type`, `fixed_freight_price`, `sales_price`, `original_price`, `cost_price`) VALUES ('1912867577569386497', 'Apple/苹果 iPhone 16 Pro Max（A3297）', NULL, '', '1', 1073, '1912863400222957569', '1912863683464306689', '2025-04-17 21:55:45', '2025-07-17 00:40:09', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'admin', NULL, 1129, '0', 0.00, 9299.00, 9299.00, 11299.00);
+INSERT INTO `goods_spu` (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`, `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `update_by`, `stock`, `freight_type`, `fixed_freight_price`, `sales_price`, `original_price`, `cost_price`) VALUES ('1912870113080680449', '小米15 国家补贴 徕卡光学Summilux高速镜头 骁龙8至尊版移动平台', NULL, '', '1', 245, '1912863400222957569', '1912863683464306689', '2025-04-17 22:05:49', '2025-07-17 00:06:18', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'admin', NULL, 69954, '0', 0.00, 9999.00, 9999.00, 9999.00);
+INSERT INTO `goods_spu` (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`, `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `update_by`, `stock`, `freight_type`, `fixed_freight_price`, `sales_price`, `original_price`, `cost_price`) VALUES ('1912882761411239938', '大疆 DJI Mini 3 优选迷你航拍机 智能高清拍摄无人机 小型遥控飞机 兼容带屏遥控器 大疆无人机', '', '', '1', 145, '1912863400222957569', '1912864294511484929', '2025-04-17 22:56:05', '2025-06-21 00:05:10', '0', '<p><br></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '0', '1590229800633634816', 'admin', NULL, 973, '2', 0.00, 5999.00, 5999.00, 5999.00);
+INSERT INTO `goods_spu` (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`, `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `update_by`, `stock`, `freight_type`, `fixed_freight_price`, `sales_price`, `original_price`, `cost_price`) VALUES ('1925543036622884866', '华为MateBook Fold 非凡大师 笔记本电脑 鸿蒙操作系统 超轻薄折叠电脑双层OLED显示屏', '华为MateBook Fold 非凡大师 笔记本电脑 鸿蒙操作系统 超轻薄折叠电脑双层OLED显示屏', '', '1', 2003, '1912863400222957569', '1925541056051564546', '2025-05-22 21:23:29', '2025-06-21 00:05:10', '0', '<p>2133333333333333333333123</p>', '1', '1590229800633634816', 'system', NULL, 3997, '0', 0.00, 25999.00, 25999.00, 25999.00);
+INSERT INTO `goods_spu` (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`, `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `update_by`, `stock`, `freight_type`, `fixed_freight_price`, `sales_price`, `original_price`, `cost_price`) VALUES ('1925545886404988929', 'HUAWEI Mate X6 分布式玄武架构 鸿蒙大屏AI 红枫原色影像折叠旗舰手机 折叠屏', NULL, '', '1', 2000, '1912863400222957569', '1912863683464306689', '2025-05-22 21:34:49', '2025-06-22 22:02:32', '0', '<p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p><p><img src=\"\" alt=\"\" data-href=\"\" style=\"\"/></p>', '1', '1590229800633634816', 'system', 'admin', 0, '0', 0.00, 0.00, 0.00, 0.00);
 
 -- ----------------------------
 -- Table structure for undo_log
@@ -312,3 +313,110 @@ CREATE TABLE `undo_log`  (
 -- ----------------------------
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- 持久向量索引；查询模型与generation固定成套，不在用户查询内重建目录。
+SET NAMES utf8mb4;
+CREATE TABLE IF NOT EXISTS `catalog_vector_generation` (
+  `id` varchar(64) NOT NULL,
+  `config_version` varchar(64) NOT NULL,
+  `model_fingerprint` varchar(64) NOT NULL,
+  `dimension` int NOT NULL,
+  `catalog_fingerprint` varchar(64) DEFAULT NULL,
+  `status` varchar(32) NOT NULL,
+  `cursor_id` varchar(64) DEFAULT NULL,
+  `indexed_rows` int NOT NULL DEFAULT 0,
+  `expected_rows` int NOT NULL DEFAULT 0,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `error_code` varchar(64) DEFAULT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `catalog_vector_item` (
+  `id` varchar(64) NOT NULL,
+  `generation_id` varchar(64) NOT NULL,
+  `sku_id` varchar(64) NOT NULL,
+  `source_name` varchar(500) NOT NULL,
+  `vector_json` longtext NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_generation_sku` (`tenant_id`,`generation_id`,`sku_id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `catalog_vector_state` (
+  `id` varchar(64) NOT NULL,
+  `generation_id` varchar(64) DEFAULT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `tenant_id` varchar(32) NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  `create_by` varchar(64) DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_created` (`tenant_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `product_sku_identifier` (
+ `id` varchar(64) NOT NULL,
+ `sku_id` varchar(64) NOT NULL,
+ `identifier_type` varchar(24) NOT NULL,
+ `display_value` varchar(200) NOT NULL,
+ `normalized_value` varchar(200) NOT NULL,
+ `status` varchar(16) NOT NULL DEFAULT 'PENDING',
+ `source` varchar(32) NOT NULL,
+ `review_by` varchar(64) DEFAULT NULL,
+ `review_time` datetime DEFAULT NULL,
+ `revision` bigint NOT NULL DEFAULT 0,
+ `tenant_id` varchar(32) NOT NULL,
+ `del_flag` char(1) NOT NULL DEFAULT '0',
+ `create_by` varchar(64) DEFAULT NULL,
+ `update_by` varchar(64) DEFAULT NULL,
+ `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ `active_value` varchar(200) GENERATED ALWAYS AS (CASE WHEN del_flag='0' THEN normalized_value ELSE NULL END) STORED,
+ PRIMARY KEY (`id`),
+ UNIQUE KEY `uk_identifier_active` (`tenant_id`,`identifier_type`,`active_value`),
+ KEY `idx_identifier_sku` (`tenant_id`,`sku_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 商品基础种子插入后再追加列，兼容历史位置式INSERT。
+-- 不从历史标题推断净含量；旧商品仍可按整数销售件购买。
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='sales_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `sales_unit` varchar(24) NOT NULL DEFAULT ''件''', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_dimension');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_dimension` varchar(16) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_unit` varchar(8) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='base_qty_per_sales_unit');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `base_qty_per_sales_unit` decimal(24,9) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='quantity_precision');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `quantity_precision` varchar(16) NOT NULL DEFAULT ''UNKNOWN''', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='min_order_qty');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `min_order_qty` int NOT NULL DEFAULT 1', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='step_qty');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `step_qty` int NOT NULL DEFAULT 1', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='unit_spec_text');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `unit_spec_text` varchar(500) DEFAULT NULL', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;
+SET @measurement_column_exists=(SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='goods_sku' AND COLUMN_NAME='measurement_revision');
+SET @measurement_ddl=IF(@measurement_column_exists=0, 'ALTER TABLE `goods_sku` ADD COLUMN `measurement_revision` bigint NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE measurement_stmt FROM @measurement_ddl; EXECUTE measurement_stmt; DEALLOCATE PREPARE measurement_stmt;

@@ -1,7 +1,9 @@
+import type { SkuMeasurementForm } from './goods-spu';
+
 import { requestClient } from '#/api/request';
 
 /** 导入行结构（与后端 ProductImportRowDTO 对齐；船供资料列已随船供化下线） */
-export interface ProductImportRow {
+export interface ProductImportRow extends SkuMeasurementForm {
   rowNo?: number;
   name: string;
   matchValue?: string;
@@ -118,13 +120,41 @@ export function parseCsvToRows(content: string): ProductImportRow[] {
     });
     return {
       rowNo: index + 1,
-      name: record.name ?? '',
+      name: record.name || record['商品中文名'] || '',
       matchValue:
         record['更新匹配值(SKU编号)'] || record.matchValue || undefined,
       categorySecondId: record.categorySecondId || undefined,
       brandId: record.brandId || undefined,
-      salesPrice: record.salesPrice ? Number(record.salesPrice) : undefined,
-      stock: record.stock ? Number(record.stock) : undefined,
+      salesPrice:
+        record.salesPrice || record['售价(元)']
+          ? Number(record.salesPrice || record['售价(元)'])
+          : undefined,
+      stock:
+        record.stock || record['库存']
+          ? Number(record.stock || record['库存'])
+          : undefined,
+      salesUnit: record.salesUnit || record['销售单位'] || undefined,
+      baseDimension: record.baseDimension || record['基准量纲'] || undefined,
+      baseUnit: record.baseUnit || record['基准单位'] || undefined,
+      baseQtyPerSalesUnit:
+        record.baseQtyPerSalesUnit || record['每销售单位基准量'] || undefined,
+      quantityPrecision:
+        record.quantityPrecision ||
+        record['度量精度(EXACT/APPROX/UNKNOWN)'] ||
+        undefined,
+      minOrderQty:
+        record.minOrderQty || record['起订量']
+          ? Number(record.minOrderQty || record['起订量'])
+          : undefined,
+      stepQty:
+        record.stepQty || record['数量步长']
+          ? Number(record.stepQty || record['数量步长'])
+          : undefined,
+      unitSpecText: record.unitSpecText || record['展示规格'] || undefined,
+      measurementRevision:
+        record.measurementRevision || record['度量版本']
+          ? Number(record.measurementRevision || record['度量版本'])
+          : undefined,
     } as ProductImportRow;
   });
 }

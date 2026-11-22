@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import type { UserCenterSettings } from '@/components/diy/schema/user-center'
 import type { ListZonePrice } from '@/utils/zone-price'
 import { computed, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getRecommendPage } from '@/api/product/spu'
+import { getPage, getRecommendPage } from '@/api/product/spu'
+import { CLEARANCE_SORT, createGoodsSortParams, MEMBER_ZONE_SORT } from '@/components/diy/retail-query'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import PriceText from '@/components/price-text/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
@@ -20,6 +22,7 @@ const props = defineProps<{
   sourceSpuIds?: string[]
   /** 购物车/订单：需要排除的商品（取前 50 个） */
   excludeSpuIds?: string[]
+  source?: UserCenterSettings['recommendations']['source']
 }>()
 
 const emit = defineEmits<{
@@ -77,7 +80,7 @@ let contextEpoch = 0
 
 /** 上下文签名：props 的稳定字符串形式，用于判断当前列表/在途查询是否已是最新上下文 */
 function contextSignature() {
-  return [props.spuId ?? '', props.sourceSpuIds?.join(',') ?? '', props.excludeSpuIds?.join(',') ?? ''].join('|')
+  return [props.source ?? 'recommended', props.spuId ?? '', props.sourceSpuIds?.join(',') ?? '', props.excludeSpuIds?.join(',') ?? ''].join('|')
 }
 
 /** 最近一次启动的查询所用的上下文签名 */
@@ -128,7 +131,10 @@ async function queryList(pageNo: number, pageSize: number) {
     if (props.excludeSpuIds?.length)
       params.excludeIds = props.excludeSpuIds.join(',')
     // 推荐接口：同分类优先、排除已选商品；无上下文时后端按浏览足迹或全店排序兜底
-    const response = await getRecommendPage(params)
+    const source = props.source ?? 'recommended'
+    const response = source === 'recommended'
+      ? await getRecommendPage(params)
+      : await getPage({ current: pageNo, size: pageSize, ...createGoodsSortParams(source === 'member' ? MEMBER_ZONE_SORT : CLEARANCE_SORT) })
     if (epoch !== contextEpoch)
       return
     const records = response?.records ?? []
@@ -200,6 +206,15 @@ function toDetail(id: string) {
  */
 function cardPrice(item: any): ListZonePrice {
   return zone.cardPriceOf(item)
+}
+
+/**
+ * 营销标签行是否渲染（v-if 与价格块收边共用同一判据）。
+ * 有 chip 时价格块上间距清零：chip→价格与首页 Tab / 分类列表卡对齐。
+ */
+function hasTagRow(item: any): boolean {
+  const price = cardPrice(item)
+  return price.badgeKind === 'newbie' || Boolean(price.socialProofText) || Boolean(price.priceTagText)
 }
 
 /** 社证数字强调：服务端成文拆「前缀+数字+后缀」，数字加粗（纯展示，口径仍在服务端） */
@@ -280,11 +295,13 @@ function handleAdded(spuId: string) {
                   售罄（stock <= 0）不渲染按钮，与装修商品流 `diy-goods-*` 同口径。
                 -->
                 <!--
-                  营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行，
-                  新人=红橙渐变星芒（资格类 chip 不占价格行），社证=浅桃底数字加粗。
+                  营销标签行：新人首单价 + 热销社证 + 近N天最低价同排
+                  （2026-11-08 视觉增强；2026-11-15 最低价并入本行）。
+                  三枚 chip 同族同位置：浅桃底暖橙字胶囊、同字号同内边距，同在价格行上方；
+                  放不下时整枚换行，不裁字也不掉进价格行。
                 -->
                 <view
-                  v-if="cardPrice(item).badgeKind === 'newbie' || cardPrice(item).socialProofText"
+                  v-if="hasTagRow(item)"
                   class="tag-row"
                 >
                   <view v-if="cardPrice(item).badgeKind === 'newbie'" class="tag-chip tag-chip--newbie">
@@ -305,9 +322,16 @@ function handleAdded(spuId: string) {
                       {{ proofParts(item).after }}
                     </text>
                   </view>
+                  <!-- 近N天最低价：与社证同族 chip（浅桃底暖橙字 + 降价折线图标），服务端成文直渲染 -->
+                  <view v-if="cardPrice(item).priceTagText" class="tag-chip price-tag">
+                    <text class="price-tag-icon" />
+                    <text class="tag-chip-text">
+                      {{ cardPrice(item).priceTagText }}
+                    </text>
+                  </view>
                 </view>
-                <view class="flex items-end justify-between pt-10rpx">
-                  <view class="min-w-0 flex flex-1 flex-wrap items-baseline overflow-hidden">
+                <view class="flex items-end justify-between waterfall-price-block" :class="{ 'waterfall-price-block--tagged': hasTagRow(item) }">
+                  <view class="waterfall-price-col min-w-0 flex flex-1 flex-wrap items-baseline overflow-hidden">
                     <text
                       v-if="cardPrice(item).badgeKind && cardPrice(item).badgeKind !== 'newbie'"
                       class="zone-badge"
@@ -316,11 +340,6 @@ function handleAdded(spuId: string) {
                       {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
                     </text>
                     <price-text class="waterfall-price" :value="cardPrice(item).mainPrice" symbol="￥" />
-                    <!-- 近N天最低价：主价旁描边小标（固定红系不随主题，见需求文档视觉规范） -->
-                    <text v-if="cardPrice(item).priceTagText" class="price-tag">
-                      <text class="price-tag-icon" />
-                      {{ cardPrice(item).priceTagText }}
-                    </text>
                     <text v-if="cardPrice(item).strikePrice !== null" class="price-original">
                       ￥{{ formatAmount(cardPrice(item).strikePrice) }}
                     </text>
@@ -359,6 +378,20 @@ function handleAdded(spuId: string) {
   white-space: nowrap;
 }
 
+/* 价格块上间距：无 chip 保持 10rpx；有营销标签行时统一 13rpx（≈7.5px，与其它三张卡一致） */
+.waterfall-price-block {
+  padding-top: 10rpx;
+}
+
+.waterfall-price-block--tagged {
+  padding-top: 13rpx;
+}
+
+/* 价格列顶对齐：否则会被更高的加购圆带出额外等高差（带引导行的卡则为 0），同一 padding 出现两档间距 */
+.waterfall-price-block--tagged .waterfall-price-col {
+  align-self: flex-start;
+}
+
 /* 主价：整数大、小数小（price-text 组件内用 em 跟随本字号） */
 .waterfall-price {
   color: var(--wot-color-theme-primary, #ff2237);
@@ -373,28 +406,21 @@ function handleAdded(spuId: string) {
   text-decoration: line-through;
 }
 
-/* 近N天最低价贴纸：浅红实底+600 字重（固定红系不随主题，令牌见 goods-tag.scss） */
+/*
+ * 近N天最低价：与社证同族的暖橙 chip（2026-11-15 收敛），和标签行同字号/内边距/胶囊圆角。
+ * 只补 hot 身份与「图标+文字」的排布，基础度量复用 .tag-chip（18rpx/1.5）。
+ */
 .price-tag {
-  display: inline-flex;
-  align-items: center;
+  @include goods-tag-hot;
   gap: 2rpx;
-  flex-shrink: 0;
-  margin-left: 8rpx;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0 8rpx;
-  border-radius: 6rpx;
-  font-size: 20rpx;
-  line-height: 28rpx;
-  white-space: nowrap;
-  @include goods-tag-low;
+  padding: 2rpx 8rpx;
 }
 
 .price-tag-icon {
-  width: 16rpx;
-  height: 12rpx;
+  width: 18rpx;
+  height: 14rpx;
   flex-shrink: 0;
-  @include goods-tag-low-icon;
+  @include goods-tag-hot-icon;
 }
 
 /* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红）；新人价带星芒图标 */
@@ -434,15 +460,16 @@ function handleAdded(spuId: string) {
 }
 
 /*
- * 营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行
- * （2026-11-08 视觉增强 + 并排口径，令牌见 goods-tag.scss）。
+ * 营销标签行：新人首单价 + 热销社证 + 近N天最低价同排（2026-11-15 三枚 chip 同族同排）。
+ * 允许整枚换行：双列卡内宽 ≈288rpx，两枚 chip 常见就要 285–325rpx（月4000+人已下单更长），硬 nowrap 会把后一枚裁掉；
+ * 硬 nowrap 会把后一枚裁掉；换行后仍全部位于价格行上方、左对齐同一基线。
  * 【icon 尺寸硬约束】勿用 px 定小尺寸：9px 固定字号下线条糊成一团，
- * 20rpx 与文字同高跟随缩放才可辨；icon 颜色随 currentColor 走暖橙。
+ * 18rpx 与 chip 文字同高跟随缩放才可辨。
  */
 .tag-row {
   /* 左右 10rpx 与商品名块（px-10rpx）左对齐 */
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4rpx;
   overflow: hidden;
@@ -599,17 +626,15 @@ function handleAdded(spuId: string) {
     font-size: 10px;
   }
 
+  /* 最低价 chip 与社证 chip 同密度（不再覆写圆角与左间距：胶囊身份由 goods-tag-hot 决定） */
   .waterfall-goods .price-tag {
-    margin-left: 6px;
-    padding: 0 4px;
-    border-radius: 3px;
+    padding: 1px 6px;
     font-size: 10px;
-    line-height: 14px;
   }
 
   .waterfall-goods .price-tag-icon {
-    width: 8px;
-    height: 6px;
+    width: 10px;
+    height: 8px;
   }
 
   /* 营销标签行宽屏密度：rpx 展开态放大 ≈1.8 倍，改 px */

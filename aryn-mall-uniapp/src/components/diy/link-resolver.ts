@@ -1,6 +1,9 @@
 import type { DecorationLink } from './schema/types'
 
-import { navigateToUrl } from '../../utils/tab-bar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
+import { navigateToUrl, normalizeRoutePath } from '@/utils/tab-bar'
+
+const SHIP_SUPPLY_ROUTE = 'sub-pages/product/ship-supply/index'
 
 declare const uni: {
   navigateToMiniProgram: (options: {
@@ -147,6 +150,10 @@ export function followDecorationLink(
 ) {
   const action = createDecorationLinkAction(normalizeDecorationLink(link))
   if (action.kind === 'navigate') {
+    if (normalizeRoutePath(action.url) === SHIP_SUPPLY_ROUTE
+      && !useRequireLogin().ensureLoggedIn(action.url)) {
+      return
+    }
     navigateToUrl(action.url)
   }
   else if (action.kind === 'mini-program' && action.appId) {

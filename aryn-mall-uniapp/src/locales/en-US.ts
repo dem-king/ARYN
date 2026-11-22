@@ -1,22 +1,15 @@
 /**
  * English messages. Keys must mirror `zh-CN.ts`.
  */
-import accountMember from './modules/accountMember.en-US'
-import accountSettings from './modules/accountSettings.en-US'
-import afterSales from './modules/afterSales.en-US'
 import app from './modules/app.en-US'
-import buyerOrg from './modules/buyerOrg.en-US'
 import cart from './modules/cart.en-US'
 import catalog from './modules/catalog.en-US'
 import checkout from './modules/checkout.en-US'
 import diy from './modules/diy.en-US'
 import labels from './modules/labels.en-US'
-import loginDevices from './modules/loginDevices.en-US'
 import message from './modules/message.en-US'
-import order from './modules/order.en-US'
 import product from './modules/product.en-US'
 import promotion from './modules/promotion.en-US'
-import sales from './modules/sales.en-US'
 import search from './modules/search.en-US'
 import sessionInvalid from './modules/sessionInvalid.en-US'
 import shared from './modules/shared.en-US'
@@ -116,6 +109,7 @@ export default {
     serviceFootprint: 'History',
     serviceCollect: 'Favorites',
     serviceCoupon: 'My Coupons',
+    serviceSupport: 'Customer Support',
     serviceDistribution: 'Referrals',
     salesWorkbench: 'Sales Workspace',
     salesWorkbenchDesc: 'Referral code · Customers · Performance',
@@ -133,11 +127,13 @@ export default {
     vesselUnlinkedSubtitle: 'No vessel linked. Join one to use port delivery.',
     enterpriseSheet: {
       title: 'Enterprise Benefits',
-      discount: '{rate} off orders (takes the better of price vs. activity, never stacked)',
+      discount: '{rate} on orders (takes the better of price vs. activity, never stacked)',
       freeShipping: 'Free delivery for enterprise orders (vessel delivery is always free)',
       invoicing: 'Business invoicing supported',
       dedicatedService: 'Dedicated service agent',
       reserved: 'Coming soon',
+      rebate: 'Rebates',
+      creditDays: '{days}-day payment terms',
       noBenefits: 'No exclusive benefits configured for this tier yet',
       tierHint: 'Purchase volume unlocks higher tiers and more benefits',
     },
@@ -162,18 +158,11 @@ export default {
   },
   ...catalog,
   ...product,
-  ...sales,
   ...search,
   ...sessionInvalid,
-  ...loginDevices,
   ...cart,
-  ...buyerOrg,
   ...checkout,
-  ...order,
   ...sharedCart,
-  ...afterSales,
-  ...accountMember,
-  ...accountSettings,
   ...message,
   ...labels,
   ...shared,

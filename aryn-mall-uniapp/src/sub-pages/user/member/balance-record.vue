@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getBalanceRecordPage } from '@/sub-pages/api/user/balance'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 

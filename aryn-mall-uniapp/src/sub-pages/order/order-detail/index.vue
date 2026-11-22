@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onLoad, onPageScroll } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { getById, reorderPreview } from '@/api/order/orderInfo'
-import { addShoppingCart } from '@/api/order/shoppingCart'
+import { useI18n } from '@/sub-pages/locales'
+import { getById } from '@/api/order/orderInfo'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
 import PriceText from '@/components/price-text/index.vue'
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
+import DeliveryGroupSchedule from '@/sub-pages/order/components/delivery-group-schedule.vue'
+import { useDeliverySchedule } from '@/sub-pages/order/composables/useDeliverySchedule'
 import {
   DELIVERY_WAY_EXPRESS,
   DELIVERY_WAY_MALL_DELIVERY,
@@ -49,6 +50,9 @@ const router = useRouter()
 const state = reactive<{ order: any }>({
   order: {},
 })
+const { schedule, loading: scheduleLoading, failed: scheduleFailed, fetchedAt, refresh: refreshSchedule } = useDeliverySchedule(() =>
+  state.order.id && state.order.deliveryWay === '4' ? { orderId: state.order.id } : null)
+onShow(() => { void refreshSchedule() })
 
 /**
  * 新人价首件优惠拆行展示：保留逐行（退款按行 id 提交，不能合并孤儿化入口），
@@ -255,30 +259,11 @@ function handleRefundDetail(item: any) {
 /**
  * 再来一单：预览原明细当前可购状态，可购项一键加入购物车（重新确认船舶/靠港/价格后结算）
  */
-async function handleReorder() {
-  const orderId = state.order.id
-  if (!orderId)
-    return
-  const preview = await reorderPreview(orderId)
-  const purchasable = (preview.items || []).filter((item: any) => item.purchasable)
-  const blocked = (preview.items || []).filter((item: any) => !item.purchasable)
-  if (purchasable.length === 0) {
-    uni.showToast({ title: blocked[0]?.reason || t('order.detail.itemUnavailable'), icon: 'none' })
-    return
-  }
-  for (const item of purchasable) {
-    await addShoppingCart({ skuId: item.skuId, quantity: item.originalQuantity, addType: '2' })
-  }
-  const tips = blocked.length > 0 ? t('order.detail.reorderSkipped', { count: blocked.length }) : ''
-  uni.showToast({ title: `${t('order.detail.reorderSuccess')}${tips}`, icon: 'none' })
-  // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
-  // 微信 `routeDone with a webviewId xxx is not found`，故先记住当前页再确认。
-  const currentPage = getCurrentPages().at(-1)
-  setTimeout(() => {
-    if (getCurrentPages().at(-1) !== currentPage)
-      return
-    uni.switchTab({ url: '/pages/user/shopping-cart/index' })
-  }, 800)
+function handleReorder() {
+  if (!state.order.id) return
+  const query = [`sourceType=REORDER`, `sourceId=${encodeURIComponent(state.order.id)}`, `scene=${encodeURIComponent(state.order.purchaseScene || '1')}`]
+  if (state.order.buyerOrgId) query.push(`buyerOrgId=${encodeURIComponent(state.order.buyerOrgId)}`)
+  uni.navigateTo({ url: `/sub-pages/order/procurement/index?${query.join('&')}` })
 }
 // 切换更多信息显示状态
 function toggleMoreInfo() {
@@ -388,6 +373,8 @@ onPageScroll(handlePageScroll)
         </view>
       </view>
     </view>
+
+    <DeliveryGroupSchedule v-if="state.order.deliveryWay === '4'" :schedule="schedule" :loading="scheduleLoading" :failed="scheduleFailed" :fetched-at="fetchedAt" @refresh="refreshSchedule" />
 
     <!-- 商品清单：无地址卡（自提等）时由它压盖页头 -->
     <view class="od-card" :class="{ 'od-card--overlap': heroOverlapCard }">

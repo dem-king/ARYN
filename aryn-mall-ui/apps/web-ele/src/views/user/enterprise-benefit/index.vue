@@ -87,6 +87,11 @@ const valuePlaceholder = computed(() => {
   }
 });
 
+/** 返利率(6)/账期天数(7) 为二期资金域预留，本期仅保存配置、不参与成交计算 */
+const isReservedBenefit = computed(
+  () => form.benefitType === '6' || form.benefitType === '7',
+);
+
 const load = async () => {
   loading.value = true;
   try {
@@ -252,6 +257,9 @@ useKeepAliveRefresh(load);
                 :value="type"
               />
             </ElSelect>
+            <div v-if="isReservedBenefit" class="text-xs text-gray-400">
+              预留，暂未生效：本期仅保存配置，二期资金域启用后才参与成交计算。
+            </div>
           </ElFormItem>
           <ElFormItem label="权益值">
             <ElInput

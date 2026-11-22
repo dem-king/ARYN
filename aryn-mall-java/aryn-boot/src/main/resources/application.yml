@@ -173,6 +173,14 @@ secure:
       # 低价捡漏专区（商品级出清标签选品/批量查价，免登）
       - /app/clearance/activity-goods
       - /app/clearance/prices
+      # B2B 协议价批量查价（免登：游客/非成员主体上下文自动净化，不泄露合同价）
+      - /app/policy/prices
+      # B2B 采购档期与档期特供（全局公开价格层，免登；限量耗尽/场景圈定服务端过滤）
+      - /app/calendar/list
+      - /app/calendar/specials
+      # B2B 阶梯价档位查询（商详阶梯表/结算进度提示，免登）
+      - /app/ladder/prices
+      - /app/goods-hints/*
       - /file/local/**
       # 空态插画（wd-status-tip 预设图）随 upms 静态资源发布，免登读取
       - /status-tip/**
@@ -219,6 +227,13 @@ hx:
       - sys_user
       - sys_user_role
       - sys_storage_config
+      - ai_config_version
+      - ai_credential_version
+      - ai_runtime_state
+      - ai_capability_test
+      - ai_config_operation
+      - ai_call_log
+      - ai_usage_budget
       - sys_role_menu
       - sys_role
       - sys_login_log
@@ -236,6 +251,10 @@ hx:
       - goods_collect
       - goods_footprint
       - goods_sku
+      - product_sku_identifier
+      - catalog_vector_generation
+      - catalog_vector_item
+      - catalog_vector_state
       - goods_specs
       - goods_specs_value
       - goods_spu
@@ -334,6 +353,13 @@ hx:
       - vessel_bind_apply
       - vessel_port_vehicle
       - shared_cart
+      - procurement_draft
+      - procurement_source_batch
+      - procurement_draft_row
+      - procurement_contribution
+      - delivery_group
+      - delivery_group_order_link
+      - delivery_group_operation
       - shared_cart_member
       - shared_cart_item
       - shared_cart_import
@@ -353,6 +379,10 @@ hx:
       - product_change_log
       - product_import_row
       - promotion_activity
+      - campaign_simulation
+      - campaign_draft
+      - campaign_generation_job
+      - campaign_publish_operation
       - promotion_lock
       - clearance_rule
       - mall_zone_setting
@@ -364,9 +394,11 @@ hx:
       - enterprise_benefit_level_rel
       - enterprise_level_record
       - enterprise_growth
+      - enterprise_growth_ledger
       - enterprise_level_binding
       - enterprise_credit_account
       - enterprise_statement
+      - enterprise_statement_item
 
   swagger:
     enabled: true
@@ -420,6 +452,23 @@ sms:
     trust-forwarded-headers: false
 
 aryn:
+  campaign:
+    scan-ms: ${CAMPAIGN_SCAN_MS:5000}
+  procurement:
+    scan-ms: ${PROCUREMENT_SCAN_MS:5000}
+    max-rows: ${PROCUREMENT_MAX_ROWS:2000}
+  ai:
+    key-id: ${AI_MASTER_KEY_ID:primary}
+    keys:
+      primary: ${AI_MASTER_KEY_PRIMARY:}
+    allowed-private-hosts: ${AI_ALLOWED_PRIVATE_HOSTS:}
+    runtime-tokens:
+      order: ${AI_RUNTIME_TOKEN_ORDER:}
+      product: ${AI_RUNTIME_TOKEN_PRODUCT:}
+      promotion: ${AI_RUNTIME_TOKEN_PROMOTION:}
+    daily-token-limit: ${AI_DAILY_TOKEN_LIMIT:1000000}
+    max-concurrent: ${AI_MAX_CONCURRENT:4}
+    max-task-calls: ${AI_MAX_TASK_CALLS:100}
   # 支付材料主密钥只允许通过部署环境变量/Secret 注入，禁止写入代码、SQL、Nacos 明文或日志。
   pay:
     credential:
@@ -459,21 +508,11 @@ aryn:
     enabled: ${AI_ENABLED:true}
     # AI 别名召回（缺品备胎，默认关）：缺品候选主路径是商品域向量召回
     alias-recall-enabled: ${AI_ALIAS_RECALL_ENABLED:false}
-    api-key: ${AI_API_KEY:}
-    model: ${AI_MODEL:deepseek-chat}
-    base-url: ${AI_BASE_URL:https://api.deepseek.com}
-    timeout-ms: ${AI_TIMEOUT_MS:20000}
-  # 目录向量召回（缺品主路径）：与 product-biz 同配置，DeepSeek 无 embeddings 接口，默认智谱
+  # 召回业务开关；模型/端点/凭证统一由平台启用配置和租户索引决定
   embedding:
     enabled: ${AI_EMBEDDING_ENABLED:true}
-    api-key: ${AI_EMBEDDING_API_KEY:}
-    model: ${AI_EMBEDDING_MODEL:embedding-3}
-    base-url: ${AI_EMBEDDING_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
-    dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
-    timeout-ms: ${AI_EMBEDDING_TIMEOUT_MS:20000}
     recall-top-k: ${AI_EMBEDDING_TOP_K:6}
     score-threshold: ${AI_EMBEDDING_SCORE_THRESHOLD:0.55}
-    catalog-ttl-minutes: ${AI_EMBEDDING_CATALOG_TTL_MINUTES:60}
   # 秒杀开抢提醒：template-id 为空时 C 端隐藏提醒入口，Job 只落库不发送。
   seckill:
     reminder:

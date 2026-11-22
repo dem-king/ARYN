@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>船供备货节 · 入口条与会场设计</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23071E2F'/%3E%3Cpath d='M18 12v40M18 15h26l-5 8 5 8H18' fill='none' stroke='%23FF6A00' stroke-width='5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap">
+<style>
+  :root{
+    --ink:#0A2233;
+    --navy:#071E2F;
+    --navy-2:#0D3550;
+    --navy-3:#15506F;
+    --orange:#FF6A00;
+    --orange-soft:#FFB27A;
+    --paper:#F4EFE6;
+    --paper-2:#E9E2D4;
+    --paper-3:#FBF8F2;
+    --line:rgba(10,34,51,.16);
+    --muted:#6B7A85;
+    --red:#C6432E;
+    --display:"Barlow Condensed","Noto Sans SC","PingFang SC",sans-serif;
+    --body:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    color:var(--ink);
+    background:
+      linear-gradient(rgba(10,34,51,.035) 1px, transparent 1px) 0 0/100% 28px,
+      linear-gradient(90deg, rgba(10,34,51,.025) 1px, transparent 1px) 0 0/28px 100%,
+      var(--paper);
+    font-family:var(--body);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .page{max-width:1220px;margin:0 auto;padding:46px 28px 64px}
+  .masthead{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:end;padding-bottom:28px;border-bottom:1px solid var(--line)}
+  .masthead__eyebrow{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.14em}
+  .masthead__eyebrow svg{width:16px;height:16px;color:var(--orange)}
+  .masthead h1{position:relative;margin:14px 0 10px;padding-left:18px;font-family:var(--display);font-size:clamp(54px,7vw,86px);font-weight:700;line-height:.92;letter-spacing:.005em;color:var(--navy)}
+  .masthead h1:before{content:"";position:absolute;top:4px;bottom:6px;left:0;width:5px;background:var(--orange)}
+  .masthead__lede{max-width:640px;margin:0;color:#41535f;font-size:14px;line-height:1.75}
+  .masthead__meta{display:grid;gap:8px;justify-items:start;padding-bottom:8px}
+  .masthead__meta span{display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border:1px solid var(--line);background:rgba(251,248,242,.7);font-size:10px;letter-spacing:.08em;color:var(--muted)}
+  .masthead__meta span:first-child{border-color:rgba(255,106,0,.45);color:#A94300;background:rgba(255,106,0,.08)}
+  .section{padding-top:42px}
+  .section__head{display:grid;grid-template-columns:54px minmax(0,1fr);gap:18px;align-items:start;margin-bottom:22px}
+  .section__num{font-family:var(--display);font-size:38px;font-weight:600;line-height:1;color:var(--orange)}
+  .section__head h2{margin:0;font-size:24px;font-weight:900;letter-spacing:.01em;color:var(--navy)}
+  .section__head p{margin:6px 0 0;color:var(--muted);font-size:12px;line-height:1.7}
+  .strip-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;align-items:start}
+  .phone-fragment{min-width:0;margin:0;padding:10px;background:rgba(251,248,242,.72);border:1px solid var(--line);border-radius:8px}
+  .phone-fragment__screen{overflow:hidden;background:#F2F4F6;border-radius:8px}
+  .mini-status{display:flex;justify-content:space-between;align-items:center;padding:8px 12px 2px;color:#0A2233;font-size:9px;font-weight:600}
+  .mini-status i{display:inline-flex;gap:3px;align-items:center;font-style:normal;color:#0A2233}
+  .mini-status i b{display:inline-block;width:3px;height:6px;background:#0A2233;border-radius:1px}
+  .mini-status i b:nth-child(2){height:9px}
+  .mini-status i b:nth-child(3){height:12px}
+  .mini-head{display:flex;align-items:center;gap:8px;padding:5px 12px 9px}
+  .mini-brand{font-size:18px;font-weight:900;letter-spacing:.03em;color:#0A2233}
+  .mini-search{margin-left:auto;display:flex;align-items:center;gap:5px;width:112px;height:26px;padding:0 9px;color:#8A969F;background:#fff;border:1px solid #DFE4E8;border-radius:14px;font-size:9px}
+  .mini-search svg{width:11px;height:11px}
+  .mini-strip-wrap{padding:0 10px 7px}
+  .mini-tabs{display:flex;gap:18px;padding:10px 12px 0;background:#fff;border-radius:8px 8px 0 0}
+  .mini-tabs span{position:relative;padding-bottom:7px;font-size:12px;font-weight:700;color:#5E6B75}
+  .mini-tabs .on{color:#0A2233;font-weight:900}
+  .mini-tabs .on:after{content:"";position:absolute;right:0;bottom:0;left:0;height:2px;background:var(--orange);border-radius:2px}
+  .mini-ghost{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:8px 12px 12px;background:#fff}
+  .mini-ghost b{display:block;height:58px;background:#EEF1F3;border-radius:5px}
+  .mini-ghost b:nth-child(3),.mini-ghost b:nth-child(4){height:34px;background:#F4F6F7}
+
+  /* ---------- A：航次牌 ---------- */
+  .strip{position:relative;display:flex;align-items:center;color:var(--paper);overflow:hidden;border-radius:9px}
+  .strip-a{height:64px;gap:9px;padding:0 9px 0 7px;background:linear-gradient(108deg,#071E2F 0%,#0D3550 56%,#15506F 100%);box-shadow:0 6px 18px rgba(10,34,51,.18)}
+  .strip-a:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--orange)}
+  .strip-a:after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 11px,rgba(255,255,255,.035) 11px 12px);pointer-events:none}
+  .strip-a__date{position:relative;z-index:1;flex:0 0 72px;padding:4px 7px 5px;color:var(--ink);background:var(--paper);border-radius:5px}
+  .strip-a__date em{display:block;color:var(--red);font-size:8px;font-style:normal;font-weight:900;letter-spacing:.16em}
+  .strip-a__date strong{display:block;margin-top:1px;font-family:var(--display);font-size:16px;font-weight:700;line-height:.95;letter-spacing:.02em}
+  .strip-a__date strong.to:before{content:"至";margin-right:2px;color:var(--red);font-family:var(--body);font-size:7px;font-weight:700;vertical-align:2px}
+  .strip-a__copy{position:relative;z-index:1;min-width:0;flex:1}
+  .strip-a__title{font-size:18px;font-weight:900;line-height:1.05;letter-spacing:.02em;white-space:nowrap}
+  .strip-a__sub{margin-top:3px;color:var(--orange-soft);font-size:9px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .strip-a__cta{position:relative;z-index:1;flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;height:27px;padding:0 9px;background:var(--orange);color:#fff;border-radius:14px;font-size:9px;font-weight:900;white-space:nowrap}
+  .strip-a__cta svg{width:10px;height:10px}
+
+  /* ---------- B：港口告示 ---------- */
+  .strip-b{height:64px;gap:10px;padding:7px 10px 7px 8px;color:var(--ink);background:var(--paper-3);border:1px solid var(--line);box-shadow:0 4px 12px rgba(10,34,51,.08)}
+  .strip-b:before{content:"";position:absolute;top:0;right:0;left:0;height:3px;background:var(--orange)}
+  .strip-b__stamp{position:relative;z-index:1;display:grid;place-items:center;flex:0 0 42px;height:42px;color:#fff;background:var(--red);border:1px solid rgba(255,255,255,.55);border-radius:2px;font-size:10px;font-weight:900;letter-spacing:.18em;transform:rotate(-3deg);box-shadow:inset 0 0 0 2px rgba(255,255,255,.18)}
+  .strip-b__copy{min-width:0;flex:1}
+  .strip-b__date{margin-bottom:2px;color:var(--muted);font-family:var(--display);font-size:11px;font-weight:600;letter-spacing:.12em}
+  .strip-b__title{font-size:18px;font-weight:900;line-height:1.05;letter-spacing:.03em;white-space:nowrap}
+  .strip-b__sub{margin-top:2px;color:#7A5B45;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .strip-b__cta{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;color:#A94300;font-size:9px;font-weight:900;white-space:nowrap;border-bottom:1px solid rgba(255,106,0,.45);padding-bottom:1px}
+  .strip-b__cta svg{width:10px;height:10px}
+
+  /* ---------- C：舱单 ---------- */
+  .strip-c{height:72px;gap:9px;padding:7px 9px 7px 8px;background:#0F202B;border:1px solid rgba(244,239,230,.14);box-shadow:0 6px 18px rgba(10,34,51,.2)}
+  .strip-c:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--orange)}
+  .strip-c__date{flex:0 0 76px;padding-right:7px;border-right:1px dashed rgba(244,239,230,.22)}
+  .strip-c__date em{display:block;color:var(--orange-soft);font-family:var(--display);font-size:8px;font-style:normal;font-weight:600;letter-spacing:.2em}
+  .strip-c__date strong{display:block;margin-top:3px;font-family:var(--display);font-size:18px;font-weight:700;line-height:.92;color:var(--paper)}
+  .strip-c__date span{display:block;margin-top:2px;color:#91A6B2;font-size:7.5px;letter-spacing:.08em}
+  .strip-c__copy{min-width:0;flex:1}
+  .strip-c__title{font-size:17px;font-weight:900;line-height:1.05;letter-spacing:.04em;white-space:nowrap}
+  .strip-c__chips{display:flex;gap:4px;margin-top:5px}
+  .strip-c__chips span{display:inline-flex;align-items:center;height:18px;padding:0 4px;color:#E8DED0;background:rgba(244,239,230,.08);border:1px solid rgba(244,239,230,.16);border-radius:2px;font-size:7.5px;white-space:nowrap}
+  .strip-c__chips span b{color:var(--orange-soft);font-weight:900}
+  .strip-c__cta{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;color:var(--paper);font-size:8.5px;font-weight:700;white-space:nowrap}
+  .strip-c__cta svg{width:10px;height:10px;color:var(--orange-soft)}
+  .caption{margin:10px 2px 0;font-size:10px;line-height:1.6;color:var(--muted)}
+  .caption b{display:block;margin-bottom:2px;color:var(--navy);font-size:12px;letter-spacing:.03em}
+  .caption .tag{display:inline-block;margin-right:5px;padding:1px 4px;color:#A94300;background:rgba(255,106,0,.08);border:1px solid rgba(255,106,0,.3);font-size:8px;font-weight:700;letter-spacing:.08em}
+
+  /* ---------- 会场 ---------- */
+  .landing-wrap{display:grid;grid-template-columns:375px minmax(0,1fr);gap:38px;align-items:start}
+  .phone{width:375px;height:812px;overflow:hidden;background:#F2F4F6;border:1px solid rgba(10,34,51,.18);border-radius:28px;box-shadow:0 26px 60px rgba(10,34,51,.18)}
+  .phone__status{display:flex;justify-content:space-between;align-items:center;height:24px;padding:0 16px;color:#fff;background:var(--navy);font-size:9px;font-weight:600}
+  .phone__status i{display:inline-flex;gap:3px;align-items:center;font-style:normal}
+  .phone__status i b{display:inline-block;width:3px;height:6px;background:#fff;border-radius:1px}
+  .phone__status i b:nth-child(2){height:9px}
+  .phone__status i b:nth-child(3){height:12px}
+  .phone__nav{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;color:#fff;background:var(--navy);font-size:11px;font-weight:700}
+  .phone__nav svg{width:15px;height:15px}
+  .phone__nav span{margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:#C9D6DE;font-size:9px;font-weight:500}
+  .hero{position:relative;height:330px;color:#fff;background:var(--navy)}
+  .hero img{width:100%;height:100%;object-fit:cover;object-position:64% 44%;display:block}
+  .hero__shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(3,13,22,.94) 0%,rgba(3,13,22,.78) 38%,rgba(3,13,22,.16) 76%,rgba(3,13,22,.04) 100%),linear-gradient(0deg,rgba(3,13,22,.9) 0%,rgba(3,13,22,0) 42%)}
+  .hero__content{position:absolute;right:18px;bottom:20px;left:18px}
+  .hero__tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;color:#FFD6B2;background:rgba(255,106,0,.16);border:1px solid rgba(255,106,0,.55);border-radius:2px;font-family:var(--display);font-size:9px;font-weight:600;letter-spacing:.14em}
+  .hero h3{margin:10px 0 4px;font-family:var(--display);font-size:42px;font-weight:700;line-height:.9;letter-spacing:.02em;text-shadow:0 2px 18px rgba(0,0,0,.3)}
+  .hero p{margin:0;color:#F2D6BC;font-size:12px;font-weight:500;letter-spacing:.06em}
+  .hero__chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+  .hero__chips span{display:inline-flex;align-items:center;height:22px;padding:0 7px;color:#FFE9D7;background:rgba(7,30,47,.58);border:1px solid rgba(255,255,255,.16);border-radius:2px;font-size:8.5px;white-space:nowrap;backdrop-filter:blur(4px)}
+  .hero__chips span b{color:#FFB27A;font-weight:900}
+  .hero__cta{display:inline-flex;align-items:center;gap:6px;height:34px;margin-top:13px;padding:0 15px;color:#fff;background:var(--orange);border:0;border-radius:17px;font-family:var(--body);font-size:11px;font-weight:900;letter-spacing:.04em;box-shadow:0 6px 16px rgba(255,106,0,.28)}
+  .hero__cta svg{width:12px;height:12px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);margin:0 12px;padding:12px 0;background:var(--paper-3);border:1px solid var(--line);border-top:3px solid var(--orange);border-radius:0 0 6px 6px;box-shadow:0 5px 14px rgba(10,34,51,.08)}
+  .stats div{padding:0 10px;border-right:1px solid var(--line)}
+  .stats div:last-child{border-right:0}
+  .stats strong{display:block;font-family:var(--display);font-size:24px;font-weight:700;line-height:1;color:var(--navy)}
+  .stats strong i{font-style:normal;font-size:10px;font-weight:600;color:var(--muted);margin-left:2px}
+  .stats span{display:block;margin-top:4px;color:#6B7A85;font-size:8px;letter-spacing:.08em}
+  .zones{padding:15px 12px 0}
+  .zones__head{display:flex;align-items:end;justify-content:space-between;margin-bottom:7px}
+  .zones__head h4{margin:0;font-size:16px;font-weight:900;color:var(--navy);letter-spacing:.02em}
+  .zones__head span{color:#8A969F;font-family:var(--display);font-size:9px;font-weight:600;letter-spacing:.16em}
+  .manifest{border-top:1px solid var(--line)}
+  .manifest__row{position:relative;display:grid;grid-template-columns:27px minmax(0,1fr) 13px;gap:8px;align-items:center;padding:8px 2px 8px 0;border-bottom:1px solid var(--line)}
+  .manifest__row:last-child{border-bottom:0}
+  .manifest__num{font-family:var(--display);font-size:15px;font-weight:700;line-height:1;color:var(--orange);letter-spacing:.06em}
+  .manifest__copy{min-width:0}
+  .manifest__copy h5{margin:0;font-size:12.5px;font-weight:900;line-height:1.15;color:var(--navy);letter-spacing:.02em}
+  .manifest__copy p{margin:2px 0 0;color:#5F707A;font-size:8.5px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .manifest__row svg{width:11px;height:11px;color:#9AA7AF}
+  .cargo{padding:13px 12px 0}
+  .cargo__head{display:flex;align-items:end;justify-content:space-between;margin-bottom:7px}
+  .cargo__head h4{margin:0;font-size:13px;font-weight:900;color:var(--navy);letter-spacing:.02em}
+  .cargo__head span{color:#8A969F;font-family:var(--display);font-size:8px;font-weight:600;letter-spacing:.14em}
+  .cargo__chips{display:flex;flex-wrap:wrap;gap:5px}
+  .cargo__chips span{display:inline-flex;align-items:center;height:22px;padding:0 6px;color:#43535E;background:#fff;border:1px solid var(--line);border-radius:2px;font-size:8px;white-space:nowrap}
+  .cargo__note{margin-top:5px;color:#8A969F;font-size:8px;letter-spacing:.04em}
+  .phone__footer{display:flex;align-items:center;gap:8px;padding:13px 12px 15px}
+  .phone__footer button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:42px;color:#fff;background:var(--orange);border:0;border-radius:21px;font-family:var(--body);font-size:12px;font-weight:900;letter-spacing:.06em;box-shadow:0 7px 16px rgba(255,106,0,.24)}
+  .phone__footer button svg{width:13px;height:13px}
+
+  .notes{display:grid;gap:18px;padding-top:8px}
+  .note{padding:17px 20px 18px;background:rgba(251,248,242,.76);border:1px solid var(--line);border-top:3px solid var(--orange)}
+  .note h4{margin:0 0 5px;font-size:15px;font-weight:900;color:var(--navy)}
+  .note p{margin:0;color:#5F707A;font-size:11px;line-height:1.75}
+  .note ul{margin:0;padding-left:16px;color:#5F707A;font-size:11px;line-height:1.85}
+  .note li::marker{color:var(--orange)}
+  .note--dark{background:var(--navy);border-color:rgba(244,239,230,.18);border-top-color:var(--orange);color:var(--paper)}
+  .note--dark h4{color:var(--paper)}
+  .note--dark p,.note--dark ul{color:#C9D6DE}
+  .note--dark li::marker{color:var(--orange-soft)}
+  .swatches{display:flex;gap:8px;margin-top:10px}
+  .swatches span{display:flex;align-items:center;gap:6px;font-family:var(--display);font-size:9px;color:#C9D6DE;letter-spacing:.08em}
+  .swatches i{display:block;width:22px;height:22px;border-radius:2px;border:1px solid rgba(255,255,255,.2)}
+  .swatches i:nth-child(1){background:#071E2F}
+  .swatches i:nth-child(2){background:#FF6A00}
+  .swatches i:nth-child(3){background:#F4EFE6}
+  .swatches i:nth-child(4){background:#C6432E}
+  .footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:10px;letter-spacing:.08em}
+  .footer span:last-child{text-align:right}
+  @media (max-width:1100px){
+    .strip-board{grid-template-columns:1fr;max-width:430px}
+    .landing-wrap{grid-template-columns:1fr;justify-items:center}
+    .notes{max-width:620px}
+    .masthead{grid-template-columns:1fr}
+    .masthead__meta{grid-template-columns:repeat(3,auto);justify-content:start}
+  }
+  @media (max-width:520px){
+    .page{padding:28px 16px 42px;overflow:hidden}
+    .masthead h1{font-size:58px}
+    .masthead__meta{grid-template-columns:1fr}
+    .strip-board{max-width:100%}
+    .phone-fragment{transform:scale(.9);transform-origin:top left;margin-bottom:-36px}
+    .phone{transform:scale(.92);transform-origin:top center;margin-bottom:-64px}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <div>
+      <div class="masthead__eyebrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3v18M5 4h12l-2 4 2 4H5"/></svg>
+        悦航购 / 船供专区 / 档期视觉提案
+      </div>
+      <h1>船供备货节</h1>
+      <p class="masthead__lede">把 11.15—11.30 的档期做成一张「航次牌」：日期像船期，优惠像舱单，入口像登船牌。首页不抢主视觉，会场一眼读完四件事。</p>
+    </div>
+    <div class="masthead__meta">
+      <span>2026.11.15—11.30</span>
+      <span>首页入口条 + 会场首屏</span>
+      <span>推荐方案 A · 航次牌</span>
+    </div>
+  </header>
+
+  <!-- ===== 01 首页入口条 ===== -->
+  <section class="section">
+    <div class="section__head">
+      <span class="section__num">01</span>
+      <div>
+        <h2>首页档期入口条</h2>
+        <p>放在顶部主视觉下方、商品流上方；56—64px 高。A 最像船供业务，B 更像港口告示，C 更偏 B2B 舱单。</p>
+      </div>
+    </div>
+
+    <div class="strip-board">
+      <!-- A -->
+      <figure class="phone-fragment">
+        <div class="phone-fragment__screen">
+          <div class="mini-status"><span>11:07</span><i><b></b><b></b><b></b>&nbsp;WiFi&nbsp;34%</i></div>
+          <div class="mini-head">
+            <div class="mini-brand">悦航购</div>
+            <div class="mini-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+              搜商品
+            </div>
+          </div>
+          <div class="mini-strip-wrap">
+            <div class="strip strip-a">
+              <div class="strip-a__date">
+                <em>档期</em>
+                <strong>11.15</strong>
+                <strong class="to">11.30</strong>
+              </div>
+              <div class="strip-a__copy">
+                <div class="strip-a__title">船供备货节</div>
+                <div class="strip-a__sub">满1万减400 · 满3万减1200</div>
+              </div>
+              <div class="strip-a__cta">进入会场
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="mini-tabs"><span class="on">热门商品</span><span>超值特惠</span><span>尊享专区</span></div>
+          <div class="mini-ghost"><b></b><b></b><b></b><b></b></div>
+        </div>
+        <figcaption class="caption">
+          <b><span class="tag">A</span>航次牌</b>
+          深海军蓝 + 信号橙，左侧日期像船期牌，右侧「进入会场」像登船口。信息密度高，但不抢顶部主视觉。
+        </figcaption>
+      </figure>
+
+      <!-- B -->
+      <figure class="phone-fragment">
+        <div class="phone-fragment__screen">
+          <div class="mini-status"><span>11:07</span><i><b></b><b></b><b></b>&nbsp;WiFi&nbsp;34%</i></div>
+          <div class="mini-head">
+            <div class="mini-brand">悦航购</div>
+            <div class="mini-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+              搜商品
+            </div>
+          </div>
+          <div class="mini-strip-wrap">
+            <div class="strip strip-b">
+              <div class="strip-b__stamp">档期</div>
+              <div class="strip-b__copy">
+                <div class="strip-b__date">11.15—11.30 / SHIP SUPPLY</div>
+                <div class="strip-b__title">船供备货节</div>
+                <div class="strip-b__sub">满1万减400 · 满3万减1200</div>
+              </div>
+              <div class="strip-b__cta">看告示
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="mini-tabs"><span class="on">热门商品</span><span>超值特惠</span><span>尊享专区</span></div>
+          <div class="mini-ghost"><b></b><b></b><b></b><b></b></div>
+        </div>
+        <figcaption class="caption">
+          <b><span class="tag">B</span>港口告示</b>
+          米白纸感 + 红色档期章，像码头公告栏。更克制、更有“人味”，适合偏内容化的首页。
+        </figcaption>
+      </figure>
+
+      <!-- C -->
+      <figure class="phone-fragment">
+        <div class="phone-fragment__screen">
+          <div class="mini-status"><span>11:07</span><i><b></b><b></b><b></b>&nbsp;WiFi&nbsp;34%</i></div>
+          <div class="mini-head">
+            <div class="mini-brand">悦航购</div>
+            <div class="mini-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+              搜商品
+            </div>
+          </div>
+          <div class="mini-strip-wrap">
+            <div class="strip strip-c">
+              <div class="strip-c__date">
+                <em>MANIFEST</em>
+                <strong>11.15</strong>
+                <span>— 11.30 / 船供</span>
+              </div>
+              <div class="strip-c__copy">
+                <div class="strip-c__title">船供备货节</div>
+                <div class="strip-c__chips">
+                  <span>1万<b>−400</b></span>
+                  <span>3万<b>−1200</b></span>
+                  <span>5万<b>−2000</b></span>
+                </div>
+              </div>
+              <div class="strip-c__cta">查看
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="mini-tabs"><span class="on">热门商品</span><span>超值特惠</span><span>尊享专区</span></div>
+          <div class="mini-ghost"><b></b><b></b><b></b><b></b></div>
+        </div>
+        <figcaption class="caption">
+          <b><span class="tag">C</span>舱单</b>
+          深色底 + 等宽日期 + 三档优惠小票，像一张装船清单。偏 B2B，适合船代/大副视角。
+        </caption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ===== 02 会场首屏 ===== -->
+  <section class="section">
+    <div class="section__head">
+      <span class="section__num">02</span>
+      <div>
+        <h2>会场首屏 · 航次牌</h2>
+        <p>从入口条进来的落地页：一张港口主视觉、三档满减、四站备货。首屏读完「什么时候、省多少、去哪买」。</p>
+      </div>
+    </div>
+
+    <div class="landing-wrap">
+      <div class="phone" aria-label="船供备货节会场首屏设计稿">
+        <div class="phone__status"><span>11:07</span><i><b></b><b></b><b></b>&nbsp;WiFi&nbsp;34%</i></div>
+        <div class="phone__nav">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+          船供备货节
+          <span>规则
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v.01M12 11v5"/></svg>
+          </span>
+        </div>
+        <div class="hero">
+          <img src="assets/ship.jpg" alt="黄昏港口与集装箱船">
+          <div class="hero__shade"></div>
+          <div class="hero__content">
+            <span class="hero__tag">11.15—11.30 · 船供专区</span>
+            <h3>船供备货节</h3>
+            <p>整船整单更省，备够这一程</p>
+            <div class="hero__chips">
+              <span>满1万<b>减400</b></span>
+              <span>满3万<b>减1200</b></span>
+              <span>满5万<b>减2000</b></span>
+            </div>
+            <button class="hero__cta" type="button">立即备货
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="stats">
+          <div><strong>16<i>天</i></strong><span>档期时长</span></div>
+          <div><strong>4000<i>元</i></strong><span>单笔封顶</span></div>
+          <div><strong>4<i>档</i></strong><span>满减阶梯</span></div>
+        </div>
+        <div class="zones">
+          <div class="zones__head"><h4>备货四站</h4><span>LOADING ORDER</span></div>
+          <div class="manifest">
+            <div class="manifest__row">
+              <span class="manifest__num">01</span>
+              <div class="manifest__copy"><h5>整船满减</h5><p>满1万减400 / 满3万减1200 / 满5万减2000 / 满10万减4000</p></div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </div>
+            <div class="manifest__row">
+              <span class="manifest__num">02</span>
+              <div class="manifest__copy"><h5>多件囤货</h5><p>按件计价，满20件一档价，满50件再降一档</p></div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </div>
+            <div class="manifest__row">
+              <span class="manifest__num">03</span>
+              <div class="manifest__copy"><h5>档期特供</h5><p>每周上新一批，精选好物专享价</p></div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </div>
+            <div class="manifest__row">
+              <span class="manifest__num">04</span>
+              <div class="manifest__copy"><h5>满额赠礼</h5><p>满3千赠2份 / 满1万赠6份 / 满3万赠12份</p></div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </div>
+          </div>
+        </div>
+        <div class="cargo">
+          <div class="cargo__head"><h4>船供清单</h4><span>3 项</span></div>
+          <div class="cargo__chips">
+            <span>婴儿水 1L×12</span>
+            <span>每日坚果 25g×30</span>
+            <span>原切牛腩 500g</span>
+          </div>
+          <div class="cargo__note">按件计价 · 满20件/50件阶梯价</div>
+        </div>
+        <div class="phone__footer">
+          <button type="button">去备货
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note">
+          <h4>为什么推荐 A</h4>
+          <p>船供业务的视觉母题是「航次」而不是「促销」。A 把日期做成船期牌、把优惠做成登船口，放在首页不像一张普通 banner，也不会和顶部整船主视觉抢。</p>
+        </div>
+        <div class="note">
+          <h4>落地拆解</h4>
+          <ul>
+            <li>入口条：新增一个装修器组件「档期入口条」，配置日期、主标题、副标题、按钮文案、跳转。</li>
+            <li>会场首屏：做成微页面，四个站点分别跳「整船满减 / 商品列表 / 档期特供 / 商品列表」。</li>
+            <li>数据口径：整船满减四档 1万-400 / 3万-1200 / 5万-2000 / 10万-4000，封顶4000；满额赠礼 3千-2份 / 1万-6份 / 3万-12份。</li>
+          </ul>
+        </div>
+        <div class="note">
+          <h4>三种入口条怎么选</h4>
+          <ul>
+            <li>A 航次牌：首页主推，深色，适合大促档期。</li>
+            <li>B 港口告示：内容化首页，轻量，适合日常档期。</li>
+            <li>C 舱单：B2B 船代/大副视角，信息密度最高。</li>
+          </ul>
+        </div>
+        <div class="note">
+          <h4>文案口径</h4>
+          <p>「整船满减」四档、1万起；「多件囤货」船供20/50件，按件计价，不写「整箱」；「满额赠礼」写「3千2份 / 1万6份 / 3万12份」。</p>
+        </div>
+        <div class="note note--dark">
+          <h4>色板</h4>
+          <p>深海军蓝做底，信号橙只给日期、按钮和编号；米白纸色负责分隔。红色只用于「档期」印章，不超过一处。</p>
+          <div class="swatches">
+            <span><i></i>#071E2F</span>
+            <span><i></i>#FF6A00</span>
+            <span><i></i>#F4EFE6</span>
+            <span><i></i>#C6432E</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>悦航购 · 船供备货节 · 2026.11.15</span>
+    <span>设计稿：入口条 3 案 + 会场首屏 1 案<br>推荐 A 航次牌</span>
+  </div>
+</div>
+</body>
+</html>

@@ -29,6 +29,14 @@ const activeTab = computed(
   () => tabs.value[activeIndex.value] || tabs.value[0],
 );
 
+/** 活动轮播卡：与 C 端同口径，只认 enabled 且有有效图 */
+const feedCard = computed(() =>
+  activeTab.value?.feedCard?.enabled === true ? activeTab.value.feedCard : null,
+);
+const feedItems = computed(() =>
+  (feedCard.value?.items ?? []).filter((item) => Boolean(item.imageUrl)),
+);
+
 /** 会员权益条开关：只控制横幅渲染，不控制会员价（与 C 端口径一致） */
 const memberBannerEnabled = computed(
   () => activeTab.value?.memberBanner?.enabled === true,
@@ -159,6 +167,50 @@ function priceParts(item: RetailGoodsItem): {
           gridTemplateColumns: `repeat(${showData.columns || 2}, minmax(0, 1fr))`,
         }"
       >
+        <article v-if="feedItems.length > 0" class="goods-tabs-feed-card">
+          <ElImage
+            v-if="feedItems[0]?.imageUrl"
+            class="goods-tabs-feed-image"
+            :src="feedItems[0].imageUrl"
+            fit="cover"
+          >
+            <template #error>
+              <div class="goods-tabs-feed-image goods-tabs-feed-image--empty">
+                <ElIcon><Picture /></ElIcon>
+              </div>
+            </template>
+          </ElImage>
+          <div
+            v-else
+            class="goods-tabs-feed-image goods-tabs-feed-image--empty"
+          >
+            <ElIcon><Picture /></ElIcon>
+          </div>
+          <div class="goods-tabs-feed-shade"></div>
+          <div v-if="feedItems[0]?.badge" class="goods-tabs-feed-badge">
+            {{ feedItems[0].badge }}
+          </div>
+          <div class="goods-tabs-feed-copy">
+            <div v-if="feedItems[0]?.kicker" class="goods-tabs-feed-kicker">
+              {{ feedItems[0].kicker }}
+            </div>
+            <div class="goods-tabs-feed-title">{{ feedItems[0]?.title }}</div>
+            <div v-if="feedItems[0]?.subtitle" class="goods-tabs-feed-subtitle">
+              {{ feedItems[0].subtitle }}
+            </div>
+            <div v-if="feedItems[0]?.ctaText" class="goods-tabs-feed-cta">
+              {{ feedItems[0].ctaText }} <span>›</span>
+            </div>
+          </div>
+          <div class="goods-tabs-feed-dots">
+            <span
+              v-for="(item, index) in feedItems"
+              :key="item.id"
+              class="goods-tabs-feed-dot"
+              :class="{ 'goods-tabs-feed-dot--active': index === 0 }"
+            ></span>
+          </div>
+        </article>
         <article
           v-for="item in state.items"
           :key="item.id"
@@ -368,6 +420,124 @@ function priceParts(item: RetailGoodsItem): {
 .goods-tabs-grid {
   display: grid;
   gap: 10px;
+}
+
+/* 活动轮播卡：与 C 端 goods-tabs__feed 同款 3:4 竖卡（预览只展示首项） */
+.goods-tabs-feed-card {
+  position: relative;
+  min-height: 200px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: #0b1a2b;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgb(31 35 41 / 8%);
+}
+
+.goods-tabs-feed-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.goods-tabs-feed-image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #1c2b3a;
+}
+
+.goods-tabs-feed-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(8 18 30 / 5%) 0%,
+    rgb(8 18 30 / 0%) 38%,
+    rgb(8 18 30 / 55%) 66%,
+    rgb(8 18 30 / 90%) 100%
+  );
+}
+
+.goods-tabs-feed-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 7px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #fff;
+  background: rgb(10 22 36 / 55%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 9px;
+}
+
+.goods-tabs-feed-copy {
+  position: absolute;
+  right: 10px;
+  bottom: 24px;
+  left: 10px;
+  color: #fff;
+}
+
+.goods-tabs-feed-kicker {
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffcf8a;
+}
+
+.goods-tabs-feed-title {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.05;
+  text-shadow: 0 1px 8px rgb(0 0 0 / 35%);
+}
+
+.goods-tabs-feed-subtitle {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  opacity: 0.92;
+}
+
+.goods-tabs-feed-cta {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 4px 9px;
+  margin-top: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  background: #ff6a00;
+  border-radius: 11px;
+  box-shadow: 0 2px 8px rgb(255 106 0 / 35%);
+}
+
+.goods-tabs-feed-dots {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
+  left: 0;
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.goods-tabs-feed-dot {
+  width: 4px;
+  height: 4px;
+  background: rgb(255 255 255 / 50%);
+  border-radius: 50%;
+}
+
+.goods-tabs-feed-dot--active {
+  width: 10px;
+  background: #fff;
+  border-radius: 3px;
 }
 
 .goods-tabs-card {

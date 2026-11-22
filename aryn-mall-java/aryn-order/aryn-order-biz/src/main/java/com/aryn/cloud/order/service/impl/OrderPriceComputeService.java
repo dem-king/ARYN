@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service.impl;
 
+import com.aryn.cloud.product.api.support.ProductMeasurementRules;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
@@ -261,7 +262,12 @@ public class OrderPriceComputeService {
 				continue;
 			}
 			PromotionPricePlan.ActivityPriceHit existing = plan.hit(override.getSkuId());
-			if (existing != null && stackPriority(existing.activityType()) > stackPriority(activityType)) {
+			// 秒杀/拼团是平台级硬互斥终态价（强制不可叠）：无论引擎命中优先级多高都不得覆盖，
+			// 否则会把不可叠改回可叠（存量停运后无数据，此守卫保留兼容历史在途单）
+			boolean terminalHit = existing != null
+					&& (existing.activityType() == StackActivityTypeEnum.SECKILL
+							|| existing.activityType() == StackActivityTypeEnum.GROUP_BUY);
+			if (terminalHit || (existing != null && stackPriority(existing.activityType()) > stackPriority(activityType))) {
 				// 既有命中优先级更高（拼团/秒杀/会员价）：保留原命中与叠加策略
 				continue;
 			}
@@ -271,6 +277,7 @@ public class OrderPriceComputeService {
 			// 拼团/秒杀/折扣传入 null，互斥语义不变
 			BigDecimal originalUnitPrice = activityType == StackActivityTypeEnum.MEMBER_PRICE
 					|| activityType == StackActivityTypeEnum.CLEARANCE
+					|| activityType == StackActivityTypeEnum.LADDER
 					|| (activityType == StackActivityTypeEnum.NEWBIE && override.getDiscountedQuantity() != null)
 					? override.getOriginalPrice() : null;
 			BigDecimal discountedUnitPrice = activityType == StackActivityTypeEnum.NEWBIE
@@ -282,6 +289,28 @@ public class OrderPriceComputeService {
 							: override.getPointsStackable(),
 					originalUnitPrice, discountedUnitPrice);
 		}
+	}
+
+	/** 为已捕获的B2B计算结果创建叠加计划，不查询历史零售活动。 */
+	public PromotionPricePlan scenarioPricePlan(PromotionCalculationVO calculation) {
+		PromotionPricePlan plan = new PromotionPricePlan(null, stackPolicyEnabled);
+		mergeStackPolicyHits(plan, calculation);
+		return plan;
+	}
+
+	/** 只消费值事实的计算实例，依赖留空使任何意外IO立即失败。 */
+	static OrderPriceComputeService forScenario(com.aryn.cloud.order.api.vo.OrderScenarioFactsVO facts) {
+		OrderPriceComputeService pure = new OrderPriceComputeService(null, null, null, null, null);
+		pure.stackPolicyEnabled = facts.isStackPolicyEnabled();
+		pure.minPayableEnabled = facts.isMinPayableEnabled();
+		pure.minPayableAmount = facts.getMinPayableAmount();
+		return pure;
+	}
+
+	public void captureScenarioSettings(com.aryn.cloud.order.api.vo.OrderScenarioFactsVO facts) {
+		facts.setStackPolicyEnabled(stackPolicyEnabled);
+		facts.setMinPayableEnabled(minPayableEnabled);
+		facts.setMinPayableAmount(minPayableAmount);
 	}
 
 	/**
@@ -329,28 +358,30 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 取价链优先级（协议价 &gt; 档期特供 &gt; 拼团 &gt; 秒杀 &gt; 会员价/出清价 &gt; 新人价 &gt; 限时折扣），
-	 * 用于防止低优先级命中覆盖高优先级命中。
+	 * 取价链优先级（协议价 9 &gt; 档期特供 8 &gt; 阶梯价 7 &gt; 会员价/出清价 6 &gt;
+	 * 拼团 4 &gt; 秒杀 3 &gt; 新人价 1 &gt; 限时折扣 0），用于防止低优先级命中覆盖高优先级命中。
 	 *
-	 * <p>2026-11-14 B2B 重构：协议价（编码 8，price_policy 承载）与档期特供（type=12）
-	 * 由营销引擎落价并锁定，公开活动价不可覆盖；秒杀/拼团/限时折扣存量停运，编码保留兼容。
+	 * <p>2026-11-15 审查修复：按方案 §4.2/§7 的优先级表重排（原实现特供 5/身份 2/阶梯缺失）；
+	 * 秒杀/拼团/限时折扣存量停运，编码保留兼容。
 	 */
 	private static int stackPriority(StackActivityTypeEnum activityType) {
 		return switch (activityType) {
 			case POLICY -> 9;
-			case CALENDAR_SPECIAL -> 5;
+			case CALENDAR_SPECIAL -> 8;
+			case LADDER -> 7;
+			case MEMBER_PRICE, CLEARANCE -> 6;
 			case GROUP_BUY -> 4;
 			case SECKILL -> 3;
-			case MEMBER_PRICE, CLEARANCE -> 2;
 			case NEWBIE -> 1;
 			case DISCOUNT -> 0;
 		};
 	}
 
 	/**
-	 * 引擎落价的订单侧活动类型映射：协议价（编码 8）、档期特供 type=12、
-	 * 会员价 type=10、出清价 type=11、新人价 type=9；
-	 * 其他类型（阶梯价等）不参与叠加策略。
+	 * 引擎落价的订单侧活动类型映射：协议价（编码 8）、档期特供 type=12、阶梯价 type=4、
+	 * 会员价 type=10、出清价 type=11、新人价 type=9。
+	 * 阶梯价 2026-11-15 补入：会员/企业折扣率与阶梯价取优不叠加（方案 §5.2），
+	 * 并下发结算行级 ladder 标签（方案 §7）。
 	 */
 	private static StackActivityTypeEnum enginePricedActivityType(String activityType) {
 		if (PromotionActivity.TYPE_POLICY_PRICE.equals(activityType)) {
@@ -358,6 +389,9 @@ public class OrderPriceComputeService {
 		}
 		if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(activityType)) {
 			return StackActivityTypeEnum.CALENDAR_SPECIAL;
+		}
+		if (PromotionActivity.TYPE_LADDER_PRICE.equals(activityType)) {
+			return StackActivityTypeEnum.LADDER;
 		}
 		if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activityType)) {
 			return StackActivityTypeEnum.MEMBER_PRICE;
@@ -1254,8 +1288,9 @@ public class OrderPriceComputeService {
 					.setScale(2, RoundingMode.HALF_UP);
 			}
 			else if ((hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
-					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE) && hit.originalUnitPrice() != null) {
-				// 会员价：等级折扣取优也必须守住成本下限；出清价不适用会员成本兜底
+					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE
+					|| hit.activityType() == StackActivityTypeEnum.LADDER) && hit.originalUnitPrice() != null) {
+				// 会员价：等级折扣取优也必须守住成本下限；出清价/阶梯价不适用会员成本兜底
 				BigDecimal costFloor = hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
 						? costFloor(item, costFloorMultiplier) : null;
 				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate, costFloor);
@@ -1366,7 +1401,9 @@ public class OrderPriceComputeService {
 					.setScale(2, RoundingMode.HALF_UP);
 			}
 			else if ((hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
-					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE) && hit.originalUnitPrice() != null) {
+					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE
+					|| hit.activityType() == StackActivityTypeEnum.LADDER) && hit.originalUnitPrice() != null) {
+				// 会员价/出清价/阶梯价与企业折扣率取优不叠加（方案 §5.2；2026-11-15 补阶梯价）
 				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate, null);
 			}
 			else {
@@ -1399,6 +1436,17 @@ public class OrderPriceComputeService {
 	 */
 	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			PromotionPricePlan plan, boolean strict) {
+		if (!StringUtils.hasText(orderInfo.getCouponUserId())) {
+			orderInfo.setCouponStackReason(null);
+			return;
+		}
+		CouponUserRespVO coupon = remoteCouponUserService.getById(orderInfo.getCouponUserId(), orderInfo.getUserId());
+		orderCouponHandler(orderInfo, orderItemEntityList, plan, strict, coupon, LocalDateTime.now());
+	}
+
+	/** 已授权券事实的纯计算入口；正式结算与情景模拟共用，不读取或锁定券。 */
+	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan, boolean strict, CouponUserRespVO couponUserRespVO, LocalDateTime asOf) {
 		orderInfo.setCouponStackReason(null);
 		if (!StringUtils.hasText(orderInfo.getCouponUserId())) {
 			return;
@@ -1407,7 +1455,6 @@ public class OrderPriceComputeService {
 		BigDecimal totalPrice = BigDecimal.ZERO;
 		List<OrderItemEntity> listCouponGoods = null;
 		String couponUseRange = MallEventConstants.USE_RANGE_1;
-		CouponUserRespVO couponUserRespVO = remoteCouponUserService.getById(orderInfo.getCouponUserId(), orderInfo.getUserId());
 		if (Objects.isNull(couponUserRespVO)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60060.getCode(),
 					MallErrorCodeEnum.ERROR_60060.getMsg());
@@ -1450,8 +1497,8 @@ public class OrderPriceComputeService {
 			}
 			return;
 		}
-		totalPrice = this.verifyCoupon(couponEligibleItems, couponUserRespVO);
-		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo).min(couponCap(totalPrice));
+		totalPrice = this.verifyCoupon(couponEligibleItems, couponUserRespVO, asOf);
+		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo, asOf).min(couponCap(totalPrice));
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			BigDecimal couponPrice = BigDecimal.ZERO;
 			if (couponTotalAmount.compareTo(BigDecimal.ZERO) > 0) {
@@ -1500,12 +1547,17 @@ public class OrderPriceComputeService {
 	}
 
 	public BigDecimal verifyCoupon(List<OrderItemEntity> listCouponGoods, CouponUserRespVO couponUserRespVO) {
+		return verifyCoupon(listCouponGoods, couponUserRespVO, LocalDateTime.now());
+	}
+
+	private BigDecimal verifyCoupon(List<OrderItemEntity> listCouponGoods, CouponUserRespVO couponUserRespVO,
+			LocalDateTime asOf) {
 		List<OrderItemEntity> orderItemEntities = listCouponGoods;
 		if (!couponUserRespVO.getStatus().equals(CouponUserStatusEnum.STATUS_0.getCode())) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60061.getCode(),
 					MallErrorCodeEnum.ERROR_60061.getMsg());
 		}
-		if (couponUserRespVO.getValidatTime().isBefore(LocalDateTime.now())) {
+		if (couponUserRespVO.getValidatTime().isBefore(asOf)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60060.getCode(),
 					MallErrorCodeEnum.ERROR_60060.getMsg());
 		}
@@ -1518,12 +1570,17 @@ public class OrderPriceComputeService {
 	}
 
 	public BigDecimal couponCompute(BigDecimal totalPrice, CouponUserRespVO couponUser, CouponInfo couponInfo) {
+		return couponCompute(totalPrice, couponUser, couponInfo, LocalDateTime.now());
+	}
+
+	private BigDecimal couponCompute(BigDecimal totalPrice, CouponUserRespVO couponUser, CouponInfo couponInfo,
+			LocalDateTime asOf) {
 
 		if (!couponUser.getStatus().equals(CouponUserStatusEnum.STATUS_0.getCode())) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60061.getCode(),
 					MallErrorCodeEnum.ERROR_60061.getMsg());
 		}
-		if (couponUser.getValidatTime().isBefore(LocalDateTime.now())) {
+		if (couponUser.getValidatTime().isBefore(asOf)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60060.getCode(),
 					MallErrorCodeEnum.ERROR_60060.getMsg());
 		}
@@ -1558,6 +1615,18 @@ public class OrderPriceComputeService {
 			List<CreateOrderSkuReqDTO> skuReqList) {
 		Map<String, GoodsSku> skuMap = goodsSkuList.stream()
 			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (first, second) -> first));
+		Map<String, Integer> quantities = new HashMap<>();
+		for (var request : skuReqList) {
+			if (request.getQuantity() == null || request.getQuantity() <= 0) throw new ArynBusinessException("数量必须为正整数");
+			try { quantities.merge(request.getSkuId(), request.getQuantity(), Math::addExact); }
+			catch (ArithmeticException exception) { throw new ArynBusinessException("数量超出上限"); }
+		}
+		quantities.forEach((id, quantity) -> {
+			GoodsSku sku = skuMap.get(id);
+			if (sku == null) throw new ArynBusinessException("商品已失效");
+			try { ProductMeasurementRules.requireSalesQuantity(sku, quantity); }
+			catch (IllegalArgumentException exception) { throw new ArynBusinessException(exception.getMessage()); }
+		});
 		return skuReqList.stream().map(placeOrderSku -> {
 			GoodsSku sku = skuMap.get(placeOrderSku.getSkuId());
 			if (sku == null) {
@@ -1716,7 +1785,7 @@ public class OrderPriceComputeService {
 	 * 整行按原价。追加的原价行不挂活动标记，后续叠加策略/整船分摊按普通商品参与。
 	 * 直接在传入 list 上追加：下游所有处理器复用同一引用。
 	 */
-	private void applyLadderOverrides(List<OrderItemEntity> orderItemEntityList, PromotionCalculationVO calculation) {
+	public void applyLadderOverrides(List<OrderItemEntity> orderItemEntityList, PromotionCalculationVO calculation) {
 		Map<String, Integer> remainingDiscountedQtyBySku = new HashMap<>();
 		for (PromotionCalculationVO.UnitPriceOverride override : calculation.getLadderOverrides()) {
 			if (override.getSkuId() != null && override.getDiscountedQuantity() != null) {

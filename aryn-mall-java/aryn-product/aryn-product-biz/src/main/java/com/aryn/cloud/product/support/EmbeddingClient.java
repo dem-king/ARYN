@@ -8,12 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,122 +36,24 @@ public class EmbeddingClient {
 	/** 单条文本长度上限：商品名远用不到，防御性截断避免异常输入拖垮请求 */
 	private static final int MAX_TEXT_LENGTH = 200;
 
-	private final boolean enabled;
-
-	private final String apiKey;
-
-	private final String model;
-
-	private final String baseUrl;
-
-	private final Integer dimensions;
-
-	private final Duration timeout;
-
-	private final HttpClient httpClient = HttpClient.newBuilder()
-		.connectTimeout(Duration.ofSeconds(5))
-		.build();
-
-	public EmbeddingClient(
-			@Value("${aryn.embedding.enabled:true}") boolean enabled,
-			@Value("${aryn.embedding.api-key:}") String apiKey,
-			@Value("${aryn.embedding.model:embedding-3}") String model,
-			@Value("${aryn.embedding.base-url:https://open.bigmodel.cn/api/paas/v4}") String baseUrl,
-			@Value("${aryn.embedding.dimensions:1024}") Integer dimensions,
-			@Value("${aryn.embedding.timeout-ms:20000}") long timeoutMs) {
-		this.enabled = enabled;
-		this.apiKey = apiKey;
-		this.model = model;
-		this.baseUrl = baseUrl;
-		this.dimensions = dimensions;
-		this.timeout = Duration.ofMillis(timeoutMs);
-	}
-
-	/** 开关打开且配了 key 才可用；未配置时调用方跳过向量召回，走纯字面匹配 */
-	public boolean isAvailable() {
-		return enabled && StringUtils.hasText(apiKey);
-	}
-
-	/**
-	 * 批量向量化，返回顺序与输入一一对应。
-	 *
-	 * <p>空串/空白输入原样返回零向量占位是不安全的（会与任何向量算出 0 分）
-	 * ——调用方必须保证传入非空白文本；这里对空白串直接抛错暴露问题。
-	 */
-	public List<float[]> embed(List<String> texts) {
-		if (texts == null || texts.isEmpty()) {
-			return List.of();
-		}
-		List<float[]> result = new ArrayList<>(texts.size());
-		for (int from = 0; from < texts.size(); from += MAX_BATCH) {
-			List<String> chunk = texts.subList(from, Math.min(from + MAX_BATCH, texts.size()));
-			for (String text : chunk) {
-				if (!StringUtils.hasText(text)) {
-					throw new IllegalStateException("embedding 输入不能包含空白文本");
-				}
-			}
-			result.addAll(embedChunk(chunk));
-		}
-		return result;
-	}
-
-	private List<float[]> embedChunk(List<String> chunk) {
-		JSONObject body = new JSONObject();
-		body.put("model", model);
-		List<String> input = chunk.stream()
-			.map(text -> text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text)
-			.toList();
-		body.put("input", input);
-		if (dimensions != null && dimensions > 0) {
-			body.put("dimensions", dimensions);
-		}
-		String content = request(body.toJSONString());
-		return parseEmbeddings(content, chunk.size());
-	}
-
-	private String request(String requestBody) {
-		// 与 ChainAiAssistant 同口径：5 秒内的瞬时拒绝（限流/过载）立即重试一次，
-		// 超时类失败不重试——调用方有字面匹配兜底，不能让用户干等两倍时长
-		for (int attempt = 1; attempt <= 2; attempt++) {
-			long startedAt = System.nanoTime();
-			try {
-				HttpRequest request = HttpRequest.newBuilder()
-					.uri(URI.create(baseUrl + "/embeddings"))
-					.timeout(timeout)
-					.header("Authorization", "Bearer " + apiKey)
-					.header("Content-Type", "application/json")
-					.POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-					.build();
-				HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-				if (response.statusCode() != 200) {
-					throw new IllegalStateException("embedding 接口 HTTP " + response.statusCode() + "：" + truncate(response.body()));
-				}
-				JSONObject root = JSON.parseObject(response.body());
-				JSONArray data = root.getJSONArray("data");
-				if (data == null || data.isEmpty()) {
-					throw new IllegalStateException("embedding 返回缺少 data");
-				}
-				return response.body();
-			}
-			catch (java.io.IOException | InterruptedException exception) {
-				if (exception instanceof InterruptedException) {
-					Thread.currentThread().interrupt();
-				}
-				throw new IllegalStateException("embedding 接口调用失败：" + exception.getMessage(), exception);
-			}
-			catch (IllegalStateException exception) {
-				boolean fastFailure = System.nanoTime() - startedAt < FAST_FAIL_RETRY_WINDOW_NANOS;
-				if (attempt == 2 || !fastFailure) {
-					throw exception;
-				}
-				log.warn("embedding 接口快速失败（{}），重试一次", exception.getMessage());
-			}
-		}
-		throw new IllegalStateException("unreachable");
-	}
-
-	/** 5 秒内返回的错误视为「瞬时拒绝」（过载/限流），值得立即重试一次 */
-	private static final long FAST_FAIL_RETRY_WINDOW_NANOS = 5_000_000_000L;
+	private final ProductAiRuntime runtime;
+    public EmbeddingClient(ProductAiRuntime runtime){this.runtime=runtime;}
+    public boolean isAvailable(){return runtime.available(com.aryn.cloud.common.ai.contract.AiUsage.CATALOG_EMBEDDING);}
+    public com.aryn.cloud.upms.api.client.AiRuntimeClient.Session open(String task){return runtime.open(com.aryn.cloud.common.ai.contract.AiUsage.CATALOG_EMBEDDING,task);}
+    public com.aryn.cloud.upms.api.client.AiRuntimeClient.Session openVersion(String task,String version){return runtime.openVersion(com.aryn.cloud.common.ai.contract.AiUsage.CATALOG_EMBEDDING,task,version);}
+    public List<float[]> embed(List<String> texts) {
+        if(texts==null || texts.isEmpty()) return List.of();
+        return embed(open(java.util.UUID.randomUUID().toString()),texts);
+    }
+    public List<float[]> embed(com.aryn.cloud.upms.api.client.AiRuntimeClient.Session session,List<String> texts) {
+        List<float[]> result=new ArrayList<>();
+        for(int start=0;start<texts.size();start+=MAX_BATCH) {
+            List<String> chunk=texts.subList(start,Math.min(start+MAX_BATCH,texts.size()));
+            for(String text:chunk) if(!StringUtils.hasText(text) || text.length()>MAX_TEXT_LENGTH) throw new IllegalStateException("向量输入为空或超长");
+            for(var vector:session.embed(chunk).vectors()) { float[] values=new float[vector.size()];for(int i=0;i<values.length;i++) values[i]=vector.get(i).floatValue();result.add(values); }
+        }
+        return result;
+    }
 
 	/**
 	 * 解析 /embeddings 响应：按 index 对齐并校验条数（静态包可见，便于脱离 HTTP 单测）。
@@ -168,7 +64,7 @@ public class EmbeddingClient {
 			root = JSON.parseObject(content);
 		}
 		catch (Exception exception) {
-			throw new IllegalStateException("embedding 返回不是合法 JSON：" + truncate(content));
+			throw new IllegalStateException("embedding 返回不是合法 JSON");
 		}
 		JSONArray data = root.getJSONArray("data");
 		if (data == null || data.size() != expectedSize) {

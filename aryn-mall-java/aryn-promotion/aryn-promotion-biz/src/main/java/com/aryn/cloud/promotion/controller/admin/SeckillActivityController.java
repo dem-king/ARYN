@@ -1,5 +1,7 @@
 package com.aryn.cloud.promotion.controller.admin;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
@@ -44,6 +46,7 @@ public class SeckillActivityController {
 	@SaCheckPermission("promotion:seckill:add")
 	@PostMapping
 	public Result add(@Valid @RequestBody SeckillActivityDTO dto) {
+		B2bActivityAdmission.rejectRetired("秒杀");
 		return Result.success(seckillActivityService.saveWithSessions(dto));
 	}
 
@@ -52,6 +55,7 @@ public class SeckillActivityController {
 	@SaCheckPermission("promotion:seckill:edit")
 	@PutMapping
 	public Result edit(@Valid @RequestBody SeckillActivityDTO dto) {
+		B2bActivityAdmission.rejectRetired("秒杀");
 		return Result.success(seckillActivityService.updateWithSessions(dto));
 	}
 
@@ -75,6 +79,7 @@ public class SeckillActivityController {
 	@SaCheckPermission("promotion:seckill:status")
 	@PutMapping("/{id}/status")
 	public Result updateStatus(@PathVariable("id") String id, @RequestParam("status") Integer status) {
+		B2bActivityAdmission.rejectRetired("秒杀");
 		if (status == null || !VALID_STATUS.contains(status)) {
 			return Result.fail("非法的活动状态值");
 		}

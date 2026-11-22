@@ -11,6 +11,7 @@ import {
   extensionComponentTypes,
   getAllowedComponentsForPageType,
   legacyComponentTypes,
+  libraryHiddenComponentTypes,
   retailComponentTypes,
 } from '../registry/component-registry';
 
@@ -43,6 +44,16 @@ const groupedItems = computed(() => {
   const groups: Record<string, (typeof componentTypes)[number][]> = {};
   for (const type of componentTypes) {
     if (allowed && !allowed.has(type)) {
+      continue;
+    }
+    // 一期下线入口的组件（如新人专享）仅在面板隐藏，注册与已发布页面渲染不受影响
+    if (libraryHiddenComponentTypes.has(type)) {
+      continue;
+    }
+    if (
+      props.pageType === '4' &&
+      (type === 'coupon-receive' || type === 'coupon-ladder')
+    ) {
       continue;
     }
     const definition = componentRegistry[type];

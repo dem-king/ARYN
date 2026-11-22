@@ -48,9 +48,14 @@ public interface ReplenishImportMatchMapper {
 	 */
 	List<ReplenishImportSkuRow> selectCatalogRows(@Param("tenantId") String tenantId, @Param("limit") int limit);
 
+    List<ReplenishImportSkuRow> selectCatalogCursor(@Param("tenantId") String tenantId,@Param("cursor") String cursor,@Param("limit") int limit);
+
 	/**
 	 * 在售商品目录的真实总行数（未截断前），用于如实告知客户「模板只含前 N 项」。
 	 */
 	int countCatalogRows(@Param("tenantId") String tenantId);
+
+    List<ReplenishImportSkuRow> selectRowsByIdentifiers(@org.apache.ibatis.annotations.Param("tenantId") String tenantId,
+        @org.apache.ibatis.annotations.Param("values") List<String> values);
 
 }

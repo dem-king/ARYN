@@ -27,6 +27,8 @@ public interface GoodsAppraiseMapper extends BaseMapper<GoodsAppraise> {
 	 */
 	AppraiseCountVO selectGoodsAppraiseCount(@Param("query") GoodsAppraise goodsAppraise);
 
+	List<AppraiseCountVO.TagCount> selectGoodsAppraiseTagGroups(@Param("query") GoodsAppraise goodsAppraise);
+
 	IPage<GoodsAppraise> selectAppraisePage(Page page, @Param("query") GoodsAppraise goodsAppraise);
 
 	/**

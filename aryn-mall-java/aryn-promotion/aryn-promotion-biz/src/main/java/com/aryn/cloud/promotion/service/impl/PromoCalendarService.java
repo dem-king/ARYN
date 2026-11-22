@@ -46,6 +46,10 @@ public class PromoCalendarService {
 	@DubboReference
 	private com.aryn.cloud.product.api.remote.RemoteGoodsSkuService remoteGoodsSkuService;
 
+	/** 靠港计划远程接口（anchor_type=2 档期窗口=eta~etd）；非 final + @DubboReference。 */
+	@DubboReference
+	private com.aryn.cloud.vessel.api.remote.RemoteVesselService remoteVesselService;
+
 	/** 档期列表（管理端，含全部状态）。 */
 	public List<PromoCalendar> list(String tenantId, String status, String keyword) {
 		return promoCalendarMapper.selectList(Wrappers.lambdaQuery(PromoCalendar.class)
@@ -64,9 +68,9 @@ public class PromoCalendarService {
 	/** 新建档期。 */
 	@Transactional(rollbackFor = Exception.class)
 	public PromoCalendar save(String tenantId, PromoCalendar calendar) {
-		validateCalendar(calendar);
 		calendar.setId(null);
 		calendar.setTenantId(tenantId);
+		validateCalendar(calendar);
 		promoCalendarMapper.insert(calendar);
 		return calendar;
 	}
@@ -130,9 +134,27 @@ public class PromoCalendarService {
 	 *
 	 * <p>展示口径与成交口径同源：只展示已发布且时间窗覆盖当前的活动，剩余限量按
 	 * total_quota - consumed_quota（限量熔断已由引擎与 reserve 原子扣减保证）；
+	 * 限量耗尽的活动前置剔除（展示价=可成交价，方案 §4.1）；按购买场景/船舶圈定
+	 * 过滤（与引擎 matchesScope 同口径，2026-11-15 审查修复）。
 	 * 划线基准取 SKU 实时售价，远程失败按无划线价降级，不阻断楼层。
+	 * @param purchaseScene 当前购买场景（空=不过滤场景维度）
+	 * @param vesselId 当前船舶上下文（空=船舶圈定活动不展示，fail-closed）
 	 */
-	public List<AppCalendarSpecialVO> specials(String tenantId, String calendarId) {
+	public List<AppCalendarSpecialVO> specials(String tenantId, String calendarId, String purchaseScene,
+			String vesselId) {
+		return specialsCore(tenantId, calendarId, purchaseScene, vesselId, true);
+	}
+
+	/**
+	 * 价格快照 Job 专用：不做场景/船舶圈定过滤（快照口径取全部进行中特供价的最低价，
+	 * 方案 §11.4「档期特供价应入 goods_sku_price_daily」），窗口/档期/限量熔断口径不变。
+	 */
+	public List<AppCalendarSpecialVO> specialsForSnapshot(String tenantId) {
+		return specialsCore(tenantId, null, null, null, false);
+	}
+
+	private List<AppCalendarSpecialVO> specialsCore(String tenantId, String calendarId, String purchaseScene,
+			String vesselId, boolean applyScopeFilter) {
 		LocalDateTime now = LocalDateTime.now();
 		List<PromotionActivity> activities = promotionActivityMapper.selectList(
 				Wrappers.lambdaQuery(PromotionActivity.class)
@@ -146,6 +168,10 @@ public class PromoCalendarService {
 			return List.of();
 		}
 		activities = filterByCalendarWindow(tenantId, activities, now);
+		activities = activities.stream()
+			.filter(activity -> !quotaExhausted(activity))
+			.filter(activity -> !applyScopeFilter || matchesDisplayScope(activity, purchaseScene, vesselId))
+			.toList();
 		if (activities.isEmpty()) {
 			return List.of();
 		}
@@ -188,6 +214,9 @@ public class PromoCalendarService {
 				}
 				item.setOriginalPrice(sku.getSalesPrice());
 				item.setPicUrl(sku.getPicUrl());
+				// 楼层卡片点击跳商详要靠 spuId；此前漏回填导致 C 端整层「点不动」
+				item.setSpuId(StringUtils.hasText(sku.getSpuId()) ? sku.getSpuId()
+						: (sku.getGoodsSpu() == null ? null : sku.getGoodsSpu().getId()));
 				if (sku.getGoodsSpu() != null) {
 					item.setSpuName(sku.getGoodsSpu().getName());
 				}
@@ -196,6 +225,35 @@ public class PromoCalendarService {
 			result.add(vo);
 		}
 		return result;
+	}
+
+	/** 限量耗尽前置剔除：total_quota 空/0 不限；已消耗 ≥ 限量则楼层不再展示（与引擎熔断同口径）。 */
+	private boolean quotaExhausted(PromotionActivity activity) {
+		if (activity.getTotalQuota() == null || activity.getTotalQuota() <= 0) {
+			return false;
+		}
+		int used = activity.getConsumedQuota() == null ? 0 : activity.getConsumedQuota();
+		return used >= activity.getTotalQuota();
+	}
+
+	/**
+	 * 展示侧圈定过滤（与引擎 matchesScope 同口径的楼层子集）：
+	 * purchase_scene 精确匹配；scope_type 1 全场 / 2 指定 SKU（楼层按活动配置展示）/
+	 * 4 场景圈定 / 5 船舶圈定；6 靠港 / 7 港口 / 8 常购楼层无对应上下文，不展示（fail-closed）。
+	 */
+	boolean matchesDisplayScope(PromotionActivity activity, String purchaseScene, String vesselId) {
+		if (StringUtils.hasText(activity.getPurchaseScene())
+				&& !activity.getPurchaseScene().equals(purchaseScene)) {
+			return false;
+		}
+		String scopeType = activity.getScopeType() == null ? "1" : activity.getScopeType();
+		return switch (scopeType) {
+			case "1", "2" -> true;
+			case "4" -> activity.getScopeValue() != null && activity.getScopeValue().equals(purchaseScene);
+			case "5" -> StringUtils.hasText(vesselId) && activity.getScopeValue() != null
+					&& java.util.Arrays.asList(activity.getScopeValue().split(",")).contains(vesselId);
+			default -> false;
+		};
 	}
 
 	private List<AppCalendarSpecialVO.SpecialItem> parseSpecialSkus(PromotionActivity activity) {
@@ -224,8 +282,8 @@ public class PromoCalendarService {
 		return items;
 	}
 
-	/** 档期窗二次校验（活动在窗内但档期停用/未开始时剔除）。 */
-	private List<PromotionActivity> filterByCalendarWindow(String tenantId, List<PromotionActivity> activities,
+	/** 档期窗二次校验（活动在窗内但档期停用/未开始时剔除）；包内共享（阶梯价展示同口径）。 */
+	List<PromotionActivity> filterByCalendarWindow(String tenantId, List<PromotionActivity> activities,
 			LocalDateTime now) {
 		List<String> calendarIds = activities.stream()
 			.map(PromotionActivity::getCalendarId)
@@ -275,7 +333,34 @@ public class PromoCalendarService {
 				&& !PromoCalendar.ANCHOR_CUSTOM.equals(calendar.getAnchorType())) {
 			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("非法的锚点类型");
 		}
+		if (PromoCalendar.ANCHOR_VESSEL_CALL.equals(calendar.getAnchorType())) {
+			applyVesselCallWindow(calendar);
+		}
 		validateWindow(calendar);
+	}
+
+	/**
+	 * 靠港档期窗口派生（方案 §4.4：anchor_type=2 窗口=vessel_call 的 eta~etd）。
+	 * 2026-11-15 审查修复：此前 anchorRef 只存不校验、时间窗与靠港计划脱钩。
+	 * 派生失败（计划不存在/无 eta~etd/远程异常）直接拒绝保存，不允许手填窗口冒充靠港档期。
+	 */
+	private void applyVesselCallWindow(PromoCalendar calendar) {
+		if (!StringUtils.hasText(calendar.getAnchorRef())) {
+			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("靠港档期必须关联靠港计划");
+		}
+		com.aryn.cloud.vessel.api.dto.VesselContextDTO call;
+		try {
+			call = remoteVesselService.getVesselCallContext(calendar.getTenantId(), calendar.getAnchorRef());
+		}
+		catch (Exception ex) {
+			log.warn("靠港计划查询失败 anchorRef={}", calendar.getAnchorRef(), ex);
+			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("靠港计划查询失败，请稍后重试");
+		}
+		if (call == null || call.getEta() == null || call.getEtd() == null || call.getEtd().isBefore(call.getEta())) {
+			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("靠港计划不存在或缺少 ETA/ETD 窗口");
+		}
+		calendar.setStartTime(call.getEta());
+		calendar.setEndTime(call.getEtd());
 	}
 
 	private void validateWindow(PromoCalendar calendar) {

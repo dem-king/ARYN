@@ -13,6 +13,22 @@ export default {
       daysClock: '{days}d {clock}',
       days: '{days}d',
     },
+    // Calendar specials hall (landing page of the floor's "View all")
+    calendarSpecial: {
+      title: 'Calendar Specials',
+      count: '{count} specials',
+      emptyTitle: 'No calendar specials right now',
+      emptyDesc: 'Limited offers will show up here when a calendar starts',
+      loadFailedTitle: 'Unable to load calendar specials',
+      loadFailedDesc: 'Pull to refresh, or go back to the home page',
+      backHome: 'Go shopping',
+      quotaTotal: 'Limited to {count} per drop',
+      quotaUnlimited: 'Unlimited',
+      limitPerUser: '{count} per person',
+      limitNone: 'No limit',
+      multiActivity: '{count} campaigns',
+      footNote: 'Prices, remaining quota and limits are confirmed at checkout',
+    },
     newbie: {
       title: 'New User Perks',
       goodsCount: '{count} items at new user price',

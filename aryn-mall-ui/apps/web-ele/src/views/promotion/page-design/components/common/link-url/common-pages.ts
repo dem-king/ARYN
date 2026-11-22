@@ -20,6 +20,10 @@ export const COMMON_PAGE_PRESETS: CommonPagePreset[] = [
   { name: '个人中心', path: '/pages/user/user-center/index' },
   { name: '商品搜索', path: '/sub-pages/product/goods-search/index' },
   { name: '商品列表', path: '/sub-pages/product/goods-list/index' },
+  {
+    name: '档期特供',
+    path: '/sub-pages/promotion/calendar-special/index',
+  },
   { name: '秒杀活动', path: '/pages/promotion/seckill' },
   { name: '折扣活动', path: '/pages/promotion/discount' },
   {

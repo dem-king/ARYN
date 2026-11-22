@@ -130,9 +130,29 @@ export interface GoodsTabMemberBanner {
   guestCopy?: string;
 }
 
+/** 商品流左列第一格活动轮播项（管理端配置） */
+export interface GoodsTabFeedCardItem {
+  badge?: string;
+  ctaText?: string;
+  id: string;
+  imageUrl: string;
+  kicker?: string;
+  link?: DecorationLink | null;
+  subtitle?: string;
+  title: string;
+}
+
+/** 商品流活动轮播卡：开启后占用该 Tab 商品瀑布流左列第一格 */
+export interface GoodsTabFeedCard {
+  enabled: boolean;
+  interval: number;
+  items: GoodsTabFeedCardItem[];
+}
+
 /** 多 Tab 商品流中的单个 Tab：每个 Tab 拥有独立的数据源与分页状态 */
 export interface GoodsTabConfig {
   dataSource: ExtensionDataSourceConfig;
+  feedCard?: GoodsTabFeedCard;
   id: string;
   /** 会员权益条（F2），缺省视为关闭 */
   memberBanner?: GoodsTabMemberBanner;
@@ -432,6 +452,42 @@ function validateMemberBanner(
   }
 }
 
+/** 商品流活动轮播卡：开启时至少 1 项、最多 6 项，每项必须有图与主标题 */
+function validateFeedCard(
+  feedCard: unknown,
+  tabLabel: string,
+  errors: string[],
+) {
+  if (feedCard === undefined || feedCard === null) return;
+  if (typeof feedCard !== 'object' || Array.isArray(feedCard)) {
+    errors.push(`「${tabLabel}」活动轮播卡配置格式不正确`);
+    return;
+  }
+  const config = feedCard as GoodsTabFeedCard;
+  if (config.enabled !== true) return;
+  const items = Array.isArray(config.items) ? config.items : [];
+  if (items.length === 0) {
+    errors.push(`「${tabLabel}」活动轮播卡至少需要配置 1 个轮播项`);
+    return;
+  }
+  if (items.length > 6) {
+    errors.push(`「${tabLabel}」活动轮播卡最多配置 6 个轮播项`);
+  }
+  items.forEach((item, index) => {
+    const label = `「${tabLabel}」活动轮播第 ${index + 1} 项`;
+    if (!item || typeof item !== 'object') {
+      errors.push(`${label}配置格式不正确`);
+      return;
+    }
+    if (!item.imageUrl) errors.push(`${label}必须上传活动图`);
+    if (!item.title) errors.push(`${label}主标题不能为空`);
+    if (copyLength(item.title) > 12)
+      errors.push(`${label}主标题不能超过 12 字`);
+    if (copyLength(item.subtitle) > 30)
+      errors.push(`${label}副标题不能超过 30 字`);
+  });
+}
+
 export function validateGoodsTabs(props: Record<string, unknown>) {
   const errors: string[] = [];
   const tabs = (props.tabs ?? []) as GoodsTabConfig[];
@@ -481,6 +537,7 @@ export function validateGoodsTabs(props: Record<string, unknown>) {
       }
     }
     validateMemberBanner(tab.memberBanner, tabLabel, errors);
+    validateFeedCard(tab.feedCard, tabLabel, errors);
   });
   return errors;
 }

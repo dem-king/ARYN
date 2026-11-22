@@ -67,6 +67,9 @@ public class PromotionLock extends Model<PromotionLock> {
 	/** 释放原因：CANCEL/TIMEOUT/REFUND */
 	private String releaseReason;
 
+	/** 档期特供已按退款回补的限量件数（原子累计，防 MQ 重复投递重复回补；其余活动恒 0） */
+	private Integer refundedQuotaUnits;
+
 	private String tenantId;
 
 	private String createBy;

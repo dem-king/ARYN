@@ -118,11 +118,8 @@ describe('page designer canvas contract', () => {
       'utf8',
     );
 
-    // 个人中心骨架的常驻模块（订单 5 入口 / 服务 8 宫格 / 猜你喜欢 / 页头设置
-    // 入口）必须与 C 端 user-center 页逐项对齐：曾漏掉「我的服务」「猜你喜欢」
-    // 整块、订单入口不带文字标签，运营会误以为实机少了内容。
-    // 角色条件入口（配送工作台/我的船舶）按登录与租户能力出现，示意骨架不画。
-    // C 端已完成 i18n：页面只保留翻译键，这里同时锁住键与中文词条。
+    const previewLabels = readAdmin('../schema/user-center-preview.ts');
+    // 管理画布与移动端同时覆盖原生入口和本地化文案。
     for (const [label, key] of [
       ['待付款', 'orderPendingPayment'],
       ['待发货', 'orderPendingShipment'],
@@ -138,9 +135,9 @@ describe('page designer canvas contract', () => {
       ['浏览记录', 'serviceFootprint'],
       ['我的收藏', 'serviceCollect'],
       ['我的优惠券', 'serviceCoupon'],
-      ['分销中心', 'serviceDistribution'],
+      ['联系客服', 'serviceSupport'],
     ]) {
-      expect(shell).toContain(label);
+      expect(shell + previewLabels).toContain(label);
       expect(userCenter).toContain(`t('userCenter.${key}')`);
       expect(zhCN).toContain(`${key}: '${label}'`);
     }
@@ -150,8 +147,8 @@ describe('page designer canvas contract', () => {
     expect(shell).toContain('登录后同步订单、优惠券与积分');
     expect(userCenter).toContain("t('userCenter.loginHint')");
     expect(zhCN).toContain("loginHint: '登录后同步订单、优惠券与积分'");
-    expect(shell).not.toContain('配送工作台');
-    expect(shell).not.toContain('我的船舶');
+    expect(shell).toContain("props.userCenterMode === 'staff'");
+    expect(previewLabels).not.toContain('分销中心');
   });
 
   it('draws the decoration navigation bar only for full-page DIY', () => {

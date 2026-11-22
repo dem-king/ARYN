@@ -44,13 +44,14 @@ describe('商详口碑气泡接线', () => {
     expect(bubbleRule).not.toContain('--app-')
   })
 
-  it('手机端气泡悬浮（fixed）不随滚动消失，宽屏双栏回落图集卡内', () => {
+  it('手机端气泡跟随图集滚动，宽屏仍留在图集卡内', () => {
     const style = styleBlockOf(goodsInfo)
-    // 折叠态：fixed 悬浮——一滚动就消失是回退态（曾因 absolute 跟图集滚走被打回）
+    // 折叠态：absolute 贴图集——滚动后不再 fixed 压住标题/参数
     const start = style.indexOf('&__bubble {')
     const end = style.indexOf('&__bubble-avatar', start)
-    expect(style.slice(start, end)).toContain('position: fixed')
-    // 宽屏（MP-WEIXIN ≥600px 双栏）：平板上悬整个视口没有意义，改回图集卡内 absolute
+    expect(style.slice(start, end)).toContain('position: absolute')
+    expect(style.slice(start, end)).not.toContain('position: fixed')
+    // 宽屏（MP-WEIXIN ≥600px 双栏）：平板上悬整个视口没有意义，回图集卡内 absolute
     const wideStart = style.indexOf('@media (min-width: 600px)')
     const widePart = style.slice(wideStart)
     const bubbleStart = widePart.indexOf('.goods-swiper__bubble {')

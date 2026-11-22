@@ -71,6 +71,19 @@ export async function addOrderToWave(waveId: string, orderId: string) {
   );
 }
 
+export async function addOrdersToWave(waveId: string, orderIds: string[]) {
+  return requestClient.post(
+    `/mall-order/fulfillment/wave/${encodeURIComponent(waveId)}/orders/batch`,
+    orderIds,
+  );
+}
+
+export async function startPicking(waveId: string) {
+  return requestClient.post<FulfillmentWave>(
+    `/mall-order/fulfillment/wave/${encodeURIComponent(waveId)}/start`,
+  );
+}
+
 export async function scanPick(data: {
   itemId: string;
   quantity: number;

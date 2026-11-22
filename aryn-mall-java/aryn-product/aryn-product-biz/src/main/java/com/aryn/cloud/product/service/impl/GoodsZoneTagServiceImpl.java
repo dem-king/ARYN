@@ -118,7 +118,7 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 				// 批量不接收会员价下限：下限统一由成本兜底/单商品精调维护
 				applySpuTags(spu, dto.getMemberTag(), dto.getMemberDiscountRate(), dto.getMemberPriceFixed(),
 						null, dto.getClearanceTag(), dto.getClearancePrice(),
-						dto.getClearanceDiscountRate(), dto.getClearanceExpireTime(), false, false);
+						dto.getClearanceDiscountRate(), dto.getClearanceExpireTime(), false, false, null);
 				if (Boolean.FALSE.equals(dto.getMemberTag())) {
 					clearSkuMember(spuId, true);
 				}
@@ -218,13 +218,10 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 	public void saveTags(String spuId, GoodsZoneTagSaveDTO dto) {
 		GoodsSpu spu = requireSpu(spuId);
 		GoodsZoneTagRuleValidator.validateSavePayload(dto);
-		BigDecimal clearanceDefault = loadDefaultRate(GoodsZoneTagStateResolver.ZONE_CLEARANCE);
-		if (Boolean.TRUE.equals(dto.getClearanceTag())) {
-			GoodsZoneTagRuleValidator.validateClearanceAvailability(true, dto.getClearancePrice(),
-					dto.getClearanceDiscountRate(), spu.getClearancePrice(), spu.getClearanceDiscountRate(),
-					clearanceDefault, spu.getOriginalPrice());
-		}
-		else if (dto.getClearanceDiscountRate() != null
+		String editZone = dto.getEditZone();
+		boolean editMember = editZone == null || GoodsZoneTagStateResolver.ZONE_MEMBER.equals(editZone);
+		boolean editClearance = editZone == null || GoodsZoneTagStateResolver.ZONE_CLEARANCE.equals(editZone);
+		if (!Boolean.TRUE.equals(dto.getClearanceTag()) && dto.getClearanceDiscountRate() != null
 				&& (spu.getOriginalPrice() == null || spu.getOriginalPrice().signum() <= 0)) {
 			throw new ArynBusinessException("商品缺少原价，无法按出清折扣算价，请配置出清固定价");
 		}
@@ -237,7 +234,8 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 		applySpuTags(spu, dto.getMemberTag(), dto.getMemberDiscountRate(), dto.getMemberPriceFixed(),
 				dto.getMemberPriceFloor(), dto.getClearanceTag(), dto.getClearancePrice(),
 				dto.getClearanceDiscountRate(), dto.getClearanceExpireTime(),
-				Boolean.TRUE.equals(dto.getClearMemberRule()), Boolean.TRUE.equals(dto.getClearClearanceRule()));
+				Boolean.TRUE.equals(dto.getClearMemberRule()), Boolean.TRUE.equals(dto.getClearClearanceRule()),
+				editZone);
 		if (Boolean.FALSE.equals(dto.getMemberTag())) {
 			clearSkuMember(spuId, true);
 		}
@@ -257,7 +255,7 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
 		boolean anyMemberTag = false;
 		boolean anyClearanceTag = false;
-		boolean replaceSkuRules = Boolean.TRUE.equals(dto.getReplaceSkuRules());
+		boolean replaceSkuRules = editZone != null || Boolean.TRUE.equals(dto.getReplaceSkuRules());
 		for (GoodsZoneTagSaveDTO.SkuTag item : dto.getSkus()) {
 			if (item == null || !StringUtils.hasText(item.getSkuId())) {
 				continue;
@@ -281,22 +279,23 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 			Integer memberTag = Boolean.FALSE.equals(dto.getMemberTag()) ? Integer.valueOf(0) : item.getMemberTag();
 			Integer clearanceTag = Boolean.FALSE.equals(dto.getClearanceTag()) ? Integer.valueOf(0)
 					: item.getClearanceTag();
-			anyMemberTag = anyMemberTag || Objects.equals(memberTag, 1);
-			anyClearanceTag = anyClearanceTag || Objects.equals(clearanceTag, 1);
-			recordSkuTagChanges(spuId, skuMap.get(item.getSkuId()), item, memberTag, clearanceTag);
+			anyMemberTag = anyMemberTag || (editMember && Objects.equals(memberTag, 1));
+			anyClearanceTag = anyClearanceTag || (editClearance && Objects.equals(clearanceTag, 1));
+			recordSkuTagChanges(spuId, skuMap.get(item.getSkuId()), item, memberTag, clearanceTag,
+					editMember, editClearance);
 			var skuUpdate = Wrappers.<GoodsSku>lambdaUpdate()
 				.eq(GoodsSku::getId, item.getSkuId())
 				.eq(GoodsSku::getSpuId, spuId);
 			if (replaceSkuRules) {
 				// 精确覆盖：提交值为 null 表示清空该字段并恢复继承 SPU
-				skuUpdate.set(GoodsSku::getIsMemberItem, memberTag)
-					.set(GoodsSku::getMemberDiscountRate, item.getMemberDiscountRate())
-					.set(GoodsSku::getMemberPriceFixed, item.getMemberPriceFixed())
-					.set(GoodsSku::getMemberPriceFloor, item.getMemberPriceFloor())
-					.set(GoodsSku::getIsClearanceItem, clearanceTag)
-					.set(GoodsSku::getClearancePrice, item.getClearancePrice())
-					.set(GoodsSku::getClearanceDiscountRate, item.getClearanceDiscountRate())
-					.set(GoodsSku::getClearanceExpireTime, item.getClearanceExpireTime());
+				skuUpdate.set(editMember, GoodsSku::getIsMemberItem, memberTag)
+					.set(editMember, GoodsSku::getMemberDiscountRate, item.getMemberDiscountRate())
+					.set(editMember, GoodsSku::getMemberPriceFixed, item.getMemberPriceFixed())
+					.set(editMember, GoodsSku::getMemberPriceFloor, item.getMemberPriceFloor())
+					.set(editClearance, GoodsSku::getIsClearanceItem, clearanceTag)
+					.set(editClearance, GoodsSku::getClearancePrice, item.getClearancePrice())
+					.set(editClearance, GoodsSku::getClearanceDiscountRate, item.getClearanceDiscountRate())
+					.set(editClearance, GoodsSku::getClearanceExpireTime, item.getClearanceExpireTime());
 			}
 			else {
 				skuUpdate
@@ -849,13 +848,16 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 
 	private void applySpuTags(GoodsSpu spu, Boolean memberTag, BigDecimal memberRate, BigDecimal memberFixed,
 			BigDecimal memberFloor, Boolean clearanceTag, BigDecimal clearancePrice, BigDecimal clearanceRate,
-			LocalDateTime clearanceExpireTime, boolean clearMemberRule, boolean clearClearanceRule) {
+			LocalDateTime clearanceExpireTime, boolean clearMemberRule, boolean clearClearanceRule, String editZone) {
+		boolean replaceMember = GoodsZoneTagStateResolver.ZONE_MEMBER.equals(editZone);
+		boolean replaceClearance = GoodsZoneTagStateResolver.ZONE_CLEARANCE.equals(editZone);
 		boolean memberRuleProvided = memberRate != null || memberFixed != null || memberFloor != null;
 		boolean clearanceRuleProvided = clearancePrice != null || clearanceRate != null
 				|| clearanceExpireTime != null;
 		if (Boolean.TRUE.equals(clearanceTag) || clearanceRuleProvided) {
 			GoodsZoneTagRuleValidator.validateClearanceAvailability(Boolean.TRUE.equals(clearanceTag),
-					clearancePrice, clearanceRate, spu.getClearancePrice(), spu.getClearanceDiscountRate(),
+					clearancePrice, clearanceRate, replaceClearance ? null : spu.getClearancePrice(),
+					replaceClearance ? null : spu.getClearanceDiscountRate(),
 					loadDefaultRate(GoodsZoneTagStateResolver.ZONE_CLEARANCE), spu.getOriginalPrice());
 		}
 		boolean memberTouched = memberTag != null || memberRuleProvided || clearMemberRule;
@@ -880,9 +882,9 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 					.set(GoodsSpu::getMemberPriceFloor, null);
 			}
 			else {
-				update.set(memberRate != null, GoodsSpu::getMemberDiscountRate, memberRate)
-					.set(memberFixed != null, GoodsSpu::getMemberPriceFixed, memberFixed)
-					.set(memberFloor != null, GoodsSpu::getMemberPriceFloor, memberFloor);
+				update.set(replaceMember || memberRate != null, GoodsSpu::getMemberDiscountRate, memberRate)
+					.set(replaceMember || memberFixed != null, GoodsSpu::getMemberPriceFixed, memberFixed)
+					.set(replaceMember || memberFloor != null, GoodsSpu::getMemberPriceFloor, memberFloor);
 			}
 		}
 		if (Boolean.FALSE.equals(clearanceTag)) {
@@ -901,9 +903,10 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 					.set(GoodsSpu::getClearanceExpireTime, null);
 			}
 			else {
-				update.set(clearancePrice != null, GoodsSpu::getClearancePrice, clearancePrice)
-					.set(clearanceRate != null, GoodsSpu::getClearanceDiscountRate, clearanceRate)
-					.set(clearanceExpireTime != null, GoodsSpu::getClearanceExpireTime, clearanceExpireTime);
+				update.set(replaceClearance || clearancePrice != null, GoodsSpu::getClearancePrice, clearancePrice)
+					.set(replaceClearance || clearanceRate != null, GoodsSpu::getClearanceDiscountRate, clearanceRate)
+					.set(replaceClearance || clearanceExpireTime != null, GoodsSpu::getClearanceExpireTime,
+							clearanceExpireTime);
 			}
 		}
 		goodsSpuMapper.update(null, update);
@@ -962,17 +965,17 @@ public class GoodsZoneTagServiceImpl implements IGoodsZoneTagService {
 
 	/** SKU 级专区规则精调落价格历史。 */
 	private void recordSkuTagChanges(String spuId, GoodsSku stored, GoodsZoneTagSaveDTO.SkuTag item,
-			Integer memberTag, Integer clearanceTag) {
+			Integer memberTag, Integer clearanceTag, boolean editMember, boolean editClearance) {
 		if (stored == null || item == null) {
 			return;
 		}
-		if (!Objects.equals(memberTag, 0)) {
+		if (editMember && !Objects.equals(memberTag, 0)) {
 			goodsPriceHistoryService.recordIfChanged(spuId, stored.getId(), "member_rate",
 				stored.getMemberDiscountRate(), item.getMemberDiscountRate(), "tag_save", "SKU会员折扣率精调");
 			goodsPriceHistoryService.recordIfChanged(spuId, stored.getId(), "member_fixed",
 				stored.getMemberPriceFixed(), item.getMemberPriceFixed(), "tag_save", "SKU会员固定价精调");
 		}
-		if (!Objects.equals(clearanceTag, 0)) {
+		if (editClearance && !Objects.equals(clearanceTag, 0)) {
 			goodsPriceHistoryService.recordIfChanged(spuId, stored.getId(), "clearance",
 				stored.getClearancePrice(), item.getClearancePrice(), "tag_save", "SKU出清价精调");
 		}

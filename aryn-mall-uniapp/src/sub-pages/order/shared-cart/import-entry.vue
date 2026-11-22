@@ -17,7 +17,7 @@
  */
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPage as getAddressPage } from '@/api/user/address'
 
 import hrNavbar from '@/components/hr-navbar/index.vue'
@@ -27,7 +27,7 @@ import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useDirectImportOrderStore } from '@/store/directImportOrderStore'
-import { PURCHASE_SCENE_ENTERPRISE, PURCHASE_SCENE_SHIP_SUPPLY, useShipContextStore } from '@/store/shipContextStore'
+import { PURCHASE_SCENE_PERSONAL, PURCHASE_SCENE_SHIP_SUPPLY, useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 
 const { handlePageScroll } = useFrostedNavbar()
@@ -146,7 +146,7 @@ const isShoreMode = computed(() => createState.value.mode === 'shore')
 /** 上次导入仍可继续（待确认或已确认），且交接未过期 */
 const hasResumableImport = computed(() =>
   directImportOrderStore.active
-  && !!directImportOrderStore.importId
+  && !!(directImportOrderStore.importId || directImportOrderStore.procurementDraftId)
   && !directImportOrderStore.isExpired,
 )
 
@@ -157,9 +157,11 @@ function resumeLastImport() {
     uni.showToast({ title: t('sharedCart.importPage.handoffExpired'), icon: 'none' })
     return
   }
-  uni.navigateTo({
-    url: `/sub-pages/order/shared-cart/import?mode=direct&handoff=${encodeURIComponent(handoffId)}`,
-  })
+  const draft = directImportOrderStore.procurementDraftId
+  const path = draft
+    ? `/sub-pages/order/procurement/index?draftId=${encodeURIComponent(draft)}&handoff=${encodeURIComponent(handoffId)}`
+    : `/sub-pages/order/shared-cart/import?mode=direct&handoff=${encodeURIComponent(handoffId)}`
+  uni.navigateTo({ url: path })
 }
 
 /** 卡片副标题按模式切换：挂靠港补给单 vs 按地址发起的采购单 */
@@ -217,7 +219,7 @@ function goCartList() {
 /** 进入直下单导入页：handoff 随 URL 传递，报告页确认后结算页只认这一次交接 */
 function goDirectImport(handoffId: string) {
   uni.navigateTo({
-    url: `/sub-pages/order/shared-cart/import?mode=direct&handoff=${encodeURIComponent(handoffId)}`,
+    url: `/sub-pages/order/procurement/index?handoff=${encodeURIComponent(handoffId)}`,
   })
 }
 
@@ -348,7 +350,7 @@ function submitShoreImport() {
   }
   // 地址随 handoff 带给结算页预选；结算页按场景锁定 way=3/scene=3
   directImportOrderStore.begin({
-    scene: PURCHASE_SCENE_ENTERPRISE,
+    scene: PURCHASE_SCENE_PERSONAL,
     userAddressId: createState.value.addressId,
     remark: createState.value.remark || undefined,
   })

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { CanvasThemeVars } from '../schema/theme-presets';
 import type { DecorationSection, PageSettings } from '../schema/types';
+import type {
+  UserCenterModule,
+  UserCenterPreviewMode,
+} from '../schema/user-center-preview';
 
 import type { PageDesignType } from '#/api/promotion/page-design';
 
@@ -41,11 +45,13 @@ const props = defineProps<{
    * 品牌色（含模板种子写死的颜色），与 C 端 diy 渲染器有效主题口径一致。
    */
   themeVars?: CanvasThemeVars;
+  userCenterMode?: UserCenterPreviewMode;
   zoom: number;
 }>();
 
 const emit = defineEmits<{
   duplicate: [id: string];
+  editModule: [section: UserCenterModule];
   move: [id: string, toIndex: number, sectionId: string];
   remove: [id: string];
   select: [id?: string];
@@ -264,6 +270,10 @@ const isEmpty = computed(() =>
       <CanvasPageShell
         v-if="showShell"
         :page-type="pageType"
+        :user-center="page.userCenter"
+        :user-center-mode="userCenterMode"
+        editable
+        @edit-module="emit('editModule', $event)"
         @click.self="emit('select', undefined)"
       >
         <div :style="embeddedStyle">

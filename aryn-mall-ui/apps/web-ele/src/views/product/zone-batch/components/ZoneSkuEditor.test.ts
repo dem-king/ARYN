@@ -52,7 +52,7 @@ function detailFixture(overrides: Partial<ZoneTagDetail> = {}): ZoneTagDetail {
   } as ZoneTagDetail;
 }
 
-function mountEditor() {
+function mountEditor(props?: InstanceType<typeof ZoneSkuEditor>['$props']) {
   return mount(ZoneSkuEditor, {
     global: {
       directives: { loading: ElLoading.directive },
@@ -66,7 +66,7 @@ function mountEditor() {
         },
       },
     },
-    props: { spuId: 'spu-1' },
+    props: props ?? { spuId: 'spu-1' },
   });
 }
 
@@ -128,5 +128,42 @@ describe('zoneSkuEditor', () => {
     const wrapper = mountEditor();
     await flushPromises();
     expect(wrapper.text()).toContain('读取失败');
+  });
+
+  it('低价捡漏先解释默认折扣试算，切换到固定价时只提交当前专区', async () => {
+    mockedGetZoneTags.mockResolvedValue(detailFixture({ isClearanceItem: 1 }));
+    const wrapper = mountEditor({
+      defaultRate: 0.8,
+      row: { id: 'spu-1', originalPrice: 49.9, salesPrice: 39.9 },
+      spuId: 'spu-1',
+      zone: 'clearance',
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('¥39.92');
+    expect(wrapper.text()).toContain('试算价须低于售价 ¥39.90');
+    expect(wrapper.text()).not.toContain('会员专区');
+    expect(wrapper.find('.el-table-stub').exists()).toBe(false);
+
+    await wrapper.get('input[type="radio"][value="fixed"]').setValue(true);
+    const priceInput = wrapper.get('input[aria-label="固定价（元）"]');
+    await priceInput.setValue('39');
+    await priceInput.trigger('change');
+    expect(wrapper.text()).toContain('¥39.00');
+    expect(wrapper.text()).not.toContain('试算价须低于售价');
+
+    const saveButton = wrapper
+      .findAllComponents(ElButton)
+      .find((button) => button.text() === '保存价格规则');
+    if (!saveButton) throw new Error('未找到保存价格规则按钮');
+    await saveButton.trigger('click');
+    await flushPromises();
+    expect(mockedSaveZoneTags).toHaveBeenCalledWith('spu-1', {
+      clearanceDiscountRate: null,
+      clearanceExpireTime: null,
+      clearancePrice: 39,
+      clearanceTag: true,
+      editZone: 'clearance',
+      skus: [],
+    });
   });
 });

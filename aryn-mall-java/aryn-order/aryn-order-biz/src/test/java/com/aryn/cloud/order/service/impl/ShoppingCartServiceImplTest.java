@@ -63,6 +63,23 @@ class ShoppingCartServiceImplTest {
 		ArynTenantContextHolder.removeTenantId();
 	}
 
+    @Test
+    void moqAndStepValidateMergedTotalAndRejectInvalidNewRows() {
+        GoodsSku sku = saleSku(20).setMinOrderQty(3).setStepQty(2);
+        when(remoteGoodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(sku));
+        ShoppingCart existing = new ShoppingCart(); existing.setId("row"); existing.setQuantity(3);
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(existing);
+        when(mapper.incrementQuantityById("user-1", "row", 2)).thenReturn(1);
+        assertThat(service.saveShoppingCart("user-1", addRequest(null, null, 2))).isTrue();
+        assertThatThrownBy(() -> service.saveShoppingCart("user-1", addRequest(null, null, 1)))
+            .isInstanceOf(ArynBusinessException.class);
+        verify(mapper, never()).incrementQuantityById("user-1", "row", 1);
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        assertThatThrownBy(() -> service.saveShoppingCart("user-1", addRequest(null, null, 2)))
+            .isInstanceOf(ArynBusinessException.class);
+        verify(mapper, never()).insert(any(ShoppingCart.class));
+    }
+
 	@Test
 	void addUsesServerSideSkuSnapshot() {
 		when(remoteGoodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
@@ -427,6 +444,7 @@ class ShoppingCartServiceImplTest {
 	 */
 	@Test
 	void transferMergesIntoExistingRowOnTargetCall() {
+		when(remoteGoodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
 		when(remoteVesselService.getVesselCallContext("tenant-1", "call-2"))
 			.thenReturn(vesselContext("call-2", "宁波港", "悦航7号", true));
 		ShoppingCart row = cartRow("cart-1", "sku-1");
@@ -474,6 +492,7 @@ class ShoppingCartServiceImplTest {
 	 */
 	@Test
 	void reattachMigratesStrandedRowsAndMergesDuplicates() {
+		when(remoteGoodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
 		ShoppingCart stranded = cartRow("cart-1", "sku-1");
 		stranded.setUserId("user-1");
 		stranded.setSkuId("sku-1");

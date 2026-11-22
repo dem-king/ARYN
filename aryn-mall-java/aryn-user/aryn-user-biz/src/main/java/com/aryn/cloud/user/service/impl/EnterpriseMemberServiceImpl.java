@@ -2,17 +2,21 @@ package com.aryn.cloud.user.service.impl;
 
 import cn.hutool.core.util.IdUtil;
 import com.aryn.cloud.common.core.entity.OrderCompleteEvent;
+import com.aryn.cloud.common.core.entity.OrderRefundSuccessEvent;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.vo.EnterprisePurchaseAggVO;
 import com.aryn.cloud.user.api.constant.EnterpriseMemberConstants;
 import com.aryn.cloud.user.api.entity.EnterpriseBenefit;
 import com.aryn.cloud.user.api.entity.EnterpriseBenefitLevelRel;
 import com.aryn.cloud.user.api.entity.EnterpriseGrowth;
+import com.aryn.cloud.user.api.entity.EnterpriseGrowthLedger;
 import com.aryn.cloud.user.api.entity.EnterpriseLevel;
 import com.aryn.cloud.user.api.entity.EnterpriseLevelBinding;
 import com.aryn.cloud.user.api.entity.EnterpriseLevelRecord;
 import com.aryn.cloud.user.api.vo.EnterpriseBenefitsVO;
 import com.aryn.cloud.user.mapper.EnterpriseBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.EnterpriseBenefitMapper;
+import com.aryn.cloud.user.mapper.EnterpriseGrowthLedgerMapper;
 import com.aryn.cloud.user.mapper.EnterpriseGrowthMapper;
 import com.aryn.cloud.user.mapper.EnterpriseLevelBindingMapper;
 import com.aryn.cloud.user.mapper.EnterpriseLevelMapper;
@@ -63,6 +67,20 @@ public class EnterpriseMemberServiceImpl implements IEnterpriseMemberService {
 	private final EnterpriseGrowthMapper enterpriseGrowthMapper;
 
 	private final EnterpriseLevelBindingMapper enterpriseLevelBindingMapper;
+
+	private final EnterpriseGrowthLedgerMapper enterpriseGrowthLedgerMapper;
+
+	/** 自代理（@Lazy 防循环依赖）：内部调用走 Spring 代理，保证 @Transactional 生效。 */
+	@org.springframework.context.annotation.Lazy
+	@org.springframework.beans.factory.annotation.Autowired
+	private IEnterpriseMemberService selfProxy;
+
+	/**
+	 * 订单域月度采购额聚合（月度对账 Job 用）。非 final 字段 + @DubboReference
+	 * （构造器注入远程接口曾在 boot 启动失败，与引擎同款写法）。
+	 */
+	@org.apache.dubbo.config.annotation.DubboReference
+	private com.aryn.cloud.order.api.remote.RemoteOrderMetricService remoteOrderMetricService;
 
 	// ------------------------------------------------------------------
 	// 等级配置
@@ -296,40 +314,94 @@ public class EnterpriseMemberServiceImpl implements IEnterpriseMemberService {
 	@Override
 	public void accumulateOrderGrowth(OrderCompleteEvent event) {
 		try {
-			String subjectType = resolveSubjectType(event.getPurchaseScene());
-			String subjectId = EnterpriseMemberConstants.SUBJECT_VESSEL.equals(subjectType)
-					? event.getVesselId() : event.getBuyerOrgId();
-			if (subjectType == null || !StringUtils.hasText(subjectId)
-					|| event.getGoodsPaymentAmount() == null
-					|| event.getGoodsPaymentAmount().compareTo(BigDecimal.ZERO) < 0) {
-				return;
-			}
-			String tenantId = event.getTenantId();
-			String period = YearMonth.now().format(PERIOD_FORMAT);
-			enterpriseGrowthMapper.accumulate(IdUtil.getSnowflakeNextIdStr(), subjectType, subjectId, period,
-					event.getGoodsPaymentAmount(), tenantId);
-			recalculateSubjectLevel(tenantId, subjectType, subjectId, "订单完成累计：" + event.getOrderNo());
+			// 经代理调用保证事务生效（自调用会绕过 @Transactional）
+			self().accumulateOrderGrowthTransactional(event);
 		}
 		catch (Exception ex) {
-			// 企业轨累计 fail-open：不影响个人积分/等级主流程，月度对账 Job 兜底收敛
-			log.warn("企业采购额累计失败 orderId={}: {}", event == null ? null : event.getOrderId(), ex.getMessage());
+			// 企业轨累计 fail-open：不影响个人积分/等级主流程；事务整体回滚，MQ 重投可重试
+			log.warn("企业采购额累计失败 orderId={}", event == null ? null : event.getOrderId(), ex);
 		}
-	}
-
-	/** 购买场景 → 企业主体类型：2船供→船舶、3企业→岸上企业；个人（1/空）返回 null。 */
-	private String resolveSubjectType(String purchaseScene) {
-		if ("2".equals(purchaseScene)) {
-			return EnterpriseMemberConstants.SUBJECT_VESSEL;
-		}
-		if ("3".equals(purchaseScene)) {
-			return EnterpriseMemberConstants.SUBJECT_BUYER_ORG;
-		}
-		return null;
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public void recalculateSubjectLevel(String tenantId, String subjectType, String subjectId, String reason) {
+	public void accumulateOrderGrowthTransactional(OrderCompleteEvent event) {
+		String subjectType = resolveSubjectType(event.getPurchaseScene());
+		String subjectId = EnterpriseMemberConstants.SUBJECT_VESSEL.equals(subjectType)
+				? event.getVesselId() : event.getBuyerOrgId();
+		if (subjectType == null || !StringUtils.hasText(subjectId) || !StringUtils.hasText(event.getOrderId())
+				|| event.getGoodsPaymentAmount() == null
+				|| event.getGoodsPaymentAmount().compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		String tenantId = event.getTenantId();
+		String period = periodOf(event.getCompleteTime());
+		// 幂等台账先行：MQ 重复投递（同 orderId）直接跳过，不重复累计
+		if (enterpriseGrowthLedgerMapper.insertIgnore(IdUtil.getSnowflakeNextIdStr(),
+				EnterpriseGrowthLedger.BIZ_ORDER_COMPLETE, event.getOrderId(), subjectType, subjectId, period,
+				event.getGoodsPaymentAmount(), tenantId) == 0) {
+			log.info("企业采购额累计重复事件，跳过 orderId={}", event.getOrderId());
+			return;
+		}
+		enterpriseGrowthMapper.accumulate(IdUtil.getSnowflakeNextIdStr(), subjectType, subjectId, period,
+				event.getGoodsPaymentAmount(), tenantId);
+		recalculateSubjectLevel(tenantId, subjectType, subjectId, "订单完成累计：" + event.getOrderNo());
+	}
+
+	@Override
+	public void deductOrderGrowth(OrderRefundSuccessEvent event) {
+		try {
+			self().deductOrderGrowthTransactional(event);
+		}
+		catch (Exception ex) {
+			// 与累计同口径 fail-open：事务整体回滚，MQ 重投可重试，月度对账兜底收敛
+			log.warn("企业采购额退款回扣失败 orderId={} refundNo={}", event == null ? null : event.getOrderId(),
+					event == null ? null : event.getRefundNo(), ex);
+		}
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void deductOrderGrowthTransactional(OrderRefundSuccessEvent event) {
+		String subjectType = resolveSubjectType(event.getPurchaseScene());
+		String subjectId = EnterpriseMemberConstants.SUBJECT_VESSEL.equals(subjectType)
+				? event.getVesselId() : event.getBuyerOrgId();
+		if (subjectType == null || !StringUtils.hasText(subjectId) || !StringUtils.hasText(event.getRefundNo())
+				|| event.getRefundBaseAmount() == null
+				|| event.getRefundBaseAmount().compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		String tenantId = event.getTenantId();
+		// 回扣到原订单完成月份（未收货即退款等无完成时间的场景回退当前月）
+		String period = periodOf(event.getCompleteTime());
+		if (enterpriseGrowthLedgerMapper.insertIgnore(IdUtil.getSnowflakeNextIdStr(),
+				EnterpriseGrowthLedger.BIZ_REFUND, event.getRefundNo(), subjectType, subjectId, period,
+				event.getRefundBaseAmount(), tenantId) == 0) {
+			log.info("企业采购额回扣重复事件，跳过 refundNo={}", event.getRefundNo());
+			return;
+		}
+		enterpriseGrowthMapper.deduct(subjectType, subjectId, period, event.getRefundBaseAmount(), tenantId);
+		recalculateSubjectLevel(tenantId, subjectType, subjectId, "退款回扣：" + event.getRefundNo());
+	}
+
+	/** 成长值归属月份：按订单完成时间；存量消息未携带时回退当前月。 */
+	private String periodOf(java.time.LocalDateTime completeTime) {
+		return (completeTime != null ? YearMonth.from(completeTime) : YearMonth.now()).format(PERIOD_FORMAT);
+	}
+
+	/** 自代理：内部调用走 Spring 代理，保证 @Transactional 生效。 */
+	private IEnterpriseMemberService self() {
+		return selfProxy;
+	}
+
+	/** 购买场景 → 企业主体类型（与订单计价共用常量类映射）：2船供→船舶、3企业→岸上企业；个人返回 null。 */
+	private String resolveSubjectType(String purchaseScene) {
+		return EnterpriseMemberConstants.subjectTypeForScene(purchaseScene);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean recalculateSubjectLevel(String tenantId, String subjectType, String subjectId, String reason) {
 		BigDecimal rollingAmount = rollingConsumeAmount(tenantId, subjectType, subjectId);
 		EnterpriseLevel target = bestLevel(tenantId, rollingAmount);
 		String targetLevelId = target == null ? null : target.getId();
@@ -340,7 +412,7 @@ public class EnterpriseMemberServiceImpl implements IEnterpriseMemberService {
 					.eq(EnterpriseLevelBinding::getSubjectId, subjectId));
 		String currentLevelId = binding == null ? null : binding.getLevelId();
 		if (Objects.equals(currentLevelId, targetLevelId)) {
-			return;
+			return false;
 		}
 		enterpriseLevelBindingMapper.upsert(IdUtil.getSnowflakeNextIdStr(), subjectType, subjectId,
 				targetLevelId, tenantId);
@@ -354,6 +426,7 @@ public class EnterpriseMemberServiceImpl implements IEnterpriseMemberService {
 		enterpriseLevelRecordMapper.insert(record);
 		log.info("企业主体等级变更 subject={}:{} {} → {} 近12月采购额={} reason={}",
 				subjectType, subjectId, currentLevelId, targetLevelId, rollingAmount, reason);
+		return true;
 	}
 
 	/** 近 12 个自然月（含当月）采购额求和。 */
@@ -394,21 +467,48 @@ public class EnterpriseMemberServiceImpl implements IEnterpriseMemberService {
 
 	@Override
 	public int reconcileAllLevels(String tenantId, String reason) {
+		// 主体集合 = 存量绑定 ∪ 订单域近12月聚合命中的主体（漏算历史主体由此补建绑定）
+		java.util.Map<SubjectKey, Boolean> subjects = new java.util.LinkedHashMap<>();
 		List<EnterpriseLevelBinding> bindings = enterpriseLevelBindingMapper.selectList(
 				Wrappers.lambdaQuery(EnterpriseLevelBinding.class)
 					.eq(EnterpriseLevelBinding::getTenantId, tenantId));
-		int changed = 0;
 		for (EnterpriseLevelBinding binding : bindings) {
+			subjects.put(new SubjectKey(binding.getSubjectType(), binding.getSubjectId()), Boolean.TRUE);
+		}
+		String startMonth = YearMonth.now().minusMonths(ROLLING_MONTHS - 1L).format(PERIOD_FORMAT);
+		try {
+			List<EnterprisePurchaseAggVO> rows = remoteOrderMetricService.aggregateEnterprisePurchase(tenantId,
+					startMonth);
+			for (EnterprisePurchaseAggVO row : rows) {
+				if (!StringUtils.hasText(row.getSubjectId()) || row.getAmount() == null) {
+					continue;
+				}
+				// 绝对值覆盖（非累加）：与事件增量链路收敛到同一口径，重复执行不双重累计
+				enterpriseGrowthMapper.replaceAmount(IdUtil.getSnowflakeNextIdStr(), row.getSubjectType(),
+						row.getSubjectId(), row.getPeriod(), row.getAmount().max(BigDecimal.ZERO), tenantId);
+				subjects.put(new SubjectKey(row.getSubjectType(), row.getSubjectId()), Boolean.TRUE);
+			}
+		}
+		catch (Exception ex) {
+			// 订单域聚合失败：不覆盖 growth（防止误清零降级），回退存量绑定重算
+			log.warn("企业采购额月度聚合失败，回退存量绑定重算 tenant={}", tenantId, ex);
+		}
+		int changed = 0;
+		for (SubjectKey subject : subjects.keySet()) {
 			try {
-				recalculateSubjectLevel(tenantId, binding.getSubjectType(), binding.getSubjectId(), reason);
-				changed++;
+				if (self().recalculateSubjectLevel(tenantId, subject.subjectType(), subject.subjectId(), reason)) {
+					changed++;
+				}
 			}
 			catch (Exception ex) {
-				log.warn("企业等级对账失败 subject={}:{}: {}", binding.getSubjectType(), binding.getSubjectId(),
-						ex.getMessage());
+				log.warn("企业等级对账失败 subject={}:{}", subject.subjectType(), subject.subjectId(), ex);
 			}
 		}
 		return changed;
+	}
+
+	/** 主体复合键（对账去重用）。 */
+	private record SubjectKey(String subjectType, String subjectId) {
 	}
 
 	// ------------------------------------------------------------------

@@ -1,5 +1,7 @@
 package com.aryn.cloud.promotion.controller.admin;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
@@ -41,6 +43,7 @@ public class GroupBuyActivityController {
 	@SaCheckPermission("promotion:groupbuy:add")
 	@PostMapping
 	public Result add(@Valid @RequestBody GroupBuyActivity activity) {
+		B2bActivityAdmission.rejectRetired("拼团");
 		// 叠加策略缺省按拼团类型默认值（可用）补齐
 		fillStackDefaults(activity);
 		return Result.success(groupBuyActivityService.save(activity));
@@ -51,6 +54,7 @@ public class GroupBuyActivityController {
 	@SaCheckPermission("promotion:groupbuy:edit")
 	@PutMapping
 	public Result edit(@Valid @RequestBody GroupBuyActivity activity) {
+		B2bActivityAdmission.rejectRetired("拼团");
 		fillStackDefaults(activity);
 		return Result.success(groupBuyActivityService.updateById(activity));
 	}

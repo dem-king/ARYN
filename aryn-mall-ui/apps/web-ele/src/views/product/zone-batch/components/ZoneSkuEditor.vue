@@ -9,9 +9,11 @@
  * - 独立保存，不依赖外层商品主表单；不破坏主表单其它页签与提交流程。
  */
 import type {
+  ZoneGoodsRow,
   ZoneSkuEditRow,
   ZoneTagDetail,
   ZoneTagSavePayload,
+  ZoneType,
   ZoneWarning,
 } from '../types';
 
@@ -27,6 +29,8 @@ import {
   ElMessage,
   ElMessageBox,
   ElOption,
+  ElRadioButton,
+  ElRadioGroup,
   ElRow,
   ElSelect,
   ElSwitch,
@@ -36,13 +40,16 @@ import {
 } from 'element-plus';
 
 import { getZoneTags, saveZoneTags } from '#/api/product/goods-zone';
+import { formatPrice, formatRate } from '#/views/promotion/zone-goods/logic';
 
 import {
   buildSkuSaveItems,
   resolveErrorMessage,
   toSkuEditRow,
+  toSkuSaveItem,
   zoneWarningTagType,
 } from '../logic';
+import { clearanceCandidate } from '../price-preview';
 
 interface SpuZoneForm {
   clearanceDiscountRate: null | number;
@@ -55,7 +62,13 @@ interface SpuZoneForm {
   memberPriceFloor: null | number;
 }
 
-const props = defineProps<{ spuId: string }>();
+const props = defineProps<{
+  defaultRate?: null | number;
+  row?: ZoneGoodsRow;
+  showSpecs?: boolean;
+  spuId: string;
+  zone?: ZoneType;
+}>();
 
 const emit = defineEmits<{
   /** 保存成功并回填最新专区状态后触发；参数为最新详情，便于外层同步主表单字段 */
@@ -69,6 +82,8 @@ const detail = ref<null | ZoneTagDetail>(null);
 const warnings = ref<ZoneWarning[]>([]);
 const memberRuleCleared = ref(false);
 const clearanceRuleCleared = ref(false);
+const specsExpanded = ref(false);
+const pricingMode = ref<'default' | 'fixed' | 'rate'>('default');
 
 const spuForm = reactive<SpuZoneForm>({
   clearanceDiscountRate: null,
@@ -85,9 +100,69 @@ const skuRows = ref<ZoneSkuEditRow[]>([]);
 
 const skuOverrideCount = computed(
   () =>
-    skuRows.value.filter((row) => row.memberOverride || row.clearanceOverride)
-      .length,
+    skuRows.value.filter(
+      (row) =>
+        (props.zone !== 'clearance' && row.memberOverride) ||
+        (props.zone !== 'member' && row.clearanceOverride),
+    ).length,
 );
+
+const clearanceFold = computed({
+  get: () => {
+    const rate = spuForm.clearanceDiscountRate;
+    return rate === null ? null : Number((rate * 10).toFixed(3));
+  },
+  set: (value: null | number) => {
+    spuForm.clearanceDiscountRate =
+      value === null ? null : Number((value / 10).toFixed(4));
+  },
+});
+
+const clearancePreview = computed(() =>
+  pricingMode.value === 'fixed'
+    ? spuForm.clearancePrice
+    : clearanceCandidate(
+        props.row?.originalPrice,
+        null,
+        pricingMode.value === 'default'
+          ? props.defaultRate
+          : spuForm.clearanceDiscountRate,
+      ),
+);
+const clearancePriceIssue = computed(() => {
+  const price = clearancePreview.value;
+  const sales = props.row?.salesPrice ?? null;
+  if (price === null) {
+    if (pricingMode.value === 'default' && !props.defaultRate) {
+      return '专区暂无可用默认折扣，请设置固定价或商品折扣。';
+    }
+    if (pricingMode.value !== 'fixed' && !props.row?.originalPrice) {
+      return '商品缺少原价，请使用固定价。';
+    }
+    return '';
+  }
+  if (sales === null || price < sales) return '';
+  return `试算价须低于售价 ${formatPrice(sales)}。可降低价格或折扣。`;
+});
+
+const clearanceExpired = computed(() => {
+  const expiry = spuForm.clearanceExpireTime;
+  return expiry
+    ? new Date(expiry.replace(' ', 'T')).getTime() < Date.now()
+    : false;
+});
+
+const productClearanceIncomplete = computed(
+  () =>
+    props.zone === 'clearance' &&
+    (clearanceExpired.value || clearancePreview.value === null),
+);
+
+function specLabel(specsName: string | undefined, skuId: string) {
+  return (
+    specsName || (skuRows.value.length === 1 ? '默认规格' : `规格 ${skuId}`)
+  );
+}
 
 function toNumber(value: null | number | undefined) {
   if (value === null || value === undefined) return undefined;
@@ -106,6 +181,11 @@ function applyDetail(payload: null | undefined | ZoneTagDetail) {
   spuForm.clearanceDiscountRate =
     toNumber(payload?.clearanceDiscountRate) ?? null;
   spuForm.clearanceExpireTime = payload?.clearanceExpireTime ?? null;
+  if (spuForm.clearancePrice) {
+    pricingMode.value = 'fixed';
+  } else {
+    pricingMode.value = spuForm.clearanceDiscountRate ? 'rate' : 'default';
+  }
   memberRuleCleared.value = false;
   clearanceRuleCleared.value = false;
   warnings.value = payload?.warnings ?? [];
@@ -128,6 +208,7 @@ async function load() {
 watch(
   () => props.spuId,
   () => {
+    specsExpanded.value = props.showSpecs === true;
     void load();
   },
   { immediate: true },
@@ -178,6 +259,62 @@ async function clearClearanceRules() {
 }
 
 function buildPayload(): ZoneTagSavePayload {
+  if (props.zone) {
+    const originalRows = new Map(
+      (detail.value?.skus ?? []).map((row) => [row.skuId, toSkuEditRow(row)]),
+    );
+    const skus = skuRows.value.flatMap((row) => {
+      const original = originalRows.get(row.skuId);
+      if (!original) return [];
+      const saved = toSkuSaveItem(row);
+      const previous = toSkuSaveItem(original);
+      const scoped =
+        props.zone === 'member'
+          ? {
+              memberDiscountRate: saved.memberDiscountRate,
+              memberPriceFixed: saved.memberPriceFixed,
+              memberPriceFloor: saved.memberPriceFloor,
+              memberTag: saved.memberTag,
+            }
+          : {
+              clearanceDiscountRate: saved.clearanceDiscountRate,
+              clearanceExpireTime: saved.clearanceExpireTime,
+              clearancePrice: saved.clearancePrice,
+              clearanceTag: saved.clearanceTag,
+            };
+      return Object.entries(scoped).some(
+        ([key, value]) => previous[key as keyof typeof previous] !== value,
+      )
+        ? [{ ...scoped, skuId: row.skuId }]
+        : [];
+    });
+    if (props.zone === 'clearance') {
+      return {
+        clearanceDiscountRate:
+          pricingMode.value === 'rate' ? spuForm.clearanceDiscountRate : null,
+        clearanceExpireTime: spuForm.clearanceExpireTime || null,
+        clearancePrice:
+          pricingMode.value === 'fixed' ? spuForm.clearancePrice : null,
+        clearanceTag: true,
+        editZone: 'clearance',
+        skus,
+      };
+    }
+    return {
+      editZone: 'member',
+      memberDiscountRate: memberRuleCleared.value
+        ? null
+        : spuForm.memberDiscountRate,
+      memberPriceFixed: memberRuleCleared.value
+        ? null
+        : spuForm.memberPriceFixed,
+      memberPriceFloor: memberRuleCleared.value
+        ? null
+        : spuForm.memberPriceFloor,
+      memberTag: true,
+      skus,
+    };
+  }
   const payload: ZoneTagSavePayload = {
     clearClearanceRule: clearanceRuleCleared.value === true,
     clearMemberRule: memberRuleCleared.value === true,
@@ -220,8 +357,15 @@ async function save() {
     ElMessage.warning('请先保存商品基本信息，再配置专区标签');
     return;
   }
-  if (saving.value) return;
   if (
+    saving.value ||
+    loading.value ||
+    !detail.value ||
+    productClearanceIncomplete.value
+  )
+    return;
+  if (
+    !props.zone &&
     spuForm.isClearanceItem === 1 &&
     !clearanceRuleCleared.value &&
     spuForm.clearancePrice === null &&
@@ -244,7 +388,7 @@ async function save() {
   saving.value = true;
   try {
     await saveZoneTags(props.spuId, buildPayload());
-    ElMessage.success('专区标签已保存');
+    ElMessage.success(props.zone ? '价格规则已保存' : '专区标签已保存');
     let latest: null | ZoneTagDetail = detail.value;
     try {
       latest = await getZoneTags(props.spuId);
@@ -266,6 +410,7 @@ async function save() {
 <template>
   <div v-loading="loading" class="zone-sku-editor">
     <ElAlert
+      v-if="!zone"
       type="info"
       :closable="false"
       show-icon
@@ -291,7 +436,7 @@ async function save() {
 
       <template v-else>
         <ElAlert
-          v-if="warnings.length > 0"
+          v-if="!zone && warnings.length > 0"
           type="warning"
           :closable="false"
           show-icon
@@ -315,10 +460,13 @@ async function save() {
         </ElAlert>
 
         <!-- 会员专区（SPU 级） -->
-        <div class="zone-sku-editor__section">
+        <div v-if="zone !== 'clearance'" class="zone-sku-editor__section">
           <div class="zone-sku-editor__section-head">
-            <span class="zone-sku-editor__title">会员专区（SPU 级）</span>
+            <span class="zone-sku-editor__title">{{
+              zone ? '商品价格规则' : '会员专区（SPU 级）'
+            }}</span>
             <ElSwitch
+              v-if="!zone"
               :model-value="spuForm.isMemberItem === 1"
               inline-prompt
               active-text="加入"
@@ -326,7 +474,11 @@ async function save() {
               @update:model-value="(value) => toggleMemberJoin(Boolean(value))"
             />
           </div>
-          <template v-if="spuForm.isMemberItem === 1">
+          <template v-if="zone === 'member' || spuForm.isMemberItem === 1">
+            <p v-if="zone === 'member'" class="zone-sku-editor__tip-inline">
+              折扣按售价计算，和固定价取较低值，再应用价格下限。默认折扣
+              {{ defaultRate ? formatRate(defaultRate) : '未设置' }}。
+            </p>
             <ElRow :gutter="12">
               <ElCol :span="8">
                 <ElFormItem label="会员折扣率" class="mb0">
@@ -394,7 +546,94 @@ async function save() {
         </div>
 
         <!-- 出清专区（SPU 级） -->
-        <div class="zone-sku-editor__section">
+        <div v-if="zone === 'clearance'" class="zone-sku-editor__section">
+          <div class="zone-sku-editor__section-head">
+            <span class="zone-sku-editor__title">商品价格规则</span>
+          </div>
+          <ElFormItem label="定价方式">
+            <ElRadioGroup v-model="pricingMode" :disabled="saving">
+              <ElRadioButton value="default">专区默认折扣</ElRadioButton>
+              <ElRadioButton value="fixed">固定价</ElRadioButton>
+              <ElRadioButton value="rate">商品折扣</ElRadioButton>
+            </ElRadioGroup>
+          </ElFormItem>
+          <ElFormItem v-if="pricingMode === 'fixed'" label="固定价（元）">
+            <ElInputNumber
+              v-model="spuForm.clearancePrice"
+              aria-label="固定价（元）"
+              :min="0.01"
+              :precision="2"
+              :controls="false"
+              :disabled="saving"
+            />
+          </ElFormItem>
+          <ElFormItem v-if="pricingMode === 'rate'" label="商品折扣（折）">
+            <ElInputNumber
+              v-model="clearanceFold"
+              aria-label="商品折扣（折）"
+              :min="0.001"
+              :max="9.999"
+              :precision="3"
+              :controls="false"
+              placeholder="例如 7.5"
+              :disabled="saving"
+            />
+          </ElFormItem>
+          <ElFormItem
+            label="截止时间"
+            class="mb0"
+            :error="
+              clearanceExpired
+                ? '已到期，请更新截止时间或设为长期有效'
+                : undefined
+            "
+          >
+            <ElDatePicker
+              v-model="spuForm.clearanceExpireTime"
+              type="datetime"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              placeholder="长期有效（选填）"
+              :disabled="saving"
+            />
+          </ElFormItem>
+        </div>
+
+        <div
+          v-if="zone === 'clearance'"
+          class="zone-sku-editor__section"
+          aria-live="polite"
+        >
+          <div class="zone-sku-editor__section-head">
+            <span class="zone-sku-editor__title">商品规则试算</span>
+            <strong class="zone-sku-editor__preview-price">{{
+              formatPrice(clearancePreview)
+            }}</strong>
+          </div>
+          <p class="zone-sku-editor__tip-inline">
+            售价 {{ formatPrice(row?.salesPrice) }} · 原价
+            {{ formatPrice(row?.originalPrice) }}
+            <template
+              v-if="pricingMode !== 'fixed' && clearancePreview != null"
+            >
+              · 原价 ×
+              {{
+                formatRate(
+                  pricingMode === 'rate'
+                    ? spuForm.clearanceDiscountRate
+                    : defaultRate,
+                )
+              }}
+            </template>
+          </p>
+          <p v-if="clearancePriceIssue" class="zone-sku-editor__preview-issue">
+            {{ clearancePriceIssue }}
+          </p>
+          <p class="zone-sku-editor__tip-inline">
+            实际专区价按商品规格及到期折扣计算，以价格同步结果为准。
+          </p>
+        </div>
+
+        <div v-if="!zone" class="zone-sku-editor__section">
           <div class="zone-sku-editor__section-head">
             <span class="zone-sku-editor__title">低价捡漏（SPU 级）</span>
             <ElSwitch
@@ -474,19 +713,35 @@ async function save() {
         </div>
 
         <!-- SKU 精调 -->
-        <div class="zone-sku-editor__section">
+        <div
+          v-if="!zone || skuRows.length > 0"
+          class="zone-sku-editor__section"
+        >
           <div class="zone-sku-editor__section-head">
-            <span class="zone-sku-editor__title">
+            <ElButton
+              v-if="zone"
+              link
+              type="primary"
+              :aria-expanded="specsExpanded"
+              @click="specsExpanded = !specsExpanded"
+            >
+              {{ specsExpanded ? '收起规格设置' : '按规格单独设置' }}
+              <span v-if="skuOverrideCount"
+                >（{{ skuOverrideCount }} 个已单独设置）</span
+              >
+            </ElButton>
+            <span v-else class="zone-sku-editor__title">
               SKU 级精调（{{ skuOverrideCount }} 个规格已覆盖）
             </span>
-            <span class="zone-sku-editor__tip-inline">
-              默认继承
-              SPU；打开「覆盖」可对单个规格精调或排除。保存使用精确覆盖：关闭覆盖会把该
-              SKU 恢复为继承 SPU。
+            <span
+              v-if="!zone || specsExpanded"
+              class="zone-sku-editor__tip-inline"
+            >
+              默认继承 商品规则。开启「单独设置」可调整价格或排除该规格。
             </span>
           </div>
           <ElTable
-            v-if="skuRows.length > 0"
+            v-if="skuRows.length > 0 && (!zone || specsExpanded)"
             :data="skuRows"
             row-key="skuId"
             border
@@ -494,32 +749,36 @@ async function save() {
           >
             <ElTableColumn label="规格" min-width="130">
               <template #default="scope">
-                {{ scope.row.specsName || scope.row.skuId }}
+                {{ specLabel(scope.row.specsName, scope.row.skuId) }}
               </template>
             </ElTableColumn>
             <ElTableColumn label="售价 / 原价" width="120">
               <template #default="scope">
-                <div>¥{{ scope.row.salesPrice ?? '-' }}</div>
+                <div>{{ formatPrice(scope.row.salesPrice) }}</div>
                 <div class="zone-sku-editor__tip-inline">
-                  ¥{{ scope.row.originalPrice ?? '-' }}
+                  {{ formatPrice(scope.row.originalPrice) }}
                 </div>
               </template>
             </ElTableColumn>
-            <ElTableColumn label="会员专区" min-width="280">
+            <ElTableColumn
+              v-if="zone !== 'clearance'"
+              label="会员专区"
+              min-width="190"
+            >
               <template #default="scope">
                 <div class="zone-sku-editor__sku-head">
                   <ElSwitch
                     v-model="scope.row.memberOverride"
                     size="small"
                     inline-prompt
-                    active-text="覆盖"
+                    active-text="单独设置"
                     inactive-text="继承"
                   />
                   <span
                     v-if="!scope.row.memberOverride"
                     class="zone-sku-editor__tip-inline"
                   >
-                    继承 SPU 会员规则
+                    使用商品会员规则
                   </span>
                 </div>
                 <template v-if="scope.row.memberOverride">
@@ -565,21 +824,25 @@ async function save() {
                 </template>
               </template>
             </ElTableColumn>
-            <ElTableColumn label="出清专区" min-width="280">
+            <ElTableColumn
+              v-if="zone !== 'member'"
+              label="出清规则"
+              min-width="190"
+            >
               <template #default="scope">
                 <div class="zone-sku-editor__sku-head">
                   <ElSwitch
                     v-model="scope.row.clearanceOverride"
                     size="small"
                     inline-prompt
-                    active-text="覆盖"
+                    active-text="单独设置"
                     inactive-text="继承"
                   />
                   <span
                     v-if="!scope.row.clearanceOverride"
                     class="zone-sku-editor__tip-inline"
                   >
-                    继承 SPU 出清规则
+                    使用商品出清规则
                   </span>
                 </div>
                 <template v-if="scope.row.clearanceOverride">
@@ -625,21 +888,28 @@ async function save() {
               </template>
             </ElTableColumn>
           </ElTable>
-          <div v-else class="zone-sku-editor__tip">
+          <div v-else-if="!zone" class="zone-sku-editor__tip">
             该商品没有可精调的 SKU 数据（单规格或多规格未生成），SPU
             级规则即对全部规格生效。
           </div>
         </div>
 
         <div class="zone-sku-editor__footer">
-          <span class="zone-sku-editor__tip-inline">
+          <span v-if="!zone" class="zone-sku-editor__tip-inline">
             保存仅更新专区标签与 SKU
             精调，不影响商品其它信息；保存后由后端尝试同步专区价格活动。
           </span>
           <div class="zone-sku-editor__footer-buttons">
-            <ElButton :disabled="saving" @click="load">重新加载</ElButton>
-            <ElButton type="primary" :loading="saving" @click="save">
-              保存专区标签
+            <ElButton v-if="!zone" :disabled="saving" @click="load">
+              重新加载
+            </ElButton>
+            <ElButton
+              type="primary"
+              :loading="saving"
+              :disabled="loading || !detail || productClearanceIncomplete"
+              @click="save"
+            >
+              {{ zone ? '保存价格规则' : '保存专区标签' }}
             </ElButton>
           </div>
         </div>
@@ -668,6 +938,16 @@ async function save() {
 
   &__title {
     font-weight: 600;
+  }
+
+  &__preview-price {
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__preview-issue {
+    margin: 6px 0;
+    color: var(--el-color-danger);
   }
 
   &__tip {
@@ -731,6 +1011,7 @@ async function save() {
     display: flex;
     flex: 0 0 auto;
     gap: 8px;
+    margin-left: auto;
   }
 }
 

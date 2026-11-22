@@ -24,7 +24,7 @@ import type { ShipSupplyRow } from '@/sub-pages/utils/ship-supply'
  */
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { ApiError } from '@/api/core/handlers'
 import { alovaInstance } from '@/api/core/instance'
 import { addSharedCartItem, getSharedCart, getSharedCartItems, SHARED_CART_NAME_REQUIRED } from '@/api/order/sharedCart'

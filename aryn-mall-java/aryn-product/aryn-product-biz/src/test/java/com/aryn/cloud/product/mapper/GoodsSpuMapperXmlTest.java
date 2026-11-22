@@ -4,8 +4,12 @@ import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.StringValue;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.io.Resources;
 import org.apache.ibatis.mapping.BoundSql;
@@ -19,6 +23,7 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,6 +54,8 @@ class GoodsSpuMapperXmlTest {
 
 	private static MappedStatement selectRecommendPage;
 
+	private static MappedStatement selectApiSpuById;
+
 	private static PaginationInnerInterceptor paginationInterceptor;
 
 	@BeforeAll
@@ -62,6 +69,7 @@ class GoodsSpuMapperXmlTest {
 		selectApiPage = configuration.getMappedStatement(STATEMENT_ID);
 		selectPageByAdmin = configuration.getMappedStatement(ADMIN_PAGE_STATEMENT_ID);
 		selectRecommendPage = configuration.getMappedStatement(RECOMMEND_STATEMENT_ID);
+		selectApiSpuById = configuration.getMappedStatement("com.aryn.cloud.product.mapper.GoodsSpuMapper.selectApiSpuById");
 		paginationInterceptor = new PaginationInnerInterceptor(DbType.MYSQL);
 	}
 
@@ -97,6 +105,41 @@ class GoodsSpuMapperXmlTest {
 
 	private static String normalize(String sql) {
 		return sql.replaceAll("\\s+", " ").trim();
+	}
+
+	@Test
+	void selectApiSpuByIdProjectsNamesWithTenantScopedOptionalJoins() {
+		String sql = normalize(selectApiSpuById.getBoundSql("spu-1").getSql());
+
+		assertThat(sql).contains("goods_brand.name AS brandName", "AS categoryName",
+				"LEFT JOIN goods_brand", "LEFT JOIN goods_category first_category",
+				"LEFT JOIN goods_category second_category", "goods_brand.tenant_id = goods_spu.tenant_id",
+				"first_category.tenant_id = goods_spu.tenant_id",
+				"second_category.tenant_id = goods_spu.tenant_id",
+				"goods_spu.del_flag = '0'", "goods_spu.status = '1'");
+	}
+
+	@Test
+	void selectApiSpuByIdQualifiesAllTenantPredicatesAfterInterception() {
+		Set<String> tenantTables = Set.of("goods_spu", "goods_brand", "goods_category");
+		TenantLineHandler tenantHandler = new TenantLineHandler() {
+			@Override
+			public Expression getTenantId() {
+				return new StringValue("tenant-1");
+			}
+
+			@Override
+			public boolean ignoreTable(String tableName) {
+				return !tenantTables.contains(tableName);
+			}
+		};
+
+		String sql = selectApiSpuById.getBoundSql("spu-1").getSql();
+		String rewrittenSql = new TenantLineInnerInterceptor(tenantHandler).parserSingle(sql, null);
+
+		assertThat(rewrittenSql).doesNotContainPattern("\\b(?:AND|WHERE)\\s+tenant_id\\s*=")
+			.contains("goods_spu.tenant_id = 'tenant-1'", "goods_brand.tenant_id = 'tenant-1'",
+					"first_category.tenant_id = 'tenant-1'", "second_category.tenant_id = 'tenant-1'");
 	}
 
 	@Test

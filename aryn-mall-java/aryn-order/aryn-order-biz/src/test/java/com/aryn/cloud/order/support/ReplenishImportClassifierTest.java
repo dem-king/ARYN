@@ -188,4 +188,10 @@ class ReplenishImportClassifierTest {
 		assertNotNull(result.message());
 	}
 
+    @Test void stepStartsAtMinimumInsteadOfZero() {
+        var match = matched(20, 3, 2, null);
+        assertEquals(SharedCartImportRow.RESULT_OK, ReplenishImportClassifier.classify(match, null, "3").resultType());
+        assertEquals(SharedCartImportRow.RESULT_OK, ReplenishImportClassifier.classify(match, null, "5").resultType());
+        assertEquals(5, ReplenishImportClassifier.classify(match, null, "4").suggestedQuantity());
+    }
 }

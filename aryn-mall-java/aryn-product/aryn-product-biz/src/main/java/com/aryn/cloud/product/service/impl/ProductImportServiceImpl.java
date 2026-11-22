@@ -1,5 +1,6 @@
 package com.aryn.cloud.product.service.impl;
 
+import com.aryn.cloud.product.support.GoodsMeasurementSupport;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.dto.ProductImportRowDTO;
 import com.aryn.cloud.product.api.entity.GoodsBrand;
@@ -197,12 +198,34 @@ public class ProductImportServiceImpl implements ProductImportService {
 		return new ValidationResult(errors, errorRowNos);
 	}
 
+    private GoodsSku measurementRequest(ProductImportRowDTO row, GoodsSku stored) {
+        GoodsSku requested = new GoodsSku();
+        requested.setSalesUnit(row.getSalesUnit());
+        requested.setBaseDimension(row.getBaseDimension());
+        requested.setBaseUnit(row.getBaseUnit());
+        requested.setBaseQtyPerSalesUnit(row.getBaseQtyPerSalesUnit());
+        requested.setQuantityPrecision(row.getQuantityPrecision());
+        requested.setMinOrderQty(row.getMinOrderQty());
+        requested.setStepQty(row.getStepQty());
+        requested.setUnitSpecText(row.getUnitSpecText());
+        requested.setMeasurementRevision(row.getMeasurementRevision());
+
+        GoodsMeasurementSupport.prepare(requested, stored);
+        return requested;
+    }
+
 	private void validateRow(String tenantId, ProductImportRowDTO row, int rowNo, List<ProductImportError> errors,
 			Set<String> batchSkuValues) {
 		if (!StringUtils.hasText(row.getName())) {
 			addError(tenantId, rowNo, ProductImportError.TYPE_EMPTY_NAME, "商品名称为空", errors);
 			return;
 		}
+		try {
+            measurementRequest(row, StringUtils.hasText(row.getMatchValue()) ? goodsSkuMapper.selectById(row.getMatchValue()) : null);
+        } catch (IllegalArgumentException exception) {
+            addError(tenantId, rowNo, "MEASUREMENT", exception.getMessage(), errors);
+            return;
+        }
 		String skuKey = StringUtils.hasText(row.getSkuId()) ? row.getSkuId()
 				: StringUtils.hasText(row.getMatchValue()) ? row.getMatchValue() : null;
 		if (StringUtils.hasText(skuKey) && !batchSkuValues.add(skuKey)) {
@@ -400,6 +423,8 @@ public class ProductImportServiceImpl implements ProductImportService {
 			if (sku == null || !Objects.equals(sku.getTenantId(), tenantId)) {
 				throw new ArynBusinessException("待更新SKU不存在");
 			}
+			GoodsSku measurement = measurementRequest(row, sku);
+			measurement.setId(sku.getId()); measurement.setSpuId(sku.getSpuId());
 			BigDecimal previousSalesPrice = sku.getSalesPrice();
 			if (row.getSalesPrice() != null) {
 				sku.setSalesPrice(row.getSalesPrice());
@@ -409,12 +434,13 @@ public class ProductImportServiceImpl implements ProductImportService {
 			}
 			sku.setUpdateBy(operatorName);
 			sku.setUpdateTime(LocalDateTime.now());
-			goodsSkuMapper.updateById(sku);
+			if (goodsSkuMapper.updateById(sku) != 1) throw new ArynBusinessException("SKU已变化，请重新预览导入");
+			goodsSkuMapper.updateMeasurement(measurement);
 			goodsPriceHistoryService.recordIfChanged(spuId, sku.getId(), "sales", previousSalesPrice,
 				sku.getSalesPrice(), "import", "商品导入修改SKU售价");
 		}
 		else {
-			sku = new GoodsSku();
+			sku = measurementRequest(row, null);
 			sku.setId(IdWorker.getIdStr());
 			sku.setSpuId(spuId);
 			sku.setSalesPrice(row.getSalesPrice() != null ? row.getSalesPrice() : BigDecimal.ZERO);

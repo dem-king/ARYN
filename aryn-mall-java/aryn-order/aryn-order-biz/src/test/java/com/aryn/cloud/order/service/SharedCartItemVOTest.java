@@ -11,7 +11,6 @@ import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.order.service.IDeliveryAreaService;
-import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
@@ -76,7 +75,7 @@ class SharedCartItemVOTest {
 				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
 				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class),
 				mock(com.aryn.cloud.order.service.IBuyerOrgService.class),
-				mock(ChainAiAssistant.class), mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
+				mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class), mock(com.aryn.cloud.order.support.procurement.ProcurementContributionLedger.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));

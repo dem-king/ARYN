@@ -62,7 +62,8 @@ describe('分销佣金改券兑换契约', () => {
   it('销售工作台只对已登记销售露出入口，且页面内没有提现入口', () => {
     const userCenter = source('src/pages/user/user-center/index.vue')
     expect(userCenter).toContain('getSalesWorkbench')
-    expect(userCenter).toContain('v-if="isSales"')
+    expect(userCenter).toContain('visible: authStore.isLoggedIn && isSales.value')
+    expect(userCenter).toContain('.filter(id => workbenchById.value[id].visible)')
     expect(userCenter).toContain('/sub-pages/user/sales/index')
 
     const workbench = source('src/sub-pages/user/sales/index.vue')

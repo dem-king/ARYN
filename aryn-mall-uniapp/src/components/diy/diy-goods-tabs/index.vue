@@ -5,6 +5,8 @@ import type {
 } from '@/components/diy/member-banner'
 import type {
   GoodsTabConfig,
+  GoodsTabFeedCard,
+  GoodsTabFeedCardItem,
   GoodsTabMemberBanner,
   GoodsTabsProps,
   ListMemberPriceDisplay,
@@ -28,6 +30,7 @@ import {
   MEMBER_BANNER_MEMBER_CENTER_URL,
   resolveMemberBannerView,
 } from '@/components/diy/member-banner'
+import { followDecorationLink, normalizeDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsTabPage } from '@/components/diy/retail-data'
 import { mergePagedItems } from '@/components/diy/retail-paged-list'
@@ -143,6 +146,54 @@ function normalizeMemberBanner(raw: unknown): GoodsTabMemberBanner | undefined {
   }
 }
 
+/**
+ * 商品流活动轮播卡归一化（Tab 级）。
+ *
+ * 与后端发布校验同一形状：`{enabled, interval, items:[{imageUrl,title,...}]}`。
+ * 只保留有图的轮播项；无图 / 关闭 / items 为空时返回 undefined，渲染侧不占位。
+ * 轮播间隔限制在 2s–10s，避免脏配置导致不轮播或闪动过快。
+ */
+function normalizeFeedCard(raw: unknown): GoodsTabFeedCard | undefined {
+  const record
+    = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  if (!record || record.enabled !== true)
+    return undefined
+  const list = Array.isArray(record.items) ? record.items : []
+  const items: GoodsTabFeedCardItem[] = []
+  list.forEach((item, index) => {
+    const slide
+      = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+    const imageUrl = String(slide.imageUrl || '').trim()
+    if (!imageUrl)
+      return
+    const badge = String(slide.badge || '').trim()
+    const ctaText = String(slide.ctaText || '').trim()
+    const kicker = String(slide.kicker || '').trim()
+    const subtitle = String(slide.subtitle || '').trim()
+    const link = normalizeDecorationLink(slide.link)
+    items.push({
+      id: String(slide.id || `feed-${index + 1}`),
+      imageUrl,
+      title: String(slide.title || '').trim(),
+      ...(badge ? { badge } : {}),
+      ...(ctaText ? { ctaText } : {}),
+      ...(kicker ? { kicker } : {}),
+      ...(subtitle ? { subtitle } : {}),
+      ...(link ? { link } : {}),
+    })
+  })
+  if (items.length === 0)
+    return undefined
+  const interval = Number(record.interval)
+  return {
+    enabled: true,
+    interval: Number.isFinite(interval)
+      ? Math.min(10000, Math.max(2000, interval))
+      : 4000,
+    items,
+  }
+}
+
 function normalizeTabs(raw: unknown): GoodsTabConfig[] {
   const list = Array.isArray(raw) ? raw : []
   const tabs = list.map((item, index) => {
@@ -173,6 +224,7 @@ function normalizeTabs(raw: unknown): GoodsTabConfig[] {
           : [],
       },
       memberBanner: normalizeMemberBanner(record.memberBanner),
+      feedCard: normalizeFeedCard(record.feedCard),
     } as GoodsTabConfig
   })
   return tabs.length > 0 ? tabs : defaultTabs()
@@ -208,6 +260,30 @@ const instance = getCurrentInstance()
 const goodsColumns = computed(() =>
   splitIntoColumns(goodsList.value, showData.value.columns),
 )
+
+/**
+ * 当前 Tab 的活动轮播卡。
+ *
+ * 只挂在左列第一格，不参与 splitIntoColumns：商品分列仍按原有索引奇偶交替，
+ * 轮播卡是装饰层，不改变商品顺序与翻页追加逻辑。
+ */
+const activeFeedCard = computed(() => activeTab.value?.feedCard)
+const feedCurrent = ref(0)
+
+watch(
+  () => activeTab.value?.id,
+  () => {
+    feedCurrent.value = 0
+  },
+)
+
+function onFeedChange(event: { detail?: { current?: number } }) {
+  feedCurrent.value = Number(event?.detail?.current) || 0
+}
+
+function openFeedSlide(slide: GoodsTabFeedCardItem) {
+  followDecorationLink(slide.link)
+}
 
 /**
  * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
@@ -327,6 +403,16 @@ const memberZonePricing = computed(
  * - 会员专区「会员本人兜底」：没有更高的身份价时，专区价本身就是本区会员的成交价，
  *   沿用原金色会员价视觉（有真实划线才标，不给无优惠商品贴假会员价）。
  */
+/**
+ * 营销标签行是否渲染（v-if 与价格区收边共用同一判据，避免两处条件漂移）。
+ * 无 chip 时价格区保持副标题下的原始 14rpx 间距，不被本轮的收边连累。
+ */
+function hasCardTagRow(item: any): boolean {
+  if (!showData.value.showPrice) return false
+  const display = cardDisplay(item)
+  return display.badgeKind === 'newbie' || Boolean(display.socialProofText) || Boolean(display.priceTagText)
+}
+
 function cardDisplay(item: any): ListZonePrice {
   const sales = Number(item?.price) || 0
   const tags = zone.cardTagOf(String(item?.id || '').trim())
@@ -999,6 +1085,90 @@ function imageBoxStyle(item: any) {
             :key="columnIndex"
             class="goods-tabs__column"
           >
+            <!--
+              活动轮播卡：只占左列第一格，不参与商品分列。
+              4 张 3:4 竖版活动图自动轮播，点击整卡跳装修链接；
+              关闭 / 无有效图时不渲染，商品流保持原布局。
+            -->
+            <view
+              v-if="columnIndex === 0 && activeFeedCard"
+              class="goods-tabs__feed"
+            >
+              <swiper
+                :key="`feed-${activeTab.id}`"
+                class="goods-tabs__feed-swiper"
+                :autoplay="activeFeedCard.items.length > 1"
+                :circular="true"
+                :duration="400"
+                :interval="activeFeedCard.interval"
+                @change="onFeedChange"
+              >
+                <swiper-item
+                  v-for="slide in activeFeedCard.items"
+                  :key="slide.id"
+                >
+                  <view
+                    class="goods-tabs__feed-slide"
+                    hover-class="goods-tabs__feed-slide--pressed"
+                    :hover-stay-time="80"
+                    @click="openFeedSlide(slide)"
+                  >
+                    <image
+                      class="goods-tabs__feed-image"
+                      :src="slide.imageUrl"
+                      mode="aspectFill"
+                    />
+                    <view class="goods-tabs__feed-shade" />
+                    <view
+                      v-if="slide.badge"
+                      class="goods-tabs__feed-badge"
+                    >
+                      <text>{{ slide.badge }}</text>
+                    </view>
+                    <view class="goods-tabs__feed-copy">
+                      <text
+                        v-if="slide.kicker"
+                        class="goods-tabs__feed-kicker"
+                      >
+                        {{ slide.kicker }}
+                      </text>
+                      <text
+                        v-if="slide.title"
+                        class="goods-tabs__feed-title"
+                      >
+                        {{ slide.title }}
+                      </text>
+                      <text
+                        v-if="slide.subtitle"
+                        class="goods-tabs__feed-subtitle"
+                      >
+                        {{ slide.subtitle }}
+                      </text>
+                      <view
+                        v-if="slide.ctaText"
+                        class="goods-tabs__feed-cta"
+                      >
+                        <text>{{ slide.ctaText }}</text>
+                        <text class="goods-tabs__feed-cta-arrow">
+                          ›
+                        </text>
+                      </view>
+                    </view>
+                    <view class="goods-tabs__feed-dots">
+                      <view
+                        v-for="(dot, dotIndex) in activeFeedCard.items"
+                        :key="`${dot.id}-dot`"
+                        class="goods-tabs__feed-dot"
+                        :class="{
+                          'goods-tabs__feed-dot--active':
+                            dotIndex === feedCurrent,
+                        }"
+                      />
+                    </view>
+                  </view>
+                </swiper-item>
+              </swiper>
+            </view>
             <view
               v-for="item in column"
               :key="item.id"
@@ -1042,13 +1212,15 @@ function imageBoxStyle(item: any) {
                 </text>
               </view>
               <!--
-                营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行
-                （2026-11-08 视觉增强 + 并排口径）。
+                营销标签行：新人首单价 + 热销社证 + 近N天最低价同一行并排
+                （2026-11-08 视觉增强；2026-11-15 最低价并入本行）。
+                三枚 chip 都是「解释这张卡」的中性标签，视觉与位置必须同族：
+                同款浅桃底暖橙字胶囊、同字号同内边距、同在价格行上方。
                 挂在卡片级而非 meta-text 内：meta-text 右侧要让位加购按钮列，chip
-                会被压缩出省略号；全宽后「新人首单价 + 月N+人已下单」单行放得下。
+                会被压缩出省略号；全宽后三枚 chip 放不下时整枚换行，不裁字。
               -->
               <view
-                v-if="showData.showPrice && (cardDisplay(item).badgeKind === 'newbie' || cardDisplay(item).socialProofText)"
+                v-if="hasCardTagRow(item)"
                 class="goods-tabs__tag-row"
               >
                 <view v-if="cardDisplay(item).badgeKind === 'newbie'" class="goods-tabs__tag-chip goods-tabs__tag-chip--newbie">
@@ -1069,8 +1241,18 @@ function imageBoxStyle(item: any) {
                     {{ proofParts(item).after }}
                   </text>
                 </view>
+                <!-- 近N天最低价：与社证同族 chip（浅桃底暖橙字 + 降价折线图标），服务端成文直渲染 -->
+                <view v-if="cardDisplay(item).priceTagText" class="goods-tabs__tag-chip goods-tabs__price-tag">
+                  <text class="goods-tabs__price-tag-icon" />
+                  <text class="goods-tabs__tag-chip-text">
+                    {{ cardDisplay(item).priceTagText }}
+                  </text>
+                </view>
               </view>
-              <view class="goods-tabs__meta">
+              <view
+                class="goods-tabs__meta"
+                :class="{ 'goods-tabs__meta--tagged': hasCardTagRow(item) }"
+              >
                 <view class="goods-tabs__meta-text">
                   <!-- 价格区优先级：会员价 > 捡漏价 > 秒杀/新人价 > 普通价 -->
                   <view v-if="showData.showPrice" class="goods-tabs__price-line">
@@ -1099,10 +1281,6 @@ function imageBoxStyle(item: any) {
                               .{{ cardPriceParts(item).decimal }}
                             </text>
                           </view>
-                          <text v-if="cardDisplay(item).priceTagText" class="goods-tabs__price-tag">
-                            <text class="goods-tabs__price-tag-icon" />
-                            {{ cardDisplay(item).priceTagText }}
-                          </text>
                         </view>
                         <view
                           v-if="
@@ -1144,10 +1322,6 @@ function imageBoxStyle(item: any) {
                               .{{ bargainPriceParts(item).decimal }}
                             </text>
                           </view>
-                          <text v-if="cardDisplay(item).priceTagText" class="goods-tabs__price-tag">
-                            <text class="goods-tabs__price-tag-icon" />
-                            {{ cardDisplay(item).priceTagText }}
-                          </text>
                           <text
                             v-if="
                               showData.showOriginalPrice
@@ -1182,11 +1356,6 @@ function imageBoxStyle(item: any) {
                           .{{ cardPriceParts(item).decimal }}
                         </text>
                       </view>
-                      <!-- 近N天最低价：主价旁描边小标（固定红系不随主题，见需求文档视觉规范） -->
-                      <text v-if="cardDisplay(item).priceTagText" class="goods-tabs__price-tag">
-                        <text class="goods-tabs__price-tag-icon" />
-                        {{ cardDisplay(item).priceTagText }}
-                      </text>
                       <!-- 普通价：沿用「原价 > 售价才划线」口径，与其它 Tab 完全一致 -->
                       <text
                         v-if="
@@ -1399,6 +1568,157 @@ function imageBoxStyle(item: any) {
   min-width: 0;
 }
 
+/*
+ * 活动轮播卡：左列第一格，尺寸与商品卡同宽，高度按 3:4 竖图取 520rpx，
+ * 与右侧商品卡首屏高度接近，不破坏双列瀑布流的错落节奏。
+ */
+.goods-tabs__feed {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 520rpx;
+  overflow: hidden;
+  background: #0b1a2b;
+  border: 1rpx solid #f0f1f3;
+  border-radius: 24rpx;
+  box-shadow: 0 8rpx 24rpx rgb(31 35 41 / 8%);
+}
+
+.goods-tabs__feed-swiper {
+  width: 100%;
+  height: 520rpx;
+}
+
+.goods-tabs__feed-slide {
+  position: relative;
+  width: 100%;
+  height: 520rpx;
+  overflow: hidden;
+  transition: transform 160ms ease;
+}
+
+.goods-tabs__feed-slide--pressed {
+  transform: scale(0.985);
+}
+
+.goods-tabs__feed-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 底部压深，保证白字在浅色商品图上也能读清 */
+.goods-tabs__feed-shade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 18, 30, 0.05) 0%,
+    rgba(8, 18, 30, 0) 38%,
+    rgba(8, 18, 30, 0.55) 66%,
+    rgba(8, 18, 30, 0.9) 100%
+  );
+}
+
+.goods-tabs__feed-badge {
+  position: absolute;
+  top: 16rpx;
+  left: 16rpx;
+  z-index: 3;
+  padding: 6rpx 14rpx;
+  color: #fff;
+  font-size: 18rpx;
+  line-height: 1.4;
+  background: rgba(10, 22, 36, 0.55);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  border-radius: 18rpx;
+}
+
+.goods-tabs__feed-copy {
+  position: absolute;
+  right: 20rpx;
+  bottom: 52rpx;
+  left: 20rpx;
+  z-index: 3;
+  color: #fff;
+}
+
+.goods-tabs__feed-kicker {
+  display: block;
+  margin-bottom: 6rpx;
+  color: #ffcf8a;
+  font-size: 18rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+
+.goods-tabs__feed-title {
+  display: block;
+  font-size: 42rpx;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -1rpx;
+  text-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.35);
+}
+
+.goods-tabs__feed-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.4;
+  opacity: 0.92;
+}
+
+.goods-tabs__feed-cta {
+  display: inline-flex;
+  gap: 4rpx;
+  align-items: center;
+  margin-top: 14rpx;
+  padding: 8rpx 18rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  background: #ff6a00;
+  border-radius: 22rpx;
+  box-shadow: 0 4rpx 16rpx rgba(255, 106, 0, 0.35);
+}
+
+.goods-tabs__feed-cta-arrow {
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+.goods-tabs__feed-dots {
+  position: absolute;
+  right: 0;
+  bottom: 16rpx;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  gap: 8rpx;
+  justify-content: center;
+}
+
+.goods-tabs__feed-dot {
+  width: 8rpx;
+  height: 8rpx;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  transition: width 200ms ease, border-radius 200ms ease;
+}
+
+.goods-tabs__feed-dot--active {
+  width: 20rpx;
+  background: #fff;
+  border-radius: 6rpx;
+}
+
 .goods-tabs__card {
   display: flex;
   flex-direction: column;
@@ -1508,6 +1828,24 @@ function imageBoxStyle(item: any) {
   justify-content: space-between;
   gap: 8rpx;
   padding: 14rpx 20rpx 20rpx;
+}
+
+/*
+ * 有营销标签行时收边：chip→价格 统一 13rpx（≈7.5px）。
+ *
+ * 不能只调 padding：meta 内容高度由右侧 56rpx 加购圆撑起（≈32px），价格行按 flex-end
+ * 贴底，普通卡天然多出 ≈7px 等高差；而带「会员专享」引导行的卡 meta-text 比圆更高，
+ * 价格又贴着顶部——同一份 padding 在两类卡上会差出 7px。
+ * 因此这里把 meta-text 顶对齐、再用统一上内边距兜住间距；下内边距同步收 7rpx，
+ * 加购圆与价格底的对齐差随之由「价格偏低」变成「圆略低」，视觉重心不变。
+ */
+.goods-tabs__meta--tagged {
+  padding-top: 13rpx;
+  padding-bottom: 13rpx;
+}
+
+.goods-tabs__meta--tagged .goods-tabs__meta-text {
+  align-self: flex-start;
 }
 
 .goods-tabs__meta-text {
@@ -1674,19 +2012,21 @@ function imageBoxStyle(item: any) {
 }
 
 /*
- * 营销标签行：新人首单价 + 热销社证同一行并排、nowrap 不折行
- * （2026-11-08 视觉增强 + 并排口径，令牌见 goods-tag.scss）。
+ * 营销标签行：新人首单价 + 热销社证 + 近N天最低价同排（2026-11-15 三枚 chip 同族同排）。
+ * 允许整枚换行：双列卡内宽 ≈288rpx，两枚 chip 常见就要 285–325rpx（月4000+人已下单更长），硬 nowrap 会把后一枚裁掉；
+ * 硬 nowrap 会把后一枚裁掉；换行后仍全部位于价格行上方、左对齐同一基线。
  * 【icon 尺寸硬约束】勿用 px 定小尺寸：9px 固定字号下线条糊成一团，
- * 20rpx 与文字同高跟随缩放才可辨；icon 颜色随 currentColor 走暖橙。
+ * 18rpx 与 chip 文字同高跟随缩放才可辨。
  */
 .goods-tabs__tag-row {
   /* 左右 20rpx 与商品名（__name margin 16/20/0）左对齐 */
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4rpx;
   overflow: hidden;
-  margin: 8rpx 20rpx 4rpx;
+  /* 下边距交给 .goods-tabs__meta--tagged 统一收边，避免「chip—价格」两道空隙叠加 */
+  margin: 8rpx 20rpx 0;
   min-width: 0;
 }
 
@@ -1764,27 +2104,21 @@ function imageBoxStyle(item: any) {
   text-decoration: line-through;
 }
 
-/* 近N天最低价贴纸：浅红实底+600 字重（固定红系不随主题，令牌见 goods-tag.scss） */
+/*
+ * 近N天最低价：与社证同族的暖橙 chip（2026-11-15 收敛），与标签行同字号/内边距/胶囊圆角。
+ * 只补 hot 身份与「图标+文字」的排布，基础度量复用 .goods-tabs__tag-chip（18rpx/1.5）。
+ */
 .goods-tabs__price-tag {
-  display: inline-flex;
-  align-items: center;
+  @include goods-tag-hot;
   gap: 2rpx;
-  flex: none;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0 8rpx;
-  border-radius: 6rpx;
-  font-size: 20rpx;
-  line-height: 28rpx;
-  white-space: nowrap;
-  @include goods-tag-low;
+  padding: 2rpx 8rpx;
 }
 
 .goods-tabs__price-tag-icon {
-  width: 16rpx;
-  height: 12rpx;
+  width: 18rpx;
+  height: 14rpx;
   flex-shrink: 0;
-  @include goods-tag-low-icon;
+  @include goods-tag-hot-icon;
 }
 
 /* 会员价角标：浅金描边小标签，不做实心色块，保持卡片留白 */

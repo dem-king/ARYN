@@ -443,3 +443,163 @@ CREATE TABLE IF NOT EXISTS `group_buy_member` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='拼团参与记录';
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- 统一活动完整基线（放在旧位置式种子 INSERT 之后；存量字段仍由既有增量维护）
+CREATE TABLE IF NOT EXISTS `promotion_activity` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `activity_name` varchar(128) NOT NULL COMMENT '活动名称',
+  `activity_type` char(2) NOT NULL COMMENT '活动类型：4阶梯价 7船供整船优惠（预留2满减 3折扣 5买赠 6首单复购）',
+  `scope_type` char(2) NOT NULL DEFAULT '1' COMMENT '范围类型：1全场 2指定SKU 4指定购买场景 5指定船舶 6指定靠港计划 7指定港口',
+  `scope_value` varchar(1000) DEFAULT NULL COMMENT '范围值（SKU/船舶/靠港ID逗号分隔或场景/港口编码）',
+  `purchase_scene` char(2) DEFAULT NULL COMMENT '限定购买场景：1个人 2船供（空不限）',
+  `rules` text DEFAULT NULL COMMENT '规则快照（受控JSON：阶梯价[{minQty,unitPrice}]；整船优惠[{minAmount,discountAmount}]）',
+  `priority` int NOT NULL DEFAULT 0 COMMENT '优先级（大者先）',
+  `stackable` char(2) NOT NULL DEFAULT '0' COMMENT '是否可与同类叠加：0否 1是（同类取最优时忽略）',
+  `start_time` datetime NOT NULL COMMENT '开始时间',
+  `end_time` datetime NOT NULL COMMENT '结束时间',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1草稿 2已发布 3已暂停 4已结束',
+  `publish_time` datetime DEFAULT NULL COMMENT '发布时间',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `activity_code` varchar(64) DEFAULT NULL COMMENT '系统托管活动标识',
+  `calendar_id` varchar(32) DEFAULT NULL COMMENT '归属采购档期',
+  `total_quota` int DEFAULT NULL COMMENT '活动级限量（件）',
+  `consumed_quota` int NOT NULL DEFAULT 0 COMMENT '已占用限量',
+  `total_budget` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '活动预算',
+  `consumed_budget` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '已占用让利',
+  `per_user_limit` int NOT NULL DEFAULT 0 COMMENT '每人限享次数',
+  `gift_stock` int NOT NULL DEFAULT 0 COMMENT '赠品总量',
+  `coupon_stackable` char(1) NOT NULL DEFAULT '1' COMMENT '可叠券',
+  `points_stackable` char(1) NOT NULL DEFAULT '1' COMMENT '可抵积分',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_promotion_activity_code` (`tenant_id`,`activity_code`),
+  KEY `idx_promotion_activity_calendar` (`tenant_id`,`calendar_id`,`status`),
+  KEY `idx_promotion_activity_status` (`tenant_id`,`activity_type`,`status`,`start_time`,`end_time`),
+  KEY `idx_promotion_activity_scope` (`tenant_id`,`scope_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='统一营销活动';
+
+-- B2B 统一命令配置修订
+SET NAMES utf8mb4;
+-- 配置修订号与交易额度分离，存量活动从修订 0 开始；不改发布态、预算或历史锁。
+SET @activity_revision_ddl = IF(
+  EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+    AND TABLE_NAME='promotion_activity' AND COLUMN_NAME='revision'),
+  'SELECT 1',
+  'ALTER TABLE promotion_activity ADD COLUMN revision bigint NOT NULL DEFAULT 0 COMMENT ''配置修订号''');
+PREPARE activity_revision_stmt FROM @activity_revision_ddl;
+EXECUTE activity_revision_stmt;
+DEALLOCATE PREPARE activity_revision_stmt;
+
+-- 未发布方案模拟凭据基线
+CREATE TABLE IF NOT EXISTS `campaign_simulation` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `draft_activity_id` varchar(64) NOT NULL,
+  `draft_revision` bigint NOT NULL,
+  `request_json` longtext NOT NULL,
+  `draft_digest` char(64) NOT NULL,
+  `input_digest` char(64) NOT NULL,
+  `fact_digest` char(64) NOT NULL,
+  `result_json` longtext NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `create_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_campaign_sim_owner` (`tenant_id`,`actor_id`,`draft_activity_id`,`create_time`),
+  KEY `idx_campaign_sim_expiry` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='未发布方案只读模拟凭据，不占用库存额度';
+
+-- 2026-11-15 活动包持久草稿与生成队列基线
+CREATE TABLE IF NOT EXISTS `campaign_draft` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `revision` bigint NOT NULL DEFAULT 0,
+  `title` varchar(100) NOT NULL,
+  `definition_json` longtext NOT NULL,
+  `status` varchar(32) NOT NULL DEFAULT 'DRAFT',
+  `main_activity_id` varchar(64) DEFAULT NULL,
+  `main_activity_revision` bigint DEFAULT NULL,
+  `page_id` varchar(64) DEFAULT NULL,
+  `page_revision` bigint DEFAULT NULL,
+  `page_digest` char(64) DEFAULT NULL,
+  `simulation_id` varchar(64) DEFAULT NULL,
+  `simulation_revision` bigint DEFAULT NULL,
+  `generation_version` int NOT NULL DEFAULT 0,
+  `generation_reason` varchar(1000) DEFAULT NULL,
+  `create_time` datetime NOT NULL,
+  `update_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_campaign_draft_owner` (`tenant_id`,`actor_id`,`update_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='受控活动包草稿，不自动发布';
+CREATE TABLE IF NOT EXISTS `campaign_generation_job` (
+  `id` varchar(64) NOT NULL,
+  `tenant_id` varchar(32) NOT NULL,
+  `draft_id` varchar(64) NOT NULL,
+  `actor_id` varchar(64) NOT NULL,
+  `request_id` varchar(64) NOT NULL,
+  `base_revision` bigint NOT NULL,
+  `status` varchar(32) NOT NULL,
+  `input_json` longtext NOT NULL,
+  `lease_token` varchar(64) DEFAULT NULL,
+  `lease_until` datetime DEFAULT NULL,
+  `attempt` int NOT NULL DEFAULT 0,
+  `next_retry_at` datetime DEFAULT NULL,
+  `config_version` varchar(64) NOT NULL,
+  `provider_id` varchar(64) DEFAULT NULL,
+  `model` varchar(255) DEFAULT NULL,
+  `prompt_version` varchar(64) NOT NULL,
+  `input_digest` char(64) NOT NULL,
+  `output_json` longtext,
+  `error_code` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL,
+  `update_time` datetime NOT NULL,
+  `del_flag` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_campaign_generation_request` (`tenant_id`,`draft_id`,`request_id`),
+  KEY `idx_campaign_generation_due` (`tenant_id`,`status`,`next_retry_at`,`lease_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动包生成租约与修订审计，输出仅内部使用';
+
+-- 活动包协议主方案扩展
+SET @campaign_column_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draft' AND COLUMN_NAME='main_policy_id'), 'SELECT 1', 'ALTER TABLE `campaign_draft` ADD COLUMN `main_policy_id` varchar(64) DEFAULT NULL');
+PREPARE campaign_column_stmt FROM @campaign_column_sql; EXECUTE campaign_column_stmt; DEALLOCATE PREPARE campaign_column_stmt;
+SET @campaign_column_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='campaign_draft' AND COLUMN_NAME='main_policy_digest'), 'SELECT 1', 'ALTER TABLE `campaign_draft` ADD COLUMN `main_policy_digest` char(64) DEFAULT NULL');
+PREPARE campaign_column_stmt FROM @campaign_column_sql; EXECUTE campaign_column_stmt; DEALLOCATE PREPARE campaign_column_stmt;
+-- 协议主方案没有统一活动ID，使用活动包修订和主政策摘要校验。
+ALTER TABLE `campaign_simulation` MODIFY COLUMN `draft_activity_id` varchar(64) DEFAULT NULL;
+
+-- 活动包页面归属
+SET @campaign_page_sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='page_design' AND COLUMN_NAME='campaign_draft_id'), 'SELECT 1', 'ALTER TABLE `page_design` ADD COLUMN `campaign_draft_id` varchar(64) DEFAULT NULL COMMENT ''活动包拥有者，仅经活动包发布编排启用''');
+PREPARE campaign_page_stmt FROM @campaign_page_sql; EXECUTE campaign_page_stmt; DEALLOCATE PREPARE campaign_page_stmt;
+SET @campaign_page_sql = IF(EXISTS(SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='page_design' AND INDEX_NAME='uk_page_campaign_owner'), 'SELECT 1', 'ALTER TABLE `page_design` ADD UNIQUE KEY `uk_page_campaign_owner` (`tenant_id`,`campaign_draft_id`)');
+PREPARE campaign_page_stmt FROM @campaign_page_sql; EXECUTE campaign_page_stmt; DEALLOCATE PREPARE campaign_page_stmt;
+
+-- 活动包人工发布本地事务记录
+CREATE TABLE IF NOT EXISTS `campaign_publish_operation` (
+ `id` varchar(64) NOT NULL,
+ `tenant_id` varchar(32) NOT NULL,
+ `actor_id` varchar(64) NOT NULL,
+ `draft_id` varchar(64) NOT NULL,
+ `request_id` varchar(64) NOT NULL,
+ `command_json` longtext NOT NULL,
+ `command_digest` char(64) NOT NULL,
+ `status` varchar(32) NOT NULL,
+ `steps_json` text NOT NULL,
+ `main_activity_id` varchar(64) DEFAULT NULL,
+ `main_policy_id` varchar(64) DEFAULT NULL,
+ `coupon_id` varchar(64) DEFAULT NULL,
+ `page_id` varchar(64) DEFAULT NULL,
+ `page_version_id` varchar(64) DEFAULT NULL,
+ `failure_code` varchar(64) DEFAULT NULL,
+ `create_time` datetime NOT NULL,
+ `update_time` datetime NOT NULL,
+ `del_flag` char(1) NOT NULL DEFAULT '0',
+ PRIMARY KEY (`id`),
+ UNIQUE KEY `uk_campaign_publish_request` (`tenant_id`,`draft_id`,`request_id`),
+ KEY `idx_campaign_publish_owner` (`tenant_id`,`actor_id`,`draft_id`,`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动包人工发布信封、原子步骤和恢复记录';

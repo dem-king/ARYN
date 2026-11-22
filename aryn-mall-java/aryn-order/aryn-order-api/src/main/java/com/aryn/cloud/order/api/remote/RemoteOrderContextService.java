@@ -21,4 +21,16 @@ public interface RemoteOrderContextService {
 	 */
 	List<OrderContextVO> queryRecentOrders(String tenantId, String customerId, int limit);
 
+	/**
+	 * 岸上采购主体可用成员校验（2026-11-15 审查修复新增：协议价批量查价的主体越权防护）。
+	 *
+	 * <p>口径与下单链 requireForOrder 一致：主体存在且未停用 + 本人有效成员；
+	 * 不要求建车权限（展示场景只读）。任何不满足/查询异常返回 false（fail-closed）。
+	 * @param tenantId 租户ID
+	 * @param userId 用户ID
+	 * @param buyerOrgId 采购主体ID
+	 * @return 是否可用成员
+	 */
+	boolean isUsableBuyerOrgMember(String tenantId, String userId, String buyerOrgId);
+
 }

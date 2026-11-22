@@ -38,9 +38,11 @@ describe('goods attr tags wiring', () => {
     expect(info).not.toContain('goods-title-card__tags')
   })
 
-  it('feeds raw attrTags from the detail response without reshaping elsewhere', () => {
+  it('feeds purchase facts first and falls back to raw attrTags', () => {
     const info = source(GOODS_INFO)
-    expect(info).toContain(':attr-tags="goodsSpu?.attrTags"')
+    expect(info).toContain(':attr-tags="displayAttrTags"')
+    expect(info).toContain('props.purchaseTags')
+    expect(info).toContain('props.goodsSpu?.attrTags')
   })
 
   it('renders nothing when the payload is empty (backend not deployed stays unchanged)', () => {
@@ -49,13 +51,13 @@ describe('goods attr tags wiring', () => {
     expect(component).toContain('normalizeGoodsAttrTags')
   })
 
-  it('fills the row for up to 3 tags, then scrolls horizontally without wrapping', () => {
+  it('fills the row for up to 4 tags, then scrolls horizontally without wrapping', () => {
     const component = source(ATTR_TAGS)
-    // 3 张以内等宽铺满，右侧不留白
+    // 4 张以内等宽铺满，右侧不留白
     expect(component).toMatch(/flex:\s*1 1 0/)
     expect(component).toMatch(/gap:\s*12rpx/)
-    // 超过 3 张走单行定宽横滑，绝不换行
-    expect(component).toContain('displayTags.value.length > 3')
+    // 超过 4 张走单行定宽横滑，绝不换行
+    expect(component).toContain('displayTags.value.length > 4')
     expect(component).toContain(':scroll-x="isScrollable"')
     expect(component).not.toMatch(/flex-wrap:\s*wrap/)
     expect(component).toContain('attr-tags__track--scroll')

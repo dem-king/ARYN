@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useSignInStatus } from '@/composables/useSignInStatus'
 import { getMemberLevelList, getMyBenefits } from '@/sub-pages/api/user/benefit'

@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createDecorationLinkAction, normalizeDecorationLink } from './link-resolver'
+import { createDecorationLinkAction, followDecorationLink, normalizeDecorationLink } from './link-resolver'
+
+const { auth } = vi.hoisted(() => ({ auth: { isLoggedIn: false } }))
+
+vi.mock('@/store/authStore', () => ({ useAuthStore: () => auth }))
 
 describe('decoration link resolver', () => {
   it.each([
@@ -112,4 +116,59 @@ describe('decoration link resolver', () => {
       })
     },
   )
+})
+
+describe('decoration link navigation', () => {
+  const shipSupplyPath = '/sub-pages/product/ship-supply/index'
+
+  afterEach(() => {
+    auth.isLoggedIn = false
+    vi.unstubAllGlobals()
+  })
+
+  function mockNavigation() {
+    const navigateTo = vi.fn((options: { url: string, complete?: () => void }) => {
+      options.complete?.()
+    })
+    const setStorageSync = vi.fn()
+    vi.stubGlobal('getCurrentPages', () => [{ route: 'pages/home/index' }])
+    vi.stubGlobal('uni', { navigateTo, setStorageSync })
+    return { navigateTo, setStorageSync }
+  }
+
+  it.each([
+    [{ name: '船供专区', url: shipSupplyPath }, shipSupplyPath],
+    [
+      { type: 'custom', path: shipSupplyPath, params: { scene: '2', sharedCartId: 'cart-1' } },
+      `${shipSupplyPath}?scene=2&sharedCartId=cart-1`,
+    ],
+  ] as const)('opens login before visiting the ship supply page and preserves the destination', (link, destination) => {
+    const { navigateTo, setStorageSync } = mockNavigation()
+
+    followDecorationLink(link)
+
+    expect(navigateTo.mock.calls.map(([options]) => options.url)).toEqual(['/pages/login/index'])
+    expect(setStorageSync).toHaveBeenCalledWith('redirectPath', destination)
+  })
+
+  it('opens the ship supply page directly for a signed-in shopper', () => {
+    const { navigateTo, setStorageSync } = mockNavigation()
+    auth.isLoggedIn = true
+    const destination = `${shipSupplyPath}?scene=2&sharedCartId=cart-1`
+
+    followDecorationLink(destination)
+
+    expect(navigateTo.mock.calls).toEqual([[{ url: destination }]])
+    expect(setStorageSync).not.toHaveBeenCalled()
+  })
+
+  it('keeps public product links accessible for guests', () => {
+    const { navigateTo, setStorageSync } = mockNavigation()
+    const destination = '/sub-pages/product/goods-detail/index?id=goods-1'
+
+    followDecorationLink(destination)
+
+    expect(navigateTo.mock.calls).toEqual([[{ url: destination }]])
+    expect(setStorageSync).not.toHaveBeenCalled()
+  })
 })

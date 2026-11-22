@@ -57,10 +57,10 @@ public class ReplenishImportMatchVO implements Serializable {
 	@Schema(description = "SKU 库存")
 	private Integer stock;
 
-	@Schema(description = "最小起订量（船供包装资料下线后恒空，订单域按 1 兜底）")
+	@Schema(description = "SKU最小起订量，旧数据为1")
 	private Integer moq;
 
-	@Schema(description = "数量步长（船供包装资料下线后恒空，订单域按 1 兜底）")
+	@Schema(description = "SKU数量步长，从起订量开始递增")
 	private Integer stepQty;
 
 	@Schema(description = "SKU 状态：0正常 1下架")
@@ -69,12 +69,16 @@ public class ReplenishImportMatchVO implements Serializable {
 	@Schema(description = "SPU 状态：1上架 0下架")
 	private String spuStatus;
 
+	private com.aryn.cloud.product.api.support.ProductMeasurementRules.Measurement measurement;
+
 	@Schema(description = "候选明细（歧义时给出，供人工补选；最多 20 条）")
 	private List<Candidate> candidates;
 
 	@Schema(description = "候选/歧义明细分项")
 	@Data
 	public static class Candidate implements Serializable {
+
+		private com.aryn.cloud.product.api.support.ProductMeasurementRules.Measurement measurement;
 
 		@Serial
 		private static final long serialVersionUID = 1L;

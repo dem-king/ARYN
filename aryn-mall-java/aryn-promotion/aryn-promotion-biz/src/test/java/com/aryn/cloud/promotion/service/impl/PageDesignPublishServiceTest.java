@@ -81,6 +81,17 @@ class PageDesignPublishServiceTest {
 		ArynTenantContextHolder.removeTenantId();
 	}
 
+	@Test void campaignOwnedPageCannotBypassOrchestratorThroughNormalPublishRollbackOrGray() {
+		var page=page("campaign-page",0L,"{\"schemaVersion\":3,\"sections\":[]}");page.setCampaignDraftId("campaign");
+		when(pageDesignMapper.selectById(page.getId())).thenReturn(page);
+		var request=new PageDesignPublishDTO();request.setId(page.getId());request.setDraftRevision(0L);
+		assertThrows(ArynBusinessException.class,()->service.publish(request));
+		assertThrows(ArynBusinessException.class,()->service.publishSnapshot(page,"page","0",page.getPageContent(),3,"bypass",0L));
+		assertThrows(ArynBusinessException.class,()->service.createVersionSnapshot(page,"page","0",page.getPageContent(),3,"gray bypass"));
+		assertThrows(ArynBusinessException.class,()->service.rollback(page.getId(),"version","bypass"));
+		verify(versionMapper,never()).insert(any(PageDesignVersion.class));
+	}
+
 	@Test
 	void publishCreatesNextImmutableVersionAndSwitchesPointer() {
 		when(userSupplier.getCurrentUserName()).thenReturn("admin");

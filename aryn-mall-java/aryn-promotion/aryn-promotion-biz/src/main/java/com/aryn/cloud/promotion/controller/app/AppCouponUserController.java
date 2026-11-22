@@ -1,6 +1,8 @@
 
 package com.aryn.cloud.promotion.controller.app;
 
+import com.aryn.cloud.promotion.service.impl.B2bActivityAdmission;
+
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -37,6 +39,7 @@ public class AppCouponUserController {
 	@Operation(summary = "用户领取优惠券")
 	@PostMapping
 	public Result<CouponUser> page(@RequestBody CouponUser couponUser) {
+		B2bActivityAdmission.rejectRetired("领券中心");
 		couponUser.setUserId(SecurityUtils.getUser().getUserId());
 		return Result.success(couponUserService.receive(couponUser));
 	}

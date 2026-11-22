@@ -17,6 +17,8 @@ import java.util.List;
 @Mapper
 public interface GoodsSkuMapper extends BaseMapper<GoodsSku> {
 
+	int updateMeasurement(@Param("sku") GoodsSku sku);
+
 	/**
 	 * 通过spuId查询
 	 *

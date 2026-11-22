@@ -42,6 +42,8 @@ export default {
     memberBadge: 'Member',
     memberGuide: 'Members only ¥{price}',
     clearanceBadge: 'Clearance Price',
+    policyBadge: 'Contract Price',
+    specialBadge: 'Special Offer',
     clearanceExpireHint: 'Clearance price valid until {date}',
 
     // Goods card

@@ -62,9 +62,10 @@ public final class ReplenishImportClassifier {
 			return new Result(SharedCartImportRow.RESULT_OFF_SHELF, "商品已下架，无法导入", null);
 		}
 
-		int moq = match.getMoq() == null || match.getMoq() < 1 ? 1 : match.getMoq();
-		int stepQty = match.getStepQty() == null || match.getStepQty() < 1 ? 1 : match.getStepQty();
+		int moq = match.getMoq() == null ? 1 : match.getMoq();
+		int stepQty = match.getStepQty() == null ? 1 : match.getStepQty();
 		Integer stock = match.getStock();
+        if (moq < 1 || stepQty < 1) return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "商品数量门槛配置异常，请运营核对", null);
 		if (quantity == null || quantity <= 0) {
 			// 填了但解析不出数字（如「十份」）：这才是真正的填写错误
 			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量必须是正整数", null);
@@ -72,20 +73,21 @@ public final class ReplenishImportClassifier {
 		if (quantity < moq) {
 			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量未达到最小起订量 " + moq, moq);
 		}
-		if (quantity % stepQty != 0) {
-			int suggested = quantity - (quantity % stepQty) + stepQty;
+		if ((quantity - moq) % stepQty != 0) {
+			long rounded = (long) quantity - ((quantity - moq) % stepQty) + stepQty;
+            Integer suggested = rounded > Integer.MAX_VALUE ? null : (int) rounded;
 			// 建议值必须同时受库存约束：否则「数量 99999 / 库存 3000」会建议 100000，
 			// 用户点了「调整为建议数量」后仍会因超库存被跳过，动作指向一个不可行的值。
-			if (stock != null && suggested > stock) {
+			if (suggested == null || (stock != null && suggested > stock)) {
 				Integer capped = ReplenishMatchRules.suggestedQuantity(stock, moq, stepQty);
 				if (capped == null) {
 					return new Result(SharedCartImportRow.RESULT_INVALID_QTY,
-							"数量必须是 " + stepQty + " 的整数倍，且库存不足起订量，请人工补选", null);
+							"数量须从起订量 " + moq + " 按步长 " + stepQty + " 递增，且库存不足起订量，请人工补选", null);
 				}
 				return new Result(SharedCartImportRow.RESULT_INVALID_QTY,
-						"数量必须是 " + stepQty + " 的整数倍，库存仅 " + stock + "，建议调整为 " + capped, capped);
+						"数量须从起订量 " + moq + " 按步长 " + stepQty + " 递增，库存仅 " + stock + "，建议调整为 " + capped, capped);
 			}
-			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量必须是 " + stepQty + " 的整数倍", suggested);
+			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量须从起订量 " + moq + " 按步长 " + stepQty + " 递增", suggested);
 		}
 
 		if (stock != null && quantity > stock) {

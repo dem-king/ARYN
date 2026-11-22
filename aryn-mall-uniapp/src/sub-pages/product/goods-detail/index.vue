@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { AppDiscountVO, AppMemberPriceVO, AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
+import type { GoodsAttrTagPayload } from '@/api/product/attr-tags'
+import type { GoodsPromotionHints as PromotionHints } from '@/api/promotion/goods-hints'
+import type { LadderPriceItem } from '@/api/promotion/ladder-price'
 import type { AppClearancePriceVO } from '@/utils/clearance-price'
+import type { GoodsProfile } from '@/utils/goods-profile'
 import type { PurchaseDecision } from '@/utils/goods-purchase'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
@@ -13,12 +17,13 @@ import {
   onMounted,
   reactive,
   ref,
+  watch,
 } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
 import { getClearanceSkuPrices, getById as getSpuById } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getGoodsSeckillInfo, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
-import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
+import { getGoodsPromotionHints } from '@/api/promotion/goods-hints'
+import { getLadderPrices } from '@/api/promotion/ladder-price'
 import { getPolicyPrices } from '@/api/promotion/policy-price'
 import { getCalendarSpecials } from '@/api/promotion/trade-calendar'
 import { getDefault } from '@/api/user/address'
@@ -34,23 +39,32 @@ import {
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { useRequireLogin } from '@/composables/useRequireLogin'
+import { useI18n } from '@/sub-pages/locales'
 import {
-  clearanceWinsOverMember,
   emptyClearancePriceDisplay,
   resolveClearancePriceDisplay,
 } from '@/utils/clearance-price'
 import { emptyDiscountDisplay, resolveDiscountPriceDisplay } from '@/utils/discount-price'
-import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
+import { resolveGoodsParams, skuSpecValues } from '@/utils/goods-params'
+import { hasGoodsProfile, normalizeDetailSections, normalizeGoodsProfile } from '@/utils/goods-profile'
+import { resolveDeliveryRow, resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
+import { resolvePurchaseTags } from '@/utils/goods-purchase-tags'
 import { initGoodsSpecs } from '@/utils/goods-specs'
+import { ladderTiersOf, nextPurchasableLadderTier, resolveLadderUnitPrice } from '@/utils/ladder-price'
 import { emptyMemberPriceDisplay, resolveMemberPriceDisplay } from '@/utils/member-price'
 import { customerServiceRoute } from '@/utils/message'
 import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 import { emptyNewbieDisplay, resolveNewbiePriceDisplay } from '@/utils/newbie-price'
+import { resolveListZonePrice } from '@/utils/zone-price'
 import GoodsCategoryEntry from './components/GoodsCategoryEntry.vue'
 import GoodsComment from './components/GoodsComment.vue'
+import GoodsDetailSections from './components/GoodsDetailSections.vue'
 import GoodsFooter from './components/GoodsFooter.vue'
 import GoodsInfo from './components/GoodsInfo.vue'
 import GoodsNavbar from './components/GoodsNavbar.vue'
+import GoodsParamCard from './components/GoodsParamCard.vue'
+import GoodsProfileSheet from './components/GoodsProfileSheet.vue'
+import GoodsPromotionHints from './components/GoodsPromotionHints.vue'
 import MorePopup from './components/MorePopup.vue'
 import SharePopup from './components/SharePopup.vue'
 
@@ -62,7 +76,6 @@ definePage({
   },
 })
 interface State {
-  couponState: boolean // 领券弹窗
   shareShow: boolean // 分享弹窗
   moreShow: boolean
   isCanBack: boolean
@@ -71,7 +84,6 @@ interface State {
   tabActive: number
   selectArr: string
   scrollStatus: boolean
-  couponList: any[]
   rateType: string
   /** 当前 SKU 的秒杀信息；null 表示无进行中的秒杀 */
   seckillInfo: AppSeckillGoodsVO | null
@@ -87,10 +99,15 @@ interface State {
   clearancePriceVO: AppClearancePriceVO | null
   /** 本 SPU 各 SKU 命中的最优限时折扣；null 表示无活动/接口失败 */
   discountPrices: AppDiscountVO[] | null
-  /** 当前会话可享的协议价（按 SKU，含划线基准）；null=未登录/无上下文/未命中 */
-  policyPrices: Array<{ originalPrice?: number, policyPrice: number, skuId: string }> | null
+  /**
+   * 当前会话可享的协议价（按 SKU，含划线基准与起订量）；null=无上下文/未命中。
+   * `minQty` 参与成交校验：件数不足时不切主价，只出「协议价 N 件起」提示。
+   */
+  policyPrices: Array<{ minQty?: number, originalPrice?: number, policyPrice: number, skuId: string }> | null
   /** 本 SPU 各 SKU 命中的档期特供价（按 SKU，可多活动并存）；null=无进行中特供/接口失败 */
-  calendarSpecialPrices: Array<{ originalPrice?: null | number, price: number, skuId: string }> | null
+  calendarSpecialPrices: Array<{ originalPrice?: null | number, perUserLimit?: null | number, price: number, remainingQuota?: null | number, skuId: string }> | null
+  /** 本 SPU 各 SKU 命中的阶梯价档位（按当前件数取档）；null=无阶梯活动/接口失败 */
+  ladderPrices: LadderPriceItem[] | null
   /**
    * 多规格商品「用户当前看着的 SKU」。
    *
@@ -103,7 +120,8 @@ interface State {
 
 // 定义变量
 const skuKey = ref(false)
-const skuMode = ref(1)
+// 2 = 只显示购物车按钮：B2B 采购统一走「加入购物车 → 购物车确认」，商详不提供立即下单
+const skuMode = ref(2)
 const loading = ref(true)
 const skuPopup = ref()
 
@@ -137,8 +155,10 @@ const tabList = ref([
     height: 0,
   },
 ])
+
+/** tab 下标 → 页面锚点；点击时现量一次，避免异步评价/装修没回填 tabList 时点击无响应 */
+const TAB_ANCHOR_SELECTORS = ['', '#scroll-comment', '#scroll-description', '#scroll-like']
 const state = reactive<State>({
-  couponState: false, // 领券弹窗
   shareShow: false, // 分享弹窗
   moreShow: false,
   isCanBack: false,
@@ -147,15 +167,15 @@ const state = reactive<State>({
   tabActive: 0,
   selectArr: '',
   scrollStatus: false,
-  couponList: [],
   rateType: '',
   seckillInfo: null,
   newbiePriceVO: null,
   memberPriceVO: null,
   clearancePriceVO: null,
   discountPrices: null,
-  policyPrices: null as null | Array<{ originalPrice?: number, policyPrice: number, skuId: string }>,
-  calendarSpecialPrices: null as null | Array<{ originalPrice?: null | number, price: number, skuId: string }>,
+  policyPrices: null as null | Array<{ minQty?: number, originalPrice?: number, policyPrice: number, skuId: string }>,
+  calendarSpecialPrices: null as null | Array<{ originalPrice?: null | number, perUserLimit?: null | number, price: number, remainingQuota?: null | number, skuId: string }>,
+  ladderPrices: null as null | LadderPriceItem[],
   selectSkuId: '',
 })
 const router = useRouter()
@@ -165,6 +185,15 @@ const { confirm } = useGlobalMessage()
 const globalLoading = useGlobalLoading()
 const userStore = useUserStore()
 const shoppingCartStore = useShoppingCartStore()
+/** 采购上下文：协议价/档期特供/阶梯价都按采购场景+船舶圈定（与列表补价层同一取法） */
+const shipContextStore = useShipContextStore()
+/**
+ * 用户在 SKU 弹层里改过的件数；null=未交互，按当前 SKU 起订量预填（与单规格直加购同口径）。
+ * 协议价 minQty 与阶梯档位都按这个件数判定，避免「页面标协议价、结算按售价」。
+ */
+const pickedQuantity = ref<number | null>(null)
+/** 商品参数卡头部的“商品档案”弹层：只放配料/营养/标准，基础参数仍在参数卡内展开 */
+const profileVisible = ref(false)
 /** 单规格直加购与列表页快捷加购共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
@@ -262,10 +291,12 @@ async function loadNewbiePrices() {
 }
 
 /**
- * 加载当前会话可享的协议价（需登录；船/企业上下文由补价层默认口）。
+ * 加载当前会话可享的协议价（免登可访问：服务端对游客/非成员自动清空主体上下文）。
  *
- * 与五路价同口径：失败静默、只影响价格标注，不影响加购/下单主流程；
- * 未登录时接口由网关拦截 → catch 置 null，按原价展示。
+ * 与五路价同口径：失败静默、只影响价格标注，不影响加购/下单主流程。
+ * **必须带船舶上下文**：合同价按船舶/主体圈定，漏传 vesselId 会拿到另一条船的政策价。
+ * 岸上企业主体暂无 C 端 store，只传船（后端按登录态自行解析主体）。
+ * `minQty` 原样保留：件数不足时不切主价，改出「协议价 N 件起」提示。
  */
 async function loadPolicyPrices() {
   const skuIds = (state.goodsSpu?.goodsSkus || [])
@@ -276,8 +307,9 @@ async function loadPolicyPrices() {
     return
   }
   try {
-    const items = await getPolicyPrices({ skuIds })
+    const items = await getPolicyPrices({ skuIds, vesselId: shipContextStore.vesselId || undefined })
     state.policyPrices = (items || []).map(item => ({
+      minQty: item.minQty,
       originalPrice: item.originalPrice,
       policyPrice: item.policyPrice,
       skuId: item.skuId,
@@ -289,10 +321,10 @@ async function loadPolicyPrices() {
 }
 
 /**
- * 加载本 SPU 命中的档期特供价（需登录）。
+ * 加载本 SPU 命中的档期特供价（免登可访问，按采购场景/船舶圈定）。
  *
  * 特供按活动配置整 SKU 覆盖：同一 SKU 命中多个活动取最低（服务端已按
- * 活动窗+档期窗过滤，这里只做展示匹配）。
+ * 活动窗+档期窗过滤并剔除限量耗尽活动，这里只做展示匹配）。
  */
 async function loadCalendarSpecialPrices() {
   const skuIds = (state.goodsSpu?.goodsSkus || [])
@@ -303,12 +335,21 @@ async function loadCalendarSpecialPrices() {
     return
   }
   try {
-    const specials = await getCalendarSpecials()
-    const items: Array<{ originalPrice?: null | number, price: number, skuId: string }> = []
+    const specials = await getCalendarSpecials({
+      purchaseScene: shipContextStore.purchaseScene,
+      vesselId: shipContextStore.vesselId || undefined,
+    })
+    const items: Array<{ originalPrice?: null | number, perUserLimit?: null | number, price: number, remainingQuota?: null | number, skuId: string }> = []
     for (const special of specials || []) {
       for (const item of special.items || []) {
         if (skuIds.includes(item.skuId) && Number(item.price) > 0) {
-          items.push({ originalPrice: item.originalPrice, price: Number(item.price), skuId: item.skuId })
+          items.push({
+            originalPrice: item.originalPrice,
+            perUserLimit: item.perUserLimit,
+            price: Number(item.price),
+            remainingQuota: special.remainingQuota,
+            skuId: item.skuId,
+          })
         }
       }
     }
@@ -316,6 +357,32 @@ async function loadCalendarSpecialPrices() {
   }
   catch {
     state.calendarSpecialPrices = null
+  }
+}
+
+/**
+ * 加载本 SPU 各 SKU 的阶梯价档位（免登可访问，按采购场景/船舶圈定）。
+ *
+ * 阶梯价与件数相关：这里只取档位，按当前件数取档在 `currentLadderPrice` 里算，
+ * 与结算进度提示共用 `utils/ladder-price`，避免两处各算一遍。
+ */
+async function loadLadderPrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length) {
+    state.ladderPrices = null
+    return
+  }
+  try {
+    state.ladderPrices = await getLadderPrices({
+      skuIds,
+      purchaseScene: shipContextStore.purchaseScene,
+      vesselId: shipContextStore.vesselId || undefined,
+    })
+  }
+  catch {
+    state.ladderPrices = null
   }
 }
 
@@ -406,25 +473,114 @@ const currentSkuId = computed(() => {
     return ''
   if (!purchaseDecision.value.needChoose)
     return String(skus[0]?.id || '')
-  // 弹层加购回传的 SKU 优先：程序化关闭不会回传规格数组，这是多规格唯一可靠信号
-  if (state.selectSkuId && skus.some((sku: any) => String(sku?.id) === state.selectSkuId))
-    return state.selectSkuId
-  // 关闭弹层回传的规格数组：join(' ') 后未选完的位会留下连续空格，
-  // 统一按空白切分只比较实际选中的规格值
-  const selectedParts = String(state.selectArr || '')
-    .split(/\s+/)
-    .filter(Boolean)
-  if (!selectedParts.length)
-    return ''
-  const hit = skus.find((sku: any) => {
-    const values = (sku?.specsArr || [])
-      .map((spec: any) => spec?.specsValueName)
-      .filter((name: string) => typeof name === 'string' && name.length > 0)
-    return values.length === selectedParts.length
-      && values.every((value: string, index: number) => value === selectedParts[index])
-  })
-  return String(hit?.id || '')
+  return skus.some((sku: any) => String(sku?.id) === state.selectSkuId) ? state.selectSkuId : ''
 })
+
+const parameterRows = computed(() => resolveGoodsParams(state.goodsSpu, {
+  needChoose: purchaseDecision.value.needChoose,
+  singleSpecText: purchaseDecision.value.specText,
+  skuId: currentSkuId.value,
+}))
+/** 商品档案（配料/营养/标准）：与参数卡分离，只有新增深层内容才显示入口 */
+const goodsProfile = computed<GoodsProfile | null>(() => normalizeGoodsProfile(state.goodsSpu?.goodsProfile))
+const showGoodsProfile = computed(() => hasGoodsProfile(goodsProfile.value))
+/** 结构化详情段落：产地/储存/场景，空数组不影响原商品描述 */
+const detailSections = computed(() => normalizeDetailSections(state.goodsSpu?.detailSections))
+/**
+ * 首屏采购标签：储存/规格/箱规/产地（起订量真实存在时才补位）。
+ * 用 `attrTags` 的展示壳承载，不新增首屏组件；无足够采购事实时回退运营配置的属性标签。
+ */
+const purchaseTags = computed<GoodsAttrTagPayload[]>(() =>
+  resolvePurchaseTags(state.goodsSpu, {
+    needChoose: purchaseDecision.value.needChoose,
+    singleSpecText: purchaseDecision.value.specText,
+    skuId: currentSkuId.value,
+  }).map(tag => ({
+    key: tag.key,
+    label: t(`product.purchaseTags.${tag.key}`),
+    value: tag.value,
+    icon: tag.icon,
+    tone: tag.tone,
+    linkType: 'none',
+  })))
+/** 基础参数与配料/营养统一收进商品档案弹层，主页面只保留一个紧凑入口。 */
+const showGoodsArchive = computed(() => parameterRows.value.length > 0 || showGoodsProfile.value)
+const promotionHints = ref<PromotionHints | null>(null)
+watch(
+  () => [state.goodsSpu?.id, currentSkuId.value, shipContextStore.purchaseScene, shipContextStore.vesselCallId, authStore.isLoggedIn] as const,
+  async ([id, skuId, purchaseScene, vesselCallId, loggedIn], _, onCleanup) => {
+    promotionHints.value = null
+    if (!id)
+      return
+    let current = true
+    onCleanup(() => {
+      current = false
+    })
+    try {
+      const hints = await getGoodsPromotionHints(String(id), {
+        skuId: skuId || undefined,
+        purchaseScene,
+        vesselCallId: loggedIn && purchaseScene === '2' ? vesselCallId || undefined : undefined,
+      })
+      if (current && (hints?.gifts?.length || hints?.volumes?.length))
+        promotionHints.value = hints
+    }
+    catch {
+      // 活动提示属于附加信息，失败时保留商品与购买入口。
+    }
+  },
+)
+const showShipArrangement = computed(() => shipContextStore.isShipSupply && shipContextStore.hasVesselContext)
+const shipArrangement = computed(() => resolveDeliveryRow({
+  hasVesselContext: showShipArrangement.value,
+  vesselName: shipContextStore.vesselName,
+  portName: shipContextStore.portName,
+  berth: shipContextStore.berth,
+  deliveryWindowStart: shipContextStore.deliveryWindowStart,
+  deliveryWindowEnd: shipContextStore.deliveryWindowEnd,
+}))
+
+const currentSku = computed(() => (state.goodsSpu?.goodsSkus || [])
+  .find((item: any) => String(item?.id || '') === currentSkuId.value))
+const minimumOrderQty = computed(() => Math.max(1, Math.floor(Number(currentSku.value?.minOrderQty ?? currentSku.value?.moq ?? state.goodsSpu?.moq)) || 1))
+const orderStepQty = computed(() => Math.max(1, Math.floor(Number(currentSku.value?.stepQty)) || 1))
+/** 当前件数：弹层改过就用弹层值，否则取 SKU 起订量。 */
+const currentQuantity = computed(() => {
+  if (pickedQuantity.value !== null)
+    return pickedQuantity.value
+  return minimumOrderQty.value
+})
+
+/** 当前 SKU 售价：活动价的统一比较基准（多规格按选中 SKU，未选时回落 SPU 售价） */
+const currentSalesPrice = computed(() => {
+  const sku = (state.goodsSpu?.goodsSkus || []).find((item: any) => String(item?.id || '') === currentSkuId.value)
+  const price = Number(sku?.salesPrice ?? state.goodsSpu?.salesPrice)
+  return Number.isFinite(price) && price > 0 ? price : 0
+})
+
+/** 当前 SKU 的协议价命中项（含起订量）；null=未命中/无上下文 */
+const policyHit = computed(() =>
+  (state.policyPrices || []).find(item => item.skuId === currentSkuId.value) || null)
+
+/** 协议起订量（缺省 1）：件数不足时协议价不参与成交，只出「N 件起」提示 */
+const policyMinQty = computed(() => {
+  const min = Math.floor(Number(policyHit.value?.minQty))
+  return Number.isFinite(min) && min > 0 ? min : 1
+})
+
+/** 当前 SKU 的特供命中项（多活动取最低）；null=无进行中特供 */
+const specialHit = computed(() => {
+  const hits = (state.calendarSpecialPrices || []).filter(item => item.skuId === currentSkuId.value)
+  if (!hits.length)
+    return null
+  return hits.reduce((best, item) => (item.price < best.price ? item : best), hits[0])
+})
+
+/** 当前 SKU 的阶梯档位（多活动取档位更优的一份，minQty 升序） */
+const ladderTiers = computed(() => ladderTiersOf(state.ladderPrices, currentSkuId.value))
+
+/** 当前件数命中的阶梯单价；未达首档为 null（卡片不算阶梯价，商详才算） */
+const currentLadderPrice = computed(() => resolveLadderUnitPrice(ladderTiers.value, currentQuantity.value))
 
 /**
  * 当前 SKU 的会员专享价展示。
@@ -442,52 +598,68 @@ const rawMemberDisplay = computed(() => {
   return resolveMemberPriceDisplay(state.memberPriceVO, currentSkuId.value)
 })
 
+/** 当前 SKU 的出清价原始展示（优先级收敛统一在 zonePrice） */
+const rawClearanceDisplay = computed(() => resolveClearancePriceDisplay(state.clearancePriceVO, currentSkuId.value))
+
+/** 当前 SKU 的新人价原始展示（资格三态由共享层判定） */
+const rawNewbieDisplay = computed(() => resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value))
+
 /**
- * 有效出清价：与会员价取低（D2），同价归属会员价（与后端引擎一致）。
- * 出清价胜出时会员价展示关闭，页面只解释一个成交价。
+ * 商详成交价的唯一共享判定（与商品卡/结算同一份 `utils/zone-price` 口径）：
+ * 协议价（件数 ≥ minQty）> 秒杀 > min(阶梯价@件数, 特供, 会员, 出清)
+ * > 新人价（仅严格更低）> 售价。
+ *
+ * 下面各展示位只保留「胜出那一层」再下发给 GoodsInfo——组件内不重复判定优先级，
+ * 页面标什么价、加购弹层与结算就按什么价。
  */
-const effectiveClearanceDisplay = computed(() => {
-  if (state.seckillInfo)
-    return emptyClearancePriceDisplay()
-  const clearance = resolveClearancePriceDisplay(state.clearancePriceVO, currentSkuId.value)
-  const memberPrice = rawMemberDisplay.value.showMemberPrice ? rawMemberDisplay.value.memberPrice : null
-  return clearanceWinsOverMember(clearance, memberPrice) ? clearance : emptyClearancePriceDisplay()
-})
+const zonePrice = computed(() => resolveListZonePrice({
+  clearanceDisplay: rawClearanceDisplay.value,
+  ladderPrice: currentLadderPrice.value,
+  memberDisplay: { ...rawMemberDisplay.value, strikePrice: rawMemberDisplay.value.originalPrice },
+  newbiePrice: rawNewbieDisplay.value.showNewbiePrice ? rawNewbieDisplay.value.newbiePrice : null,
+  policyPrice: policyHit.value && currentQuantity.value >= policyMinQty.value ? policyHit.value.policyPrice : null,
+  salesPrice: currentSalesPrice.value,
+  seckillPrice: state.seckillInfo?.seckillPrice ?? null,
+  specialPrice: specialHit.value?.price ?? null,
+}))
+
+/** 特供余量（胜出活动级限量剩余；null=不限量）：商详「档期供应·余量 N」展示 */
+const specialRemainingQuota = computed(() =>
+  zonePrice.value.badgeKind === 'special' ? (specialHit.value?.remainingQuota ?? null) : null)
 
 const memberDisplay = computed(() => {
-  if (effectiveClearanceDisplay.value.showClearancePrice)
-    return emptyMemberPriceDisplay()
-  return rawMemberDisplay.value
+  const kind = zonePrice.value.badgeKind
+  // 家族里胜出才切主价；都未命中时保留 raw（承载「会员专享 ¥x」引导文案）
+  return kind === 'member' || kind === '' ? rawMemberDisplay.value : emptyMemberPriceDisplay()
 })
+
+/** 有效出清价：身份价家族取低后胜出才展示（同价归属特供 > 会员 > 出清） */
+const effectiveClearanceDisplay = computed(() =>
+  zonePrice.value.badgeKind === 'clearance' ? rawClearanceDisplay.value : emptyClearancePriceDisplay())
 
 /**
  * 协议价展示（当前 SKU 匹配）：合同价锁定成交基价，展示优先级最高。
- * 命中时主价切协议价、划线为当前售价；null=未命中/未登录/无上下文。
+ * **按件数 gating**：数量 < minQty 时不切主价（返回 null），由价格区出「协议价 N 件起」提示。
  */
 const policyDisplay = computed(() => {
-  const skuId = currentSkuId.value
-  if (!skuId)
+  if (zonePrice.value.badgeKind !== 'policy')
     return null
-  const hit = (state.policyPrices || []).find(item => item.skuId === skuId)
-  if (!hit)
-    return null
-  return { originalPrice: hit.originalPrice ?? null, price: hit.policyPrice }
+  return { originalPrice: policyHit.value?.originalPrice ?? null, price: zonePrice.value.mainPrice }
 })
 
 /**
- * 档期特供价展示（当前 SKU 匹配，多活动取最低）。
- * 命中时主价切特供价、划线为当前售价；null=无进行中特供。
+ * 档期特供价展示（当前 SKU 匹配，多活动取最低）：与会员价/出清价取低，
+ * 胜出才切主价；null=未命中或被更低的身份价/阶梯价接管。
  */
 const calendarSpecialDisplay = computed(() => {
-  const skuId = currentSkuId.value
-  if (!skuId)
+  if (zonePrice.value.badgeKind !== 'special')
     return null
-  const hits = (state.calendarSpecialPrices || []).filter(item => item.skuId === skuId)
-  if (!hits.length)
-    return null
-  const best = hits.reduce((best, item) => (item.price < best.price ? item : best), hits[0])
-  return { originalPrice: best.originalPrice ?? null, price: best.price }
+  return { originalPrice: specialHit.value?.originalPrice ?? null, price: zonePrice.value.mainPrice }
 })
+
+/** 阶梯价展示：按当前件数取档且严格低于身份价家族才接管主价（同价保留身份角标） */
+const ladderDisplayPrice = computed(() =>
+  zonePrice.value.badgeKind === 'ladder' ? zonePrice.value.mainPrice : null)
 
 /**
  * 新人价资格说明的本地化。
@@ -527,7 +699,11 @@ const newbieDisplay = computed(() => {
     return emptyNewbieDisplay()
   if (effectiveClearanceDisplay.value.showClearancePrice)
     return emptyNewbieDisplay()
-  const display = resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value)
+  // 协议价/特供/阶梯价胜出时同样整块关掉：新人价只在严格更低时才接管（共享层已判定）
+  const kind = zonePrice.value.badgeKind
+  if (kind === 'policy' || kind === 'special' || kind === 'ladder')
+    return emptyNewbieDisplay()
+  const display = rawNewbieDisplay.value
   return { ...display, ineligibleText: localizeNewbieIneligibleText(display) }
 })
 
@@ -548,7 +724,32 @@ const discountDisplay = computed(() => {
     return emptyDiscountDisplay()
   if (effectiveClearanceDisplay.value.showClearancePrice)
     return emptyDiscountDisplay()
+  // 协议价/特供/阶梯价命中时也不解释折扣价（同一时刻只解释一个成交价）
+  const kind = zonePrice.value.badgeKind
+  if (kind === 'policy' || kind === 'special' || kind === 'ladder')
+    return emptyDiscountDisplay()
   return resolveDiscountPriceDisplay(state.discountPrices, currentSkuId.value)
+})
+
+const ladderProgress = computed(() => {
+  const quantity = currentQuantity.value
+  const tiers = ladderTiers.value
+  const price = zonePrice.value
+  if (!tiers.length || !currentSku.value || ['policy', 'special', 'seckill', 'newbie'].includes(price.badgeKind ?? ''))
+    return ''
+  const stock = Number(currentSku.value.stock)
+  const next = nextPurchasableLadderTier(tiers, quantity, minimumOrderQty.value, orderStepQty.value, stock)
+  if (next && !discountDisplay.value.showDiscountPrice && next.unitPrice < price.mainPrice
+    && (!policyHit.value || quantity + next.needQty < policyMinQty.value)) {
+    const unit = currentSku.value.salesUnit || t('product.ladderFallbackUnit')
+    return t('product.ladderNextTier', { count: next.needQty, unit, price: next.unitPrice.toFixed(2) })
+  }
+  const highest = tiers[tiers.length - 1]
+  if (highest && quantity >= Math.max(highest.minQty, minimumOrderQty.value) && price.badgeKind === 'ladder' && quantity <= stock
+    && (quantity - minimumOrderQty.value) % orderStepQty.value === 0) {
+    return t('product.ladderHighestTier')
+  }
+  return ''
 })
 
 /**
@@ -576,6 +777,25 @@ const quickAddPromotion = computed(() => {
       hint: maxQuantity ? t('product.seckillLimit', { count: maxQuantity }) : '',
     }
   }
+  // 协议价（件数 ≥ minQty 才命中）：合同价锁定成交基价，弹层小计与价格区同源
+  const policy = policyDisplay.value
+  if (policy)
+    return { skuId, unitPrice: policy.price, maxQuantity: null, hint: t('product.policyPrice') }
+  // 档期特供：身份价家族里胜出才接管，限购随活动配置下发（超量件由后端拆行结算）
+  const special = calendarSpecialDisplay.value
+  if (special) {
+    const limit = Math.floor(Number(specialHit.value?.perUserLimit))
+    return {
+      skuId,
+      unitPrice: special.price,
+      maxQuantity: Number.isFinite(limit) && limit > 0 ? limit : null,
+      hint: t('product.calendarSpecialPrice'),
+    }
+  }
+  // 阶梯价：按当前件数取档且严格低于身份价才接管
+  const ladderPrice = ladderDisplayPrice.value
+  if (ladderPrice !== null)
+    return { skuId, unitPrice: ladderPrice, maxQuantity: null, hint: t('product.ladderPrice') }
   const member = memberDisplay.value
   if (member.showMemberPrice)
     return { skuId, unitPrice: member.memberPrice, maxQuantity: null, hint: memberHint }
@@ -622,9 +842,11 @@ async function loadSeckillInfo() {
   }
 }
 
+let pageScrollTop = 0
 onPageScroll((res) => {
   // 获取当前滚动位置
   const scrollTop = res.scrollTop
+  pageScrollTop = scrollTop
   // 定义最大滚动高度和最大透明度
   const maxScrollTop = 200 // 根据你的页面调整这个值
   const maxOpacity = 1 // 最大透明度
@@ -691,13 +913,17 @@ function goBack() {
   }
 }
 
+function openSkuPopup(mode: number) {
+  skuMode.value = mode
+  skuKey.value = true
+}
+
 function handleBuyAction(value: number) {
   // 单规格商品（约 98% 在架商品）不需要选规格：与列表页快捷加购同口径直接入车，
   // 数量取满足船供 MOQ/步长的最小合法值；多规格仍弹层选规格。
   const isDirectAdd = value === 2 && !purchaseDecision.value.needChoose
   if (!isDirectAdd) {
-    skuMode.value = value
-    skuKey.value = true
+    openSkuPopup(value)
     return
   }
   const spuIdValue = String(spuId.value || '')
@@ -709,23 +935,70 @@ function handleBuyAction(value: number) {
     // 前后端判定不一致（需选规格）或查询异常时退回弹层，避免点击无响应；
     // 缺货等场景 useQuickCart 已 toast 具体原因
     if (result.needChoose || result.info === null) {
-      skuMode.value = 2
-      skuKey.value = true
+      openSkuPopup(2)
     }
   })
 }
-function onCurrentPage(item: any, index: number) {
+async function measureTabAnchor(index: number, selector: string) {
+  // H5 优先用原生 DOM 量：评价卡在 GoodsComment 子组件里，页面级 selectorQuery 查不到；
+  // 小程序没有 document，再回退到 uni 的 selectorQuery / 组件暴露方法。
+  if (typeof document !== 'undefined') {
+    const el = document.querySelector(selector)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      return {
+        top: rect.top + window.scrollY,
+        height: rect.height,
+      }
+    }
+  }
+  if (index === 1 && goodsCommentRef.value?.getScrollCommentRect) {
+    const data = await goodsCommentRef.value.getScrollCommentRect()
+    return {
+      top: data.top + pageScrollTop,
+      height: data.height,
+    }
+  }
+  return getBoundingClientRect(selector)
+}
+
+/** H5 的 uni.pageScrollTo 在该页面不生效，原生滚动兜底；非 H5 继续走 uni。 */
+function scrollPageTo(top: number) {
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    window.scrollTo({ top, behavior: 'smooth' })
+    return
+  }
   uni.pageScrollTo({
-    scrollTop: item.top - statusBarHeight - 50,
+    scrollTop: top,
+    duration: 200,
   })
+}
+
+async function onCurrentPage(item: any, index: number) {
+  // 点击时现量锚点：评价异步加载、装修渲染可能晚于首次量测，tabList 里的 top 仍是 0；
+  // 不能因为缓存没值就让点击直接返回，否则顶部「评价/详情」看起来完全没响应。
+  if (index > 0) {
+    const selector = TAB_ANCHOR_SELECTORS[index]
+    if (selector) {
+      try {
+        const data = await measureTabAnchor(index, selector)
+        item.top = data.top
+        item.height = data.height
+      }
+      catch {
+        // 元素还没渲染时才退回缓存锚点；缓存也没有就不滚动，避免跳到错误位置。
+      }
+    }
+    if (!item?.top)
+      return
+  }
+  scrollPageTo(Math.max(0, item.top - statusBarHeight - 50))
   state.tabActive = index
 }
 
-// 口碑气泡点击：跳评价区（复用评价 tab 的锚点滚动；评价异步加载完成前 top 未量出则不跳）
+// 口碑气泡点击：跳评价区（复用评价 tab 的锚点滚动；点击时现量，不再依赖异步缓存）
 function gotoCommentFromBubble() {
   const reviewsTab = tabList.value[1]
-  if (!reviewsTab?.top)
-    return
   onCurrentPage(reviewsTab, 1)
 }
 onShareAppMessage(() => {
@@ -769,12 +1042,25 @@ function onCloseSkuPopup(data: any) {
   // 用 Array.isArray 挡掉，避免对字符串调 join 抛错
   if (Array.isArray(data)) {
     state.selectArr = data.join(' ').trim()
+    const selectedValues = data.map(value => String(value ?? '').trim())
+    const skus = state.goodsSpu?.goodsSkus || []
+    const selectedSku = skus.find((sku: any) => {
+      const values = skuSpecValues(sku)
+      return sku.status === '0' && values.length > 0 && values.length === selectedValues.length
+        && values.every((value, index) => value && value === selectedValues[index])
+    })
+    state.selectSkuId = String(selectedSku?.id || '')
   }
   console.log('监听 - 关闭sku组件')
 }
-// 打开优惠券弹窗
-function showCoupon() {
-  state.couponState = true
+/** 弹层件数变化：协议价 minQty 与阶梯档位都按用户实际选的件数复算（与结算同源） */
+function onSkuNumChange(value: any) {
+  const quantity = Math.floor(Number(value))
+  pickedQuantity.value = Number.isFinite(quantity) && quantity > 0 ? quantity : null
+}
+function onPopupSkuChange(skuId: unknown, quantity: unknown) {
+  state.selectSkuId = String(skuId ?? '')
+  onSkuNumChange(skuId ? quantity : null)
 }
 // 通过id查询商品详情
 async function getSpu(id: string) {
@@ -785,16 +1071,16 @@ async function getSpu(id: string) {
     loading.value = false
     state.goodsSpu = response
     if (response) {
-      queryCoupon()
       loadSeckillInfo()
       // 与秒杀并行、互不等待：四者都是增强展示，任一失败都不影响商详主流程
       loadNewbiePrices()
       loadMemberPrices()
       loadClearancePrices()
       loadDiscountPrices()
-      // 协议价（需登录+船/企业上下文）与档期特供价：同为增强展示，失败静默
+      // 协议价/档期特供/阶梯价（免登可访问，按采购场景+船舶圈定）：同为增强展示，失败静默
       loadPolicyPrices()
       loadCalendarSpecialPrices()
+      loadLadderPrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
       // 规格结构初始化与 goods-detail-sheet / quick-cart-button 共用同一份工具
@@ -831,33 +1117,33 @@ async function getSpu(id: string) {
   }
 }
 function getBoundingClientRect(id: string) {
-  return new Promise((resolve, reject) => {
+  return new Promise<{ top: number, height: number }>((resolve, reject) => {
     const query = uni.createSelectorQuery().in(proxy)
-    query
-      .select(id)
-      .boundingClientRect((data) => {
-        if (data) {
-          resolve(data)
-        }
-        else {
-          reject(new Error('Element not found or query failed'))
-        }
-      })
-      .exec()
+    query.select(id).boundingClientRect()
+    query.selectViewport().scrollOffset(() => {})
+    query.exec(([rect, viewport]) => {
+      if (typeof rect?.top === 'number' && typeof rect?.height === 'number') {
+        resolve({ top: rect.top + (viewport?.scrollTop ?? pageScrollTop), height: rect.height })
+      }
+      else {
+        reject(new Error('Element not found or query failed'))
+      }
+    })
   })
 }
 
 // 更新tabList位置的函数
 async function updateTabListPositions() {
-  // 添加延迟确保组件完全渲染
-  await new Promise(resolve => setTimeout(resolve, 500))
+  await nextTick()
+  if (loading.value || !state.goodsSpu?.id)
+    return
 
   // 通过组件ref获取元素位置
   if (goodsInfoRef.value) {
     goodsInfoRef.value
       .getScrollPicRect()
       .then((data: any) => {
-        tabList.value[0].top = data.top
+        tabList.value[0].top = data.top + pageScrollTop
         tabList.value[0].height = data.height
       })
       .catch((error: any) => {
@@ -869,7 +1155,7 @@ async function updateTabListPositions() {
     goodsCommentRef.value
       .getScrollCommentRect()
       .then((data: any) => {
-        tabList.value[1].top = data.top
+        tabList.value[1].top = data.top + pageScrollTop
         tabList.value[1].height = data.height
       })
       .catch((error: any) => {
@@ -879,6 +1165,11 @@ async function updateTabListPositions() {
 
   measureDetailSections()
 }
+watch(
+  [parameterRows, shipArrangement, decorationContent, decorationLoading, zonePrice, ladderTiers, ladderProgress, promotionHints],
+  updateTabListPositions,
+  { flush: 'post' },
+)
 // 添加购物车（弹层回传路径；单规格直加路径在 handleBuyAction → useQuickCart）。
 // 去向由统一入口决定：有进行中的共享购物车时先询问，提示与角标也由它处理
 async function addCart(data: any) {
@@ -954,18 +1245,6 @@ async function getDefaultAddress() {
   }
 }
 
-// 查询优惠券
-function queryCoupon() {
-  getCouponPage({
-    spuId: state.goodsSpu.id,
-    current: 1,
-    size: 50,
-    desc: 'create_time',
-  }).then((response) => {
-    state.couponList = response.records
-  })
-}
-
 // 跳转收货地址
 function toAddress() {
   router.push({
@@ -1015,14 +1294,6 @@ function handleSwiper(obj: any) {
     urls: state.goodsSpu.spuUrls,
   })
 }
-
-// 领取优惠券
-async function handleReceive(coupon: any) {
-  const item = state.couponList.find(item => item.id === coupon.id)
-  if (item) {
-    item.userReceiveCount = item.userReceiveCount + 1
-  }
-}
 </script>
 
 <template>
@@ -1040,13 +1311,13 @@ async function handleReceive(coupon: any) {
     @share="handleShare"
     @more="handleMore"
   />
-  <view v-if="!loading">
+  <view v-if="!loading" class="goods-detail-content">
     <!-- 商品信息组件 -->
     <GoodsInfo
       ref="goodsInfoRef"
       :goods-spu="state.goodsSpu"
-      :coupon-list="state.couponList"
       :spec-row="specRow"
+      :show-ship-arrangement-separately="showShipArrangement"
       :address="state.address"
       :seckill-info="state.seckillInfo"
       :member-display="memberDisplay"
@@ -1055,15 +1326,53 @@ async function handleReceive(coupon: any) {
       :discount-display="discountDisplay"
       :policy-display="policyDisplay"
       :calendar-special-display="calendarSpecialDisplay"
+      :ladder-display-price="ladderDisplayPrice"
+      :ladder-tiers="ladderTiers"
+      :ladder-progress="ladderProgress"
+      :policy-min-qty-hint="policyHit && currentQuantity < policyMinQty ? policyMinQty : null"
+      :special-remaining-quota="specialRemainingQuota"
       :social-bubble="state.goodsSpu?.socialBubble ?? null"
+      :purchase-tags="purchaseTags"
       @swiper="handleSwiper"
-      @show-coupon="showCoupon"
       @open-sku-popup="handleBuyAction"
       @to-address="toAddress"
       @collect="handleCollect"
       @share="handleShare"
       @goto-comment="gotoCommentFromBubble"
     />
+    <GoodsProfileSheet v-model="profileVisible" :rows="parameterRows" :profile="goodsProfile" />
+    <!-- 靠港安排紧跟商品信息：船供场景先把「送到哪、什么时候到」说清，再谈优惠 -->
+    <view v-if="showShipArrangement" class="detail-section bg-white dark:bg-[var(--wot-dark-background2)]">
+      <view class="detail-section__head">
+        <view class="detail-section__bar" />
+        <text class="detail-section__title">
+          {{ t('product.currentPortSchedule') }}
+        </text>
+      </view>
+      <view class="detail-section__body min-w-0 break-words text-sm text-[var(--app-text)]">
+        <text>{{ shipArrangement.text }}</text>
+        <view v-if="shipArrangement.detail" class="mt-1 text-xs text-[var(--app-text-2)]">
+          {{ shipArrangement.detail }}
+        </view>
+      </view>
+    </view>
+    <view v-if="promotionHints || showGoodsArchive" class="detail-quick-panel">
+      <view v-if="promotionHints" class="detail-quick-panel__item">
+        <GoodsPromotionHints
+          :hints="promotionHints"
+          :quantity="currentQuantity"
+          :unit-price="currentSalesPrice"
+          :unit="String(currentSku?.salesUnit || '')"
+        />
+      </view>
+      <view v-if="showGoodsArchive" class="detail-quick-panel__item">
+        <GoodsParamCard
+          :rows="parameterRows"
+          :show-profile="showGoodsProfile"
+          @open-profile="profileVisible = true"
+        />
+      </view>
+    </view>
     <!-- 商详装修区域（商品信息下方、评价上方）：内嵌内容，不渲染装修导航、不撑满 100vh -->
     <view v-if="decorationContent">
       <DiyPage
@@ -1084,6 +1393,7 @@ async function handleReceive(coupon: any) {
     />
     <!-- 商品介绍 -->
     <view
+      v-if="detailSections.length || state.goodsSpu.description"
       id="scroll-description"
       class="detail-section bg-white dark:bg-[var(--wot-dark-background2)]"
     >
@@ -1094,7 +1404,9 @@ async function handleReceive(coupon: any) {
         </text>
       </view>
       <view class="detail-section__body">
-        <mp-html :content="state.goodsSpu.description" @ready="readyHandel" />
+        <GoodsDetailSections v-if="detailSections.length" :sections="detailSections" @resize="updateTabListPositions" />
+        <view v-if="detailSections.length && state.goodsSpu.description" class="detail-stories-divider" />
+        <mp-html v-if="state.goodsSpu.description" :content="state.goodsSpu.description" @ready="readyHandel" />
       </view>
     </view>
     <!-- 猜你喜欢 -->
@@ -1125,33 +1437,14 @@ async function handleReceive(coupon: any) {
     sku-list-name="goodsSkus"
     spec-list-name="specList"
     :mode="skuMode"
+    use-sku-measurement
     :hide-stock="true"
     @open="onOpenSkuPopup"
     @close="onCloseSkuPopup"
     @add-cart="onSkuAddCart"
+    @num-change="onSkuNumChange"
+    @sku-change="onPopupSkuChange"
   />
-
-  <!-- 领券弹窗 -->
-  <wd-action-sheet
-    v-model="state.couponState"
-    :title="t('product.coupon')"
-    custom-class="coupon-action"
-    @close="state.couponState = false"
-  >
-    <scroll-view scroll-y class="mb-4 h-400px">
-      <view
-        v-for="coupon in state.couponList"
-        :key="coupon.id"
-        class="px-4 py-1"
-      >
-        <CouponCard
-          :coupon="coupon"
-          :status="coupon.userReceiveCount > 0 ? 'received' : 'available'"
-          @receive="handleReceive"
-        />
-      </view>
-    </scroll-view>
-  </wd-action-sheet>
 
   <!-- 分享弹窗 -->
   <SharePopup v-model="state.shareShow" @share="goodsShare" />
@@ -1166,6 +1459,34 @@ async function handleReceive(coupon: any) {
 </template>
 
 <style lang="scss">
+.goods-detail-content {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #fff7ef 0, #f8f5f0 440rpx, var(--app-bg) 900rpx);
+}
+
+.wot-theme-dark .goods-detail-content {
+  background: var(--app-bg);
+}
+
+/* 采购优惠与商品档案合并为一张轻量面板，减少连续白卡造成的页面割裂。 */
+.detail-quick-panel {
+  margin: 16rpx 24rpx 24rpx;
+  overflow: hidden;
+  border: 1rpx solid rgb(91 67 47 / 6%);
+  border-radius: 24rpx;
+  background: var(--app-card);
+  box-shadow: 0 8rpx 24rpx rgb(91 67 47 / 5%);
+}
+
+.detail-quick-panel__item + .detail-quick-panel__item {
+  border-top: 1rpx solid var(--app-border);
+}
+
+.wot-theme-dark .detail-quick-panel {
+  border-color: var(--app-border);
+  box-shadow: none;
+}
+
 /**
  * 商详区块标题：主题色竖条 + 标题。
  * 与底部推荐区共用同一套视觉，避免「商品详情」是一条分割线、
@@ -1198,6 +1519,11 @@ async function handleReceive(coupon: any) {
   font-weight: 600;
 }
 
+.detail-stories-divider {
+  margin: 20rpx 0;
+  border-top: 1rpx solid var(--app-border);
+}
+
 .detail-section__body {
   margin-top: 16rpx;
 }
@@ -1221,10 +1547,6 @@ async function handleReceive(coupon: any) {
   text-align: center;
   font-size: var(--wot-action-sheet-title-fs, var(--wot-fs-title, 16px));
   font-weight: var(--wot-action-sheet-weight, 500);
-}
-
-.coupon-action {
-  max-height: 500px;
 }
 
 :deep() {

@@ -8,6 +8,7 @@ import { aliMiniLogin as aliMiniLoginApi, logout, passwordLogin as passwordLogin
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { useDirectImportOrderStore } from '@/store/directImportOrderStore'
+import { useProcurementStore } from '@/store/procurementStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
 import { useUserStore } from '@/store/userStore'
@@ -75,6 +76,7 @@ export const useAuthStore = defineStore('auth', {
         useShipContextStore().reset()
         // 导入直下单交接含配送目标与备注，属于上一个账号的结算意图，登出必须清掉
         useDirectImportOrderStore().clear()
+        useProcurementStore().clear()
         // 租户能力随登录态失效：切换账号/租户后需重新拉取业务模式
         useTenantCapabilityStore().reset()
         // 商城默认主题按租户配置，登出/切换账号后回内置配色并重新拉取

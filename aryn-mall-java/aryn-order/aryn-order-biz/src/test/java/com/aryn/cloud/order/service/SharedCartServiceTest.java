@@ -13,7 +13,6 @@ import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
-import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.mapper.SharedCartImportMapper;
 import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
@@ -22,12 +21,10 @@ import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
-import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
@@ -38,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -84,6 +82,7 @@ class SharedCartServiceTest {
 	private RemoteMallUserService remoteMallUserService;
 
 	private SharedCartServiceImpl service;
+	private com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService matching;
 
 	@BeforeEach
 	void setUp() {
@@ -107,10 +106,34 @@ class SharedCartServiceTest {
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
 				orderInfoService, mock(IDeliveryAreaService.class),
 				mock(com.aryn.cloud.order.service.IBuyerOrgService.class),
-				mock(ChainAiAssistant.class), mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
+				mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class), mock(com.aryn.cloud.order.support.procurement.ProcurementContributionLedger.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);
+        matching = mock(com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService.class);
+        ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", matching);
+        when(matching.matchSkuIds(anyString(), any())).thenAnswer(invocation -> {
+            List<String> ids = invocation.getArgument(1);
+            return ids.stream().map(id -> {
+                var fact = new com.aryn.cloud.product.api.vo.ReplenishImportMatchVO();
+                fact.setSkuId(id); fact.setMoq(1); fact.setStepQty(1); fact.setStock(100);
+                fact.setSkuStatus("0"); fact.setSpuStatus("1"); return fact;
+            }).toList();
+        });
 	}
+
+    @Test
+    void sharedCartManualAddCannotBypassCurrentMoqAndStep() {
+        when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+        when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, OWNER, SharedCartMember.ROLE_MEMBER, "1", "0"));
+        var fact = new com.aryn.cloud.product.api.vo.ReplenishImportMatchVO();
+        fact.setSkuId("sku-1"); fact.setMoq(3); fact.setStepQty(2); fact.setStock(100); fact.setSkuStatus("0"); fact.setSpuStatus("1");
+        when(matching.matchSkuIds(TENANT, List.of("sku-1"))).thenReturn(List.of(fact));
+        var request = new SharedCartItemDTO(); request.setSkuId("sku-1"); request.setRequestedQuantity(4);
+        assertThrows(ArynBusinessException.class, () -> service.addItem(TENANT, OWNER, CART_ID, request));
+        verify(itemMapper, never()).insert(any(SharedCartItem.class));
+        request.setRequestedQuantity(3);
+        assertEquals(3, service.addItem(TENANT, OWNER, CART_ID, request).getRequestedQuantity());
+    }
 
 	private SharedCart cart(String status) {
 		SharedCart cart = new SharedCart();
@@ -656,7 +679,6 @@ class SharedCartServiceTest {
 		// requireMembership(源单) -> 成员；目标车里已有该成员行且 can_edit=0
 		when(memberMapper.selectCount(any())).thenReturn(1L);
 		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "0", "0"));
-		givenItemQueries(List.of(), List.of(item("a", MEMBER, "sku-1", 2)));
 
 		SharedCartReuseDTO dto = new SharedCartReuseDTO();
 		dto.setVesselId("vessel-1");
@@ -1122,250 +1144,16 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("历史复用：核定数量优先，同一 SKU 多行合并为一行")
-	void reuseFromHistoryMergesBySkuAndPrefersApprovedQuantity() {
-		// 源单：已完成的历史单，同一 SKU 因「按人拆行」出现两行
-		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
-		when(cartMapper.selectOne(any())).thenReturn(source, null);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem rowA = item("a", MEMBER, "sku-1", 5);
-		rowA.setApprovedQuantity(2);
-		SharedCartItem rowB = item("b", OWNER, "sku-1", 3);
-		rowB.setApprovedQuantity(1);
-		// 第二行没有核定数量，应回落申请量
-		SharedCartItem rowC = item("c", OWNER, "sku-2", 4);
-		givenItemQueries(List.of(), List.of(rowA, rowB, rowC));
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		// sku-1: 核定 2+1=3；sku-2: 回落申请量 4
-		assertEquals(2, result.getReusedCount());
-		assertEquals(0, result.getSkippedCount());
-		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
-		verify(itemMapper, times(2)).insert(captor.capture());
-		List<SharedCartItem> inserted = captor.getAllValues();
-		SharedCartItem first = inserted.stream().filter(i -> "sku-1".equals(i.getSkuId())).findFirst().orElseThrow();
-		assertEquals(3, first.getRequestedQuantity());
-		SharedCartItem second = inserted.stream().filter(i -> "sku-2".equals(i.getSkuId())).findFirst().orElseThrow();
-		assertEquals(4, second.getRequestedQuantity());
-	}
-
-	@Test
-	@DisplayName("历史复用：上一轮核定为「本次不采」（0）的行不搬过来")
-	void reuseFromHistorySkipsRowsApprovedAsZero() {
-		// 核定为 0 是「那次没买」，属于既成事实；搬过来会凭空多出一项没人要的商品
-		SharedCart source = cart(SharedCart.STATUS_SUBMITTED);
-		when(cartMapper.selectOne(any())).thenReturn(source, null);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem skipped = item("a", MEMBER, "sku-1", 5);
-		skipped.setApprovedQuantity(0);
-		SharedCartItem kept = item("b", MEMBER, "sku-2", 3);
-		kept.setApprovedQuantity(2);
-		givenItemQueries(List.of(), List.of(skipped, kept));
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		assertEquals(1, result.getReusedCount());
-		assertEquals(1, result.getSkippedCount());
-		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
-		verify(itemMapper).insert(captor.capture());
-		assertEquals("sku-2", captor.getValue().getSkuId());
-		assertEquals(2, captor.getValue().getRequestedQuantity());
-	}
-
-	@Test
-	@DisplayName("历史复用：已提交单里被核定过的行（ITEM_CONFIRMED）也要搬，不能漏项")
-	void reuseFromHistoryIncludesConfirmedRows() {
-		// 这是 listItems 的坑：它只取 ITEM_PENDING，已提交单里核定过的行是 ITEM_CONFIRMED。
-		// 若复用直接调用 listItems，复用出来的清单会凭空少几项。
-		SharedCart source = cart(SharedCart.STATUS_SUBMITTED);
-		when(cartMapper.selectOne(any())).thenReturn(source, null);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem confirmed = item("a", MEMBER, "sku-1", 5);
-		confirmed.setStatus(SharedCartItem.ITEM_CONFIRMED);
-		givenItemQueries(List.of(), List.of(confirmed));
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		assertEquals(1, result.getReusedCount());
-	}
-
-	@Test
-	@DisplayName("历史复用：目标车已有该 SKU 则跳过，重复点击不会翻倍")
-	void reuseFromHistorySkipsSkuAlreadyInTarget() {
-		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
-		SharedCart target = cart(SharedCart.STATUS_COLLECTING);
-		when(cartMapper.selectOne(any())).thenReturn(source, target);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 5);
-		SharedCartItem existingRow = item("b", MEMBER, "sku-1", 9);
-		// 目标车已有 sku-1，源单也含 sku-1 -> 应跳过
-		givenItemQueries(List.of(existingRow), List.of(sourceRow));
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		assertEquals(0, result.getReusedCount());
-		assertEquals(1, result.getSkippedCount());
-		assertEquals("本次清单中已有该商品", result.getSkipped().get(0).getReason());
+	@DisplayName("旧历史复用命令不能绕过采购工作台直接写车")
+	void legacyReuseRequiresProcurementReview() {
+		var error = assertThrows(ArynBusinessException.class,
+				() -> service.reuseFromHistory(TENANT, OWNER, CART_ID, new SharedCartReuseDTO()));
+		assertTrue(error.getMsg().contains("采购工作台"));
+		verify(cartMapper, never()).insert(any(SharedCart.class));
 		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
 	}
 
-	@Test
-	@DisplayName("历史复用：目标车里自己已移除的同品行复活，而不是撞唯一键")
-	void reuseFromHistoryRevivesOwnRemovedItem() {
-		// 已移除行不进 listItems（只取 PENDING），绕过「已有该商品」跳过后若直接
-		// 插入新行，会撞上那行仍占着的 uk_shared_cart_item
-		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
-		when(cartMapper.selectOne(any())).thenReturn(source, null);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 4);
-		givenItemQueries(List.of(), List.of(sourceRow));
-		SharedCartItem removed = item("item-1", MEMBER, "sku-1", 3);
-		removed.setStatus(SharedCartItem.ITEM_REMOVED);
-		when(itemMapper.selectOne(any())).thenReturn(removed);
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		assertEquals(1, result.getReusedCount());
-		assertEquals(0, result.getSkippedCount());
-		verify(itemMapper, never()).insert(any(SharedCartItem.class));
-		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
-		verify(itemMapper).updateById(captor.capture());
-		assertEquals(SharedCartItem.ITEM_PENDING, captor.getValue().getStatus());
-		assertEquals(4, captor.getValue().getRequestedQuantity(), "复活行的数量取源单数量");
-	}
-
-	@Test
-	@DisplayName("历史复用：非源单成员被拒（否则可借复用读取他人清单）")
-	void reuseFromHistoryRejectsNonMember() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COMPLETED));
-		when(memberMapper.selectCount(any())).thenReturn(0L);
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		assertThrows(ArynBusinessException.class,
-				() -> service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto));
-		verify(itemMapper, never()).insert(any(SharedCartItem.class));
-	}
-
-	@Test
-	@DisplayName("历史复用：不能跨船复用")
-	void reuseFromHistoryRejectsDifferentVessel() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COMPLETED));
-		when(memberMapper.selectCount(any())).thenReturn(1L);
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-other");
-		dto.setVesselCallId("call-new");
-
-		assertThrows(ArynBusinessException.class,
-				() -> service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto));
-	}
-
-	@Test
-	@DisplayName("历史复用：进行中的单不能复用（它本身就是本轮清单）")
-	void reuseFromHistoryRejectsActiveCart() {
-		for (String status : List.of(SharedCart.STATUS_DRAFT, SharedCart.STATUS_COLLECTING,
-				SharedCart.STATUS_WAITING_CONFIRM)) {
-			when(cartMapper.selectOne(any())).thenReturn(cart(status));
-			when(memberMapper.selectCount(any())).thenReturn(1L);
-
-			SharedCartReuseDTO dto = new SharedCartReuseDTO();
-			dto.setVesselId("vessel-1");
-			dto.setVesselCallId("call-new");
-
-			assertThrows(ArynBusinessException.class,
-					() -> service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto), status);
-		}
-	}
-
-	@Test
-	@DisplayName("历史复用：并入侵已有进行中车时，复用者补成员关系（否则写进一张自己打不开的清单）")
-	void reuseFromHistoryBindsMemberWhenAdoptingExistingCart() {
-		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
-		// create() 命中同船已有收集中购物车 -> adopt 自动并入成员行（insert），
-		// requireReuseEditable 再查该行已存在（can_edit=1）-> 不再重复插入
-		SharedCart target = cart(SharedCart.STATUS_COLLECTING);
-		target.setOwnerUserId("someone-else");
-		when(cartMapper.selectOne(any())).thenReturn(source, target);
-		// requireMembership(源) -> 1；requireConfirmer 不用
-		when(memberMapper.selectCount(any())).thenReturn(1L);
-		SharedCartMember adopted = new SharedCartMember();
-		adopted.setCartId(target.getId());
-		adopted.setUserId(MEMBER);
-		adopted.setCanEdit("1");
-		adopted.setCanConfirm("0");
-		// 第一次 selectOne（adopt 时）查无 -> 插入；第二次（requireReuseEditable）查到 -> 跳过
-		when(memberMapper.selectOne(any())).thenReturn(null, adopted);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 2);
-		givenItemQueries(List.of(), List.of(sourceRow));
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		assertEquals(Boolean.TRUE, result.getAdoptedExisting());
-		verify(memberMapper, times(1)).insert(any(SharedCartMember.class));
-	}
-
-	@Test
-	@DisplayName("历史复用：备注不传时沿用源单备注")
-	void reuseFromHistoryFallsBackToSourceRemark() {
-		SharedCart source = cart(SharedCart.STATUS_CLOSED);
-		source.setRemark("上航次备注");
-		when(cartMapper.selectOne(any())).thenReturn(source, null);
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
-		when(itemMapper.selectList(any())).thenReturn(List.of());
-
-		SharedCartReuseDTO dto = new SharedCartReuseDTO();
-		dto.setVesselId("vessel-1");
-		dto.setVesselCallId("call-new");
-
-		service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
-
-		ArgumentCaptor<SharedCart> captor = ArgumentCaptor.forClass(SharedCart.class);
-		verify(cartMapper).insert(captor.capture());
-		assertEquals("上航次备注", captor.getValue().getRemark());
-	}
-
-	/**
-	 * 按 SQL 片段分派明细查询结果。
-	 *
-	 * <p>`listItems`（目标车去重，`status =`）与 `listReusableItems`（源单，`status IN`）
-	 * 都走 `itemMapper.selectList`。若一律用 `any()`，把复用改成 `listItems` 也不会
-	 * 有测试失败——而"漏掉已提交单里核定过的行"正是本功能的真实缺陷点。
-	 */
 	private void givenItemQueries(List<SharedCartItem> targetExisting, List<SharedCartItem> sourceRows) {
 		when(itemMapper.selectList(any())).thenAnswer(invocation -> {
 			Wrapper<SharedCartItem> wrapper = invocation.getArgument(0);

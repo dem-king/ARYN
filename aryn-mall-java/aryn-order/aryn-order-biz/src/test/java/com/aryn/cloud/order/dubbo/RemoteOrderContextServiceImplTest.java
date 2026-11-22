@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class RemoteOrderContextServiceImplTest {
 
 	private OrderInfoMapper orderInfoMapper;
+	private com.aryn.cloud.order.service.IBuyerOrgService buyerOrgService;
 	private RemoteOrderContextServiceImpl service;
 
 	@BeforeAll
@@ -50,7 +51,8 @@ class RemoteOrderContextServiceImplTest {
 	@BeforeEach
 	void setUp() {
 		orderInfoMapper = mock(OrderInfoMapper.class);
-		service = new RemoteOrderContextServiceImpl(orderInfoMapper);
+		buyerOrgService = mock(com.aryn.cloud.order.service.IBuyerOrgService.class);
+		service = new RemoteOrderContextServiceImpl(orderInfoMapper, buyerOrgService);
 		// 模拟杜波过滤器/调用方线程已有租户：实现必须用显式入参替换并在结束后还原。
 		ArynTenantContextHolder.setTenantId("caller-tenant");
 	}
@@ -164,6 +166,35 @@ class RemoteOrderContextServiceImplTest {
 		assertTrue(service.queryRecentOrders("tenant-1", "  ", 3).isEmpty());
 
 		verifyNoInteractions(orderInfoMapper);
+	}
+
+	@Test
+	void buyerOrgMemberCheckDelegatesAndRestoresTenant() {
+		when(buyerOrgService.requireForOrder("tenant-1", "user-1", "org-1"))
+			.thenReturn(new com.aryn.cloud.order.api.entity.BuyerOrg());
+
+		assertTrue(service.isUsableBuyerOrgMember("tenant-1", "user-1", "org-1"));
+		assertEquals("caller-tenant", ArynTenantContextHolder.getTenantId());
+	}
+
+	@Test
+	void buyerOrgMemberCheckFailsClosedOnRejectionOrException() {
+		when(buyerOrgService.requireForOrder("tenant-1", "user-1", "org-1"))
+			.thenThrow(new RuntimeException("非成员"));
+		assertEquals(false, service.isUsableBuyerOrgMember("tenant-1", "user-1", "org-1"));
+
+		when(buyerOrgService.requireForOrder("tenant-1", "user-1", "org-2"))
+			.thenThrow(new RuntimeException("主体停用"));
+		assertEquals(false, service.isUsableBuyerOrgMember("tenant-1", "user-1", "org-2"));
+		assertEquals("caller-tenant", ArynTenantContextHolder.getTenantId());
+	}
+
+	@Test
+	void buyerOrgMemberCheckRejectsBlankArgs() {
+		assertEquals(false, service.isUsableBuyerOrgMember(null, "user-1", "org-1"));
+		assertEquals(false, service.isUsableBuyerOrgMember("tenant-1", "", "org-1"));
+		assertEquals(false, service.isUsableBuyerOrgMember("tenant-1", "user-1", " "));
+		verifyNoInteractions(buyerOrgService);
 	}
 
 	private OrderInfo order(String id, String orderNo, String status, String payStatus) {

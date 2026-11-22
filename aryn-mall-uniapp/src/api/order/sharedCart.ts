@@ -314,6 +314,7 @@ export function removeSharedCartItem(id: string, itemId: string) {
  * 岸上企业车复用不传船舶字段——服务端按源单的收货地址重建。
  */
 export interface SharedCartReusePayload {
+  clientRequestId: string
   /** 船舶ID（船供车必填；必须与源单一致，跨船复用无业务意义） */
   vesselId?: string
   /** 本次采购的靠港计划ID（船供车必填；取当前上下文，不是源单那个历史靠港） */
@@ -446,12 +447,12 @@ export interface SharedCartImportActionPayload {
 
 /** 取回导入报告（「稍后处理」后回来继续） */
 export function getSharedCartImport(id: string, importId: string) {
-  return alovaInstance.Get<SharedCartImport>(`${BASE}/${id}/imports/${importId}`)
+  return alovaInstance.Get<SharedCartImport>(`${BASE}/${encodeURIComponent(id)}/imports/${encodeURIComponent(importId)}`, { cacheFor: 0 })
 }
 
 /** 导入记录列表（不带行明细） */
 export function listSharedCartImports(id: string) {
-  return alovaInstance.Get<SharedCartImport[]>(`${BASE}/${id}/imports`)
+  return alovaInstance.Get<SharedCartImport[]>(`${BASE}/${encodeURIComponent(id)}/imports`, { cacheFor: 0 })
 }
 
 /**
@@ -484,7 +485,7 @@ export function previewChainImport(id: string, text: string) {
  * 「改数量 → 提交整船订单」流程（与订单「再来一单」同口径）。
  */
 export function reuseSharedCartFromHistory(id: string, data: SharedCartReusePayload) {
-  return alovaInstance.Post<SharedCartReuseResult>(`${BASE}/${id}/reuse`, data)
+  return alovaInstance.Post<{ draftId: string, batchId: string, cartId: string }>(`${BASE}/${id}/reuse`, data)
 }
 
 /** 确认人统一提交，生成整船订单（幂等，返回订单ID） */

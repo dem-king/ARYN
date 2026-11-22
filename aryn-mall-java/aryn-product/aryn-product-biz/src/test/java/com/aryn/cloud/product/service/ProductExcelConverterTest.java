@@ -20,8 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Excel 模板列定义与行转换契约测试。
  *
- * <p>船供资料列已随船供化下线（2026-09-29），模板缩为 6 列，
- * 更新定位只支持 SKU 编号。
+ * <p>原六列顺序保持兼容；后续追加结构化度量列，更新定位只支持 SKU 编号。
  */
 class ProductExcelConverterTest {
 
@@ -30,8 +29,9 @@ class ProductExcelConverterTest {
 	void templateHeadCoversFields() {
 		List<List<String>> head = ProductExcelConverter.templateHead();
 		assertEquals("商品中文名", head.get(0).get(0));
-		assertEquals("库存", head.get(head.size() - 1).get(0));
-		assertEquals(6, head.size());
+		assertEquals("库存", head.get(5).get(0));
+		assertEquals("度量版本", head.get(head.size() - 1).get(0));
+		assertEquals(15, head.size());
 		assertEquals(ProductExcelConverter.COLUMNS.size(), head.size());
 	}
 
@@ -71,7 +71,8 @@ class ProductExcelConverterTest {
 	void parseRoundTrip() {
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		EasyExcel.write(out).sheet("商品导入").head(ProductExcelConverter.templateHead())
-			.doWrite(List.of(List.of("缆绳", "975000000000000001", "", "", "128.0", "50.0")));
+			.doWrite(List.of(List.of("缆绳", "975000000000000001", "", "", "128.0", "50.0",
+                "袋", "MASS", "g", "1000", "EXACT", "3", "2", "1kg/袋", "7")));
 		List<ProductImportRowDTO> rows = ProductExcelConverter
 			.parse(new ByteArrayInputStream(out.toByteArray()));
 		assertEquals(1, rows.size());
@@ -80,6 +81,13 @@ class ProductExcelConverterTest {
 		assertEquals("975000000000000001", row.getMatchValue());
 		assertEquals(0, row.getSalesPrice().compareTo(new java.math.BigDecimal("128")));
 		assertEquals(50, row.getStock());
+		assertEquals("袋", row.getSalesUnit());
+		assertEquals("MASS", row.getBaseDimension());
+		assertEquals(0, row.getBaseQtyPerSalesUnit().compareTo(new java.math.BigDecimal("1000")));
+		assertEquals("EXACT", row.getQuantityPrecision());
+		assertEquals(3, row.getMinOrderQty());
+		assertEquals(2, row.getStepQty());
+		assertEquals(7L, row.getMeasurementRevision());
 	}
 
 }

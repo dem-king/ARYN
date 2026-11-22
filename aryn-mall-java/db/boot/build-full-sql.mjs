@@ -204,6 +204,29 @@ const sections = [
   ['企业等级月度对账任务注册', '238enterprise_level_recalc_job.sql'],
   ['企业会员等级档位与示例权益种子', '239enterprise_level_seed.sql'],
   ['个人会员档位面向海员客群重配', '240member_level_personal_tiers.sql'],
+  ['B2B 审查修复：特供退款回补幂等列/成长值台账/对账明细表', '243b2b_review_fix_schema_incremental.sql'],
+  ['首页轮播图与公告换新：11.15-11.30 档期', '245home_banner_notice_1115_incremental.sql'],
+  ['B2B 价格政策示例数据（船队框架/酒水专项/快消折扣/续签草案）', '246b2b_price_policy_seed.sql'],
+  ['P0 收口审查修正：恢复优惠券管理入口/补停两个过期调度', '244p0_marketing_retire_patch.sql'],
+  ['AI 平台配置与不可变凭证版本', '247ai_configuration_incremental.sql'],
+  ['持久向量索引与模型成套切换', '248catalog_vector_index_incremental.sql'],
+  ['SKU度量与审核编码别名', '249product_measurement_incremental.sql'],
+  ['持久采购草稿与来源贡献', '250procurement_draft_incremental.sql'],
+  ['稳定合送组与操作outbox', '251delivery_group_incremental.sql'],
+  ['合送排程管理入口与权限继承', '252delivery_group_menu_incremental.sql'],
+  ['B2B 活动写入命令与配置修订', '253b2b_activity_command_incremental.sql'],
+  ['未发布活动情景模拟凭据', '254campaign_simulation_incremental.sql'],
+  ['活动包草稿与受控生成队列', '255campaign_draft_incremental.sql'],
+  ['活动包显式协议政策草稿', '256campaign_policy_draft_incremental.sql'],
+  ['活动包页面草稿归属', '257campaign_page_incremental.sql'],
+  ['活动包人工发布与恢复', '258campaign_publish_incremental.sql'],
+  ['采购营销工作台菜单', '259campaign_workbench_menu_incremental.sql'],
+  ['首页轮播图整组换新：11.15-11.30 档期重制版', '260home_banner_redo_1122_incremental.sql'],
+  ['运营回填③：会员专区换血重选 + 捡漏区临期梯度重建', '261ops_zone_reset_seed.sql'],
+  ['商详样板商品资料', '1013goods_detail_sample_incremental.sql'],
+  ['商详商品参数', '1014goods_spu_params_incremental.sql'],
+  ['商详服务承诺标签', '1016goods_spu_service_tags_incremental.sql'],
+  ['商详商品档案与结构化详情', '1017goods_profile_detail_sections_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -260,6 +283,10 @@ DROP TABLE IF EXISTS \`product_import_error\`;
 DROP TABLE IF EXISTS \`product_change_log\`;
 DROP TABLE IF EXISTS \`product_import_row\`;
 DROP TABLE IF EXISTS \`promotion_activity\`;
+DROP TABLE IF EXISTS \`campaign_publish_operation\`;
+DROP TABLE IF EXISTS \`campaign_generation_job\`;
+DROP TABLE IF EXISTS \`campaign_draft\`;
+DROP TABLE IF EXISTS \`campaign_simulation\`;
 DROP TABLE IF EXISTS \`promotion_lock\`;
 DROP TABLE IF EXISTS \`clearance_rule\`;
 DROP TABLE IF EXISTS \`mall_zone_setting\`;
@@ -332,6 +359,28 @@ DROP TABLE IF EXISTS \`enterprise_growth\`;
 DROP TABLE IF EXISTS \`enterprise_level_binding\`;
 DROP TABLE IF EXISTS \`enterprise_credit_account\`;
 DROP TABLE IF EXISTS \`enterprise_statement\`;
+-- B2B 审查修复新建表（243b2b_review_fix_schema_incremental.sql；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`enterprise_growth_ledger\`;
+DROP TABLE IF EXISTS \`enterprise_statement_item\`;
+DROP TABLE IF EXISTS \`catalog_vector_generation\`;
+DROP TABLE IF EXISTS \`catalog_vector_item\`;
+DROP TABLE IF EXISTS \`catalog_vector_state\`;
+DROP TABLE IF EXISTS \`product_sku_identifier\`;
+DROP TABLE IF EXISTS \`procurement_draft\`;
+DROP TABLE IF EXISTS \`procurement_source_batch\`;
+DROP TABLE IF EXISTS \`procurement_draft_row\`;
+DROP TABLE IF EXISTS \`procurement_contribution\`;
+DROP TABLE IF EXISTS \`delivery_group\`;
+DROP TABLE IF EXISTS \`delivery_group_order_link\`;
+DROP TABLE IF EXISTS \`delivery_group_operation\`;
+-- AI平台配置（仅全量初始化重建；增量脚本不删除数据）
+DROP TABLE IF EXISTS \`ai_usage_budget\`;
+DROP TABLE IF EXISTS \`ai_config_version\`;
+DROP TABLE IF EXISTS \`ai_credential_version\`;
+DROP TABLE IF EXISTS \`ai_runtime_state\`;
+DROP TABLE IF EXISTS \`ai_capability_test\`;
+DROP TABLE IF EXISTS \`ai_config_operation\`;
+DROP TABLE IF EXISTS \`ai_call_log\`;
 -- 企业等级/权益种子幂等守卫（239enterprise_level_seed.sql 新建数据；全量重建时随表清理）
 `;
 
@@ -342,4 +391,4 @@ const output = sections.reduce((sql, [title, file]) => {
   return `${sql}${banner(title, file)}${reset}${content}\n`;
 }, header);
 
-writeFileSync(join(root, 'aryn_boot_full.sql'), output, 'utf8');
+writeFileSync(join(root, 'aryn_boot_full.sql'), `${output}\nSET FOREIGN_KEY_CHECKS = 1;\n`, 'utf8');

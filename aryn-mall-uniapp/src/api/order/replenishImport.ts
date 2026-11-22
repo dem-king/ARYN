@@ -90,17 +90,17 @@ const BASE = '/mall-order/app/replenish-import'
 
 /** 取回导入报告（稍后处理） */
 export function getDirectImport(importId: string) {
-  return alovaInstance.Get<ReplenishDirectImport>(`${BASE}/imports/${importId}`)
+  return alovaInstance.Get<ReplenishDirectImport>(`${BASE}/imports/${encodeURIComponent(importId)}`, { cacheFor: 0 })
 }
 
 /** 最近一次可继续的导入（待确认或已确认）；杀进程/重启后恢复用，无则 null */
 export function getLatestDirectImport() {
-  return alovaInstance.Get<ReplenishDirectImport | null>(`${BASE}/latest`)
+  return alovaInstance.Get<ReplenishDirectImport | null>(`${BASE}/latest`, { cacheFor: 0 })
 }
 
 /** 恢复已确认导入的复核清单（只读）；杀进程后重新进入结算 */
 export function resumeDirectImport(importId: string) {
-  return alovaInstance.Get<ReplenishDirectImportConfirmResult>(`${BASE}/imports/${importId}/items`)
+  return alovaInstance.Get<ReplenishDirectImportConfirmResult>(`${BASE}/imports/${encodeURIComponent(importId)}/items`, { cacheFor: 0 })
 }
 
 /**

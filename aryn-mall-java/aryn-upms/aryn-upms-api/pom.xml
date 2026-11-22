@@ -18,6 +18,7 @@
     <artifactId>aryn-upms-api</artifactId>
     <description>权限系统公共模块</description>
     <dependencies>
+        <dependency><groupId>com.aryn</groupId><artifactId>aryn-common-ai</artifactId></dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-core</artifactId>

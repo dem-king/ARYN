@@ -32,7 +32,6 @@ const DESTINATION_HOSTS = [
   'src/components/quick-cart-button/index.vue',
   'src/components/goods-detail-sheet/index.vue',
   'src/sub-pages/product/goods-detail/index.vue',
-  'src/sub-pages/product/frequent/index.vue',
 ]
 
 /** 唯一允许挂载目的地弹层的位置（全局一份，随页面根组件渲染） */

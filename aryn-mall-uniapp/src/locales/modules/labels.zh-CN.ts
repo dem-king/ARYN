@@ -15,6 +15,8 @@ export default {
     memberGuidePrefix: '会员专享',
     newbiePriceBadge: '新人首单价',
     policyPriceBadge: '协议价',
+    specialPriceBadge: '档期特供',
+    ladderPriceBadge: '阶梯价',
     seckillPriceBadge: '秒杀价',
     newbieAlreadyPaid: '新人专享价仅限首单，你已下过单',
     newbieRegisterWithin: '新人专享价仅限注册 {days} 天内的新用户',

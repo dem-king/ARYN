@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { splitPrice } from '@/components/diy/price-display'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useZonePrices } from '@/composables/useZonePrices'

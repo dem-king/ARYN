@@ -1,11 +1,12 @@
 /**
- * C 端采购档期与档期特供（需登录）
+ * C 端采购档期与档期特供（免登可访问，游客请求安全）
  * 对应后端 AppTradeCalendarController：
  * GET /promotion/app/calendar/list、GET /promotion/app/calendar/specials
  *
- * 展示口径与成交试算同源（活动窗 + 档期窗 + 剩余限量）。
- * 展示接入点（P1.5）：档期楼层（diy-trade-calendar）按 list 取档期、
- * specials 取特供商品横滑；商品卡特供价角标随 zone-price 契约一并接入。
+ * 展示口径与成交试算同源（活动窗 + 档期窗 + 剩余限量）：服务端已按采购场景/船舶
+ * 圈定过滤并剔除限量耗尽的活动，前端只渲染不再二次判定资格。
+ * 展示接入点：档期楼层（diy-trade-calendar）按 list 取全部生效档期、specials 取
+ * 特供商品；商品卡/商详特供价随 zone-price 契约一并接入。
  */
 import { alovaInstance } from '@/api/core/instance'
 
@@ -60,9 +61,23 @@ export function getTradeCalendars() {
   return alovaInstance.Get<AppCalendar[]>('/promotion/app/calendar/list')
 }
 
-/** 档期特供列表（calendarId 为空=全部生效档期） */
-export function getCalendarSpecials(calendarId?: string) {
+/** 档期特供查询入参（服务端按场景/船舶圈定，游客可访问） */
+export interface CalendarSpecialQuery {
+  /** 档期 ID；为空=全部生效档期 */
+  calendarId?: string
+  /** 采购场景：1个人 2船供 3企业 */
+  purchaseScene?: string
+  /** 船舶 ID（船供上下文） */
+  vesselId?: string
+}
+
+/** 档期特供列表（calendarId 为空=全部生效档期；已剔除限量耗尽活动） */
+export function getCalendarSpecials(query: CalendarSpecialQuery = {}) {
   return alovaInstance.Get<AppCalendarSpecial[]>('/promotion/app/calendar/specials', {
-    params: { calendarId: calendarId || undefined },
+    params: {
+      calendarId: query.calendarId || undefined,
+      purchaseScene: query.purchaseScene || undefined,
+      vesselId: query.vesselId || undefined,
+    },
   })
 }

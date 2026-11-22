@@ -18,6 +18,8 @@
     <artifactId>aryn-order-biz</artifactId>
     <description>商城订单核心模块</description>
     <dependencies>
+        <dependency><groupId>com.aryn</groupId><artifactId>aryn-upms-api</artifactId></dependency>
+        <dependency><groupId>com.aryn</groupId><artifactId>aryn-common-ai</artifactId></dependency>
         <!--注册中心客户端-->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

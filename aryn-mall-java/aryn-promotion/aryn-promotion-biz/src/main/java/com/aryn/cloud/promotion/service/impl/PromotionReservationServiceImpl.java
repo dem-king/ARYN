@@ -74,7 +74,10 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 				continue;
 			}
 			BigDecimal discount = detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO;
-			if (discount.compareTo(BigDecimal.ZERO) > 0 && promotionActivityMapper.consumeBudget(
+			// 协议价（编码 8）由 price_policy 承载，promotion_activity 无对应行且无预算概念：
+			// 只落锁不扣预算（2026-11-15 审查修复：此前 consumeBudget 按 policyId 更新 0 行直接拒单）
+			if (!PromotionActivity.TYPE_POLICY_PRICE.equals(detail.getActivityType())
+					&& discount.compareTo(BigDecimal.ZERO) > 0 && promotionActivityMapper.consumeBudget(
 					context.getTenantId(), detail.getActivityId(), discount) == 0) {
 				// 试算后额度被并发订单抢完：整单回滚，让用户看到最新价格后再提交，避免静默涨价
 				throw new ArynBusinessException("活动[" + detail.getActivityName() + "]优惠名额已用完，请刷新价格后重新提交");
@@ -209,7 +212,7 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		}
 	}
 
-	/** 每人限享竞态兜底：preview 已按占用次数剔除，这里只防并发双单同时通过试算。 */
+	/** 每人限享竞态兜底：preview 已按占用剔除，这里只防并发双单同时通过试算；档期特供按件数口径。 */
 	private void assertPerUserLimit(PromotionContextDTO context, PromotionCalculationVO calculation) {
 		if (!StringUtils.hasText(context.getUserId()) || calculation.getDetails().isEmpty()) {
 			return;
@@ -217,6 +220,16 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		for (PromotionCalculationVO.ActivityDetail detail : calculation.getDetails()) {
 			PromotionActivity activity = promotionActivityMapper.selectById(detail.getActivityId());
 			if (activity == null || activity.getPerUserLimit() == null || activity.getPerUserLimit() <= 0) {
+				continue;
+			}
+			if (PromotionActivity.TYPE_CALENDAR_SPECIAL.equals(detail.getActivityType())) {
+				long usedUnits = promotionLockUsage.sumUserQuotaUnits(context.getTenantId(), context.getUserId(),
+						detail.getActivityId());
+				int currentUnits = parseQuotaUnits(detail.getRuleSnapshot());
+				if (usedUnits + currentUnits > activity.getPerUserLimit()) {
+					throw new ArynBusinessException(
+							"活动[" + detail.getActivityName() + "]每人限购件数已用完，请刷新价格后重新提交");
+				}
 				continue;
 			}
 			long used = promotionLockUsage.countUserLocks(context.getTenantId(), context.getUserId(),
@@ -307,7 +320,8 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		for (PromotionLock lock : locks) {
 			if (!PromotionLock.STATUS_RELEASED.equals(lock.getStatus())) {
 				BigDecimal discount = lock.getDiscountAmount() != null ? lock.getDiscountAmount() : BigDecimal.ZERO;
-				if (discount.compareTo(BigDecimal.ZERO) > 0) {
+				if (!PromotionActivity.TYPE_POLICY_PRICE.equals(lock.getActivityType())
+						&& discount.compareTo(BigDecimal.ZERO) > 0) {
 					// 仅本次真正从 LOCKED/CONFIRMED 转 RELEASED 时归还一次，避免重复释放重复归还额度
 					promotionActivityMapper.releaseBudget(tenantId, lock.getActivityId(), discount);
 				}

@@ -19,8 +19,8 @@ const PAGE = 'src/sub-pages/order/fill-gap/index.vue'
 const CHECKOUT = 'src/sub-pages/order/order-confirm/index.vue'
 const ITEM = 'src/sub-pages/order/order-confirm/components/ShopOrderItem.vue'
 const PAGES_JSON = 'src/pages.json'
-const ZH = 'src/locales/modules/checkout.zh-CN.ts'
-const EN = 'src/locales/modules/checkout.en-US.ts'
+const ZH = 'src/sub-pages/locales/modules/checkout.zh-CN.ts'
+const EN = 'src/sub-pages/locales/modules/checkout.en-US.ts'
 
 describe('fill-gap contract', () => {
   it('凑单页只拉随订单规则商品且按售价升序，不自行累计金额', () => {

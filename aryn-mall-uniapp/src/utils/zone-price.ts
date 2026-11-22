@@ -1,27 +1,34 @@
 /**
- * 商品列表卡片的「专区价」展示契约：会员价 / 捡漏价统一收敛。
+ * 商品卡片/商详的「专区价」展示契约：协议价 / 特供价 / 会员价 / 捡漏价统一收敛。
  *
  * 背景：会员专区、低价捡漏专区展示了会员价/捡漏价，同一商品出现在其它页面
  * （首页其它 Tab、分类、搜索、收藏、足迹、推荐流……）时若只显示原售价，
  * 用户会看到同一个商品两种价格。各页面各写一遍判定必然漂移，因此把
- * 「会员价 vs 出清价 vs 原价」的卡片展示口径收敛到这里。
+ * 「协议价 vs 身份价家族 vs 原价」的展示口径收敛到这里。
  *
  * **价格优先级（与后端 `OrderPriceComputeService` / 促销引擎一致，2026-11-14 B2B 重构）**：
- * 协议价 > 档期特供 > 拼团 > 秒杀 > {会员价 / 出清价 / 新人价 三者取低（同价归属先到者，新人须严格更低才覆盖）} > 限时折扣 > 原价。
+ * 协议价（命中且件数 ≥ minQty 即终态）> 秒杀（存量遗留，终态）
+ * > 身份价家族取低 min(档期特供, 会员价, 出清价)（同价归属：特供 > 会员 > 出清）
+ * > 新人价（仅严格低于身份价时覆盖）> 售价。
  * 协议价（price_policy，按主体/船舶/客群圈定的合同价）由营销引擎锁定成交基价，
- * 公开活动价不可覆盖，命中即终态；档期特供（type=12）与身份价同族取低，卡面随补价层后续接入。
- * 秒杀是平台级硬互斥活动（结算不可叠任何活动价），命中即终态。拼团不承载在列表卡（有独立会场）：
+ * 公开活动价不可覆盖，命中即终态；**minQty 参与成交校验**，件数不足时调用方不得传入
+ * policyPrice（商详改为「协议价 N 件起」提示）。
+ * 秒杀是平台级硬互斥活动（结算不可叠任何活动价），命中即终态。拼团不承载在列表卡（有独立会场）。
+ *
+ * **阶梯价与数量相关**：卡片不算阶梯价（数量未定，不传 ladderPrice）；商详按当前数量
+ * 取档后传入 ladderPrice，与身份价家族取低——同价保留身份价角标（只有严格更低才接管，
+ * 与新人价「严格更低才覆盖」同口径）；协议价锁定后阶梯/身份/特供一律不覆盖。
  *
  * 1. 协议价命中：主价=协议价，划线=当前售价，角标「协议价」（合同价独占公开优惠）；
  * 2. 秒杀价命中：主价=秒杀价，划线=当前售价，角标「秒杀价」；
- * 3. 新人价严格低于会员/出清成交价：主价=新人价，划线=当前售价，角标「新人价」（进价格行 badge，与会员/秒杀/捡漏同位）；
- * 4. 出清价胜出：主价=出清价，划线=当前售价，角标「捡漏价」；
- * 5. 会员价胜出：主价=会员价，划线=会员价展示的划线基准（缺省为当前售价），角标「会员价」；
- * 6. 都未命中：主价=当前售价；未达标/未登录时保留「会员专享 ¥x」引导文案，
+ * 3. 新人价严格低于身份价家族成交价：主价=新人价，划线=当前售价，角标「新人价」；
+ * 4. 身份价家族胜出：主价=家族最低价，角标按归属（特供/会员/捡漏/阶梯），
+ *    会员价划线取会员展示的划线基准（缺省为当前售价），其余划当前售价；
+ * 5. 都未命中：主价=当前售价；未达标/未登录时保留「会员专享 ¥x」引导文案，
  *    普通划线仍按「原价 > 售价」口径（与既有楼层一致）。
  *
- * 出清价与会员价取低而不是叠加，且同价时会员优先——与后端
- * 「同 SKU 两者都命中取低者、同价优先会员价」同一口径；展示与结算不漂移。
+ * 身份价家族取低而不是叠加，同价归属特供 > 会员 > 出清——与后端
+ * 「同 SKU 多活动命中取低者、同价按归属优先级」同一口径；展示与结算不漂移。
  */
 
 import type { ListMemberPriceDisplay } from '../components/diy/retail-types'
@@ -30,7 +37,7 @@ import type { ClearancePriceDisplay } from './clearance-price'
 import { translate } from '@/locales'
 
 /** 角标类型：空串=无角标，由调用方映射成 i18n 文案 */
-export type ZonePriceBadgeKind = '' | 'clearance' | 'member' | 'policy' | 'seckill' | 'newbie'
+export type ZonePriceBadgeKind = '' | 'clearance' | 'member' | 'policy' | 'seckill' | 'newbie' | 'special' | 'ladder'
 
 /** 社证类型白名单（与后端 SocialProofFormatter.KIND_* 一一对应）；未知值一律视为未知 */
 export type SocialProofKind = 'repurchase' | 'repeat' | 'buyer'
@@ -91,8 +98,19 @@ export interface ListZonePriceInput {
   /**
    * 协议价（合同价，主体/船舶/客群 scoped；补价层按登录态+上下文批量拉取）。
    * 后端引擎锁定成交基价，展示优先级最高（倒挂/非正数视为未命中）。
+   * **minQty 参与成交校验**：件数不足时调用方必须不传（或传 null），改出「N 件起」提示。
    */
   policyPrice?: unknown
+  /**
+   * 档期特供价（type=12，服务端已按场景/船舶圈定并剔除限量耗尽活动）。
+   * 与会员价/出清价同属身份价家族取低，同价归属特供（倒挂/非正数视为未命中）。
+   */
+  specialPrice?: unknown
+  /**
+   * 阶梯价按当前数量命中的单价（`utils/ladder-price#resolveLadderUnitPrice`）。
+   * 卡片不传（数量未定）；商详传入后与身份价家族取低，严格更低才接管角标。
+   */
+  ladderPrice?: unknown
   /** 商品原价（普通划线用；仅在原价 > 售价时渲染） */
   originalPrice?: unknown
   /**
@@ -161,10 +179,12 @@ export function emptyListZonePrice(sales: unknown = 0): ListZonePrice {
   }
 }
 
-/** 角标文案（协议价/会员价/捡漏价/秒杀价/新人价）；无角标返回空串 */
+/** 角标文案（协议价/特供价/会员价/捡漏价/秒杀价/新人价/阶梯价）；无角标返回空串 */
 export function zonePriceBadgeText(kind: ZonePriceBadgeKind): string {
   if (kind === 'policy')
     return translate('labels.policyPriceBadge') || '协议价'
+  if (kind === 'special')
+    return translate('labels.specialPriceBadge') || '档期特供'
   if (kind === 'member')
     return translate('labels.memberPriceBadge') || '会员价'
   if (kind === 'clearance')
@@ -173,6 +193,8 @@ export function zonePriceBadgeText(kind: ZonePriceBadgeKind): string {
     return translate('labels.seckillPriceBadge') || '秒杀价'
   if (kind === 'newbie')
     return translate('labels.newbiePriceBadge') || '新人首单价'
+  if (kind === 'ladder')
+    return translate('labels.ladderPriceBadge') || '阶梯价'
   return ''
 }
 
@@ -231,14 +253,30 @@ export function resolveListZonePrice(input: ListZonePriceInput): ListZonePrice {
     }
   }
 
-  // 出清价与会员价取低；同价归属会员价（与后端引擎一致）
-  const clearanceWins = clearancePrice !== null
-    && (memberPrice === null || clearancePrice < memberPrice)
+  // 身份价家族取低：特供 / 会员 / 出清（同价归属按入队顺序：特供 > 会员 > 出清，与后端引擎一致）
+  const specialPrice = validLowerPrice(input.specialPrice, sales)
+  const family: Array<{ kind: ZonePriceBadgeKind, price: number }> = []
+  if (specialPrice !== null)
+    family.push({ kind: 'special', price: specialPrice })
+  if (memberPrice !== null)
+    family.push({ kind: 'member', price: memberPrice })
+  if (clearancePrice !== null)
+    family.push({ kind: 'clearance', price: clearancePrice })
+  let identity: { kind: ZonePriceBadgeKind, price: number } | null = null
+  for (const candidate of family) {
+    if (!identity || candidate.price < identity.price)
+      identity = candidate
+  }
 
-  // 身份价取低（与结算引擎 2026-11-08 同口径）：新人价严格低于会员/出清成交价才覆盖，
-  // 同价身份价保留——¥1 新人钩子不再被全店会员价吞掉，卡价仍等于结算到手价
+  // 阶梯价（商详按当前数量取档）：严格低于身份价才接管，同价保留身份角标
+  const ladderPrice = validLowerPrice(input.ladderPrice, sales)
+  if (ladderPrice !== null && (!identity || ladderPrice < identity.price))
+    identity = { kind: 'ladder', price: ladderPrice }
+
+  // 新人价严格低于身份价家族成交价才覆盖，同价身份价保留——
+  // ¥1 新人钩子不再被全店会员价吞掉，卡价仍等于结算到手价
   const newbiePrice = validLowerPrice(input.newbiePrice, sales)
-  const identityPrice = clearanceWins ? clearancePrice : memberPrice
+  const identityPrice = identity?.price ?? null
   if (newbiePrice !== null && (identityPrice === null || newbiePrice < identityPrice)) {
     return {
       badgeKind: 'newbie',
@@ -251,27 +289,16 @@ export function resolveListZonePrice(input: ListZonePriceInput): ListZonePrice {
     }
   }
 
-  if (clearanceWins) {
-    return {
-      badgeKind: 'clearance',
-      guideText: null,
-      mainPrice: clearancePrice,
-      priceTagText,
-      socialProofKind,
-      socialProofText,
-      strikePrice: showStrike ? roundToCent(sales) : null,
-    }
-  }
-
-  if (memberPrice !== null) {
-    const memberStrike = toFiniteNumber(member?.strikePrice)
-    const strike = memberStrike !== null && memberStrike > memberPrice
+  if (identity) {
+    // 会员价划线取会员展示的划线基准（后端回填的当前售价）；其余身份价划当前售价
+    const memberStrike = identity.kind === 'member' ? toFiniteNumber(member?.strikePrice) : null
+    const strike = memberStrike !== null && memberStrike > identity.price
       ? roundToCent(memberStrike)
       : roundToCent(sales)
     return {
-      badgeKind: 'member',
+      badgeKind: identity.kind,
       guideText: null,
-      mainPrice: memberPrice,
+      mainPrice: identity.price,
       priceTagText,
       socialProofKind,
       socialProofText,

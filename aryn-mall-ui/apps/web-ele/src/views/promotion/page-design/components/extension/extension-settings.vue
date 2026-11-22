@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { UploadProps, UploadRequestOptions } from 'element-plus';
 
+import type { GoodsTabFeedCard, GoodsTabFeedCardItem } from './types';
+
 import { defineAsyncComponent, reactive, watch } from 'vue';
 
 import {
@@ -27,6 +29,7 @@ import {
 } from '../../../page-designer/schema/clone';
 import CategoryPicker from '../common/category-picker/index.vue';
 import IdPickerField from '../common/id-picker-field/index.vue';
+import LinkUrl from '../common/link-url/index.vue';
 import {
   GOODS_TAB_CLEARANCE_SORT,
   GOODS_TAB_LEGACY_BARGAIN_SORT,
@@ -252,6 +255,56 @@ function updateTabMemberBanner(index: number, patch: Record<string, unknown>) {
       : tab,
   );
   commit();
+}
+
+function tabFeedCard(tab: Record<string, unknown>): Partial<GoodsTabFeedCard> {
+  return (tab.feedCard ?? {}) as Partial<GoodsTabFeedCard>;
+}
+
+function tabFeedItems(tab: Record<string, unknown>): GoodsTabFeedCardItem[] {
+  const items = tabFeedCard(tab).items;
+  return Array.isArray(items) ? items : [];
+}
+
+function updateTabFeedCard(index: number, patch: Partial<GoodsTabFeedCard>) {
+  form.tabs = tabList().map((tab, current) =>
+    current === index
+      ? { ...tab, feedCard: { ...tabFeedCard(tab), ...patch } }
+      : tab,
+  );
+  commit();
+}
+
+function addFeedItem(index: number) {
+  const tab = tabList()[index];
+  if (!tab) return;
+  const items = [...tabFeedItems(tab)];
+  items.push({
+    id: `feed-${Date.now().toString(36)}`,
+    imageUrl: '',
+    title: '',
+  });
+  updateTabFeedCard(index, { enabled: true, items });
+}
+
+function updateFeedItem(
+  index: number,
+  itemIndex: number,
+  patch: Partial<GoodsTabFeedCardItem>,
+) {
+  const tab = tabList()[index];
+  if (!tab) return;
+  const items = tabFeedItems(tab).map((item, current) =>
+    current === itemIndex ? { ...item, ...patch } : item,
+  );
+  updateTabFeedCard(index, { items });
+}
+
+function removeFeedItem(index: number, itemIndex: number) {
+  const tab = tabList()[index];
+  if (!tab) return;
+  const items = tabFeedItems(tab).filter((_, current) => current !== itemIndex);
+  updateTabFeedCard(index, { items });
 }
 
 const VIDEO_MAX_SIZE_MB = 100;
@@ -540,6 +593,140 @@ function clearVideo() {
                   "
                 />
               </div>
+            </template>
+            <div class="tab-card__field">
+              <div class="tab-card__switch-row">
+                <ElSwitch
+                  :model-value="tabFeedCard(tab).enabled === true"
+                  @update:model-value="
+                    updateTabFeedCard(index, { enabled: $event === true })
+                  "
+                />
+                <span class="tab-card__label">
+                  商品流活动轮播卡（左列第一格）
+                </span>
+              </div>
+              <span class="tab-editor__hint">
+                开启后在该 Tab 商品流左列第一格插入一张 3:4
+                竖版轮播卡；建议只给第一个 Tab
+                开启，两列商品流效果最佳。无图或关闭时不占位。
+              </span>
+            </div>
+            <template v-if="tabFeedCard(tab).enabled === true">
+              <div class="tab-card__field">
+                <span class="tab-card__label">轮播间隔（毫秒）</span>
+                <ElInputNumber
+                  :model-value="Number(tabFeedCard(tab).interval) || 4000"
+                  :min="2000"
+                  :max="10000"
+                  :step="500"
+                  @update:model-value="
+                    updateTabFeedCard(index, {
+                      interval: Number($event) || 4000,
+                    })
+                  "
+                />
+              </div>
+              <div
+                v-for="(item, itemIndex) in tabFeedItems(tab)"
+                :key="item.id"
+                class="tab-card__feed-item"
+              >
+                <div class="tab-card__feed-head">
+                  <span class="tab-card__label">
+                    轮播项 {{ itemIndex + 1 }}
+                  </span>
+                  <ElButton
+                    size="small"
+                    text
+                    type="danger"
+                    @click="removeFeedItem(index, itemIndex)"
+                  >
+                    删除
+                  </ElButton>
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">活动图（建议 3:4）</span>
+                  <SelectMaterial
+                    :can-choose-images-num="1"
+                    :model-value="item.imageUrl"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { imageUrl: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">角标（可留空）</span>
+                  <ElInput
+                    :model-value="item.badge ?? ''"
+                    maxlength="20"
+                    placeholder="如 11.15-11.30 档期"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { badge: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">引导语（可留空）</span>
+                  <ElInput
+                    :model-value="item.kicker ?? ''"
+                    maxlength="20"
+                    placeholder="如 船供囤货专场"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { kicker: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">主标题</span>
+                  <ElInput
+                    :model-value="item.title"
+                    maxlength="12"
+                    placeholder="如 整箱囤货"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { title: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">副标题（可留空）</span>
+                  <ElInput
+                    :model-value="item.subtitle ?? ''"
+                    maxlength="30"
+                    placeholder="如 满5件再降一档"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { subtitle: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">按钮文案（可留空）</span>
+                  <ElInput
+                    :model-value="item.ctaText ?? ''"
+                    maxlength="10"
+                    placeholder="如 立即囤货"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { ctaText: $event })
+                    "
+                  />
+                </div>
+                <div class="tab-card__field">
+                  <span class="tab-card__label">跳转链接</span>
+                  <LinkUrl
+                    :model-value="item.link ?? null"
+                    @update:model-value="
+                      updateFeedItem(index, itemIndex, { link: $event })
+                    "
+                  />
+                </div>
+              </div>
+              <ElButton
+                size="small"
+                :disabled="tabFeedItems(tab).length >= 6"
+                @click="addFeedItem(index)"
+              >
+                添加轮播项
+              </ElButton>
             </template>
           </div>
           <ElButton
@@ -872,6 +1059,20 @@ function clearVideo() {
 
 .tab-card__alert-action {
   margin-top: 6px;
+}
+
+.tab-card__feed-item {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+.tab-card__feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .tab-editor__hint {

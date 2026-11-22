@@ -40,7 +40,7 @@ public class LogAopAspect {
 	private static final int MAX_PARAMS_LENGTH = 2000;
 
 	private static final Pattern SENSITIVE_FIELD = Pattern.compile(
-			"(?i)(\"(?:password|oldPassword|newPassword|confirmPassword|token|accessToken|refreshToken|secret|secretKey|mchKey|apiv3Key|privateKey|privateKeyPath|privateCertPath|publicKeyPath|keyPath|certSerialNo|ciphertext|nonce)\"\\s*:\\s*\")[^\"]*(\")");
+			"(?i)(\"(?:apiKey|authorization|credential|signature|sealedValue|runtimeToken|password|oldPassword|newPassword|confirmPassword|token|accessToken|refreshToken|secret|secretKey|mchKey|apiv3Key|privateKey|privateKeyPath|privateCertPath|publicKeyPath|keyPath|certSerialNo|ciphertext|nonce)\"\\s*:\\s*\")[^\"]*(\")");
 
 	private static final String BINARY_OMITTED = "[binary omitted]";
 

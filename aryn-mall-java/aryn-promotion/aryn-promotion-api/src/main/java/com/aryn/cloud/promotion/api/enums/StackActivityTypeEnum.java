@@ -49,11 +49,21 @@ public enum StackActivityTypeEnum {
 	CALENDAR_SPECIAL("calendarSpecial", false, false),
 
 	/**
+	 * 阶梯价（promotion_activity type=4，2026-11-15 审查修复补编码）。
+	 *
+	 * <p>按数量分档单价（stackPriority=7）；与会员/企业折扣率取优不叠加，
+	 * 默认可叠券/积分（订单级让利可叠在基价之上，方案 §4.1）。
+	 */
+	LADDER("ladder", true, true),
+
+	/**
 	 * 协议价（price_policy 承载，锁/快照编码 8，2026-11-14 B2B 重构新增）。
 	 *
-	 * <p>合同价独占公开优惠：不叠券/积分；成交基价由引擎锁定，任何公开活动价不可覆盖。
+	 * <p>成交基价由引擎锁定，任何公开活动价不可覆盖；但订单级让利（满量优惠/定向券/积分）
+	 * 按方案 §4.1「订单级让利可叠在基价之上」默认可叠，不再强制独占
+	 * （2026-11-15 审查修复：原实现禁券禁积分为规格未要求的额外限制）。
 	 */
-	POLICY("policy", false, false);
+	POLICY("policy", true, true);
 
 	/** 活动类型编码（远程 VO / 结算响应下发用） */
 	private final String code;

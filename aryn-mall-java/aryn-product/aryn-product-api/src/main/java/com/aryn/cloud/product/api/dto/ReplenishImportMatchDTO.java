@@ -27,8 +27,11 @@ public class ReplenishImportMatchDTO implements Serializable {
 	@Schema(description = "行号（从1开始，回显用）")
 	private Integer rowNo;
 
-	@Schema(description = "商品编码原文（IMPA/ISSA/内部编码/条码/供应商编码，自动识别）")
+	@Schema(description = "商品编码原文；未声明码制时仅按SKU_ID识别")
 	private String code;
+
+	@Schema(description = "码制：SKU_ID/IMPA/ISSA/CUSTOM；不猜测外部码制")
+	private String codeType;
 
 	@Schema(description = "品名原文")
 	private String name;

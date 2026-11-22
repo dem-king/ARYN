@@ -2,7 +2,7 @@
 import type { SignInConfig } from '@/sub-pages/api/user/signIn'
 import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { formatSignInDate, useSignInStatus } from '@/composables/useSignInStatus'
 import { getSignInConfigPage, getSignInRecordPage, signIn as signInApi } from '@/sub-pages/api/user/signIn'

@@ -2,7 +2,7 @@
 import type { CouponCardData } from '@/components/coupon-card/index.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { getPage } from '@/api/promotion/couponInfo'
 import { addObj } from '@/api/promotion/couponUser'
 import { couponType, formatCouponDeadline } from '@/utils/coupon-display'

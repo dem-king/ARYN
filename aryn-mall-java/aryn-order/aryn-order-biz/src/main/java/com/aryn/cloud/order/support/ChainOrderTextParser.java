@@ -87,8 +87,11 @@ public final class ChainOrderTextParser {
 	 * @param warning 解析疑点说明；无疑点时为 null
 	 */
 	public record ParsedItem(int lineNo, String personName, String goodsName, Integer quantity, String unit,
-			String rawSegment, String warning) {
-	}
+            String rawSegment, String warning, java.math.BigDecimal rawQuantity) {
+        public ParsedItem(int lineNo,String personName,String goodsName,Integer quantity,String unit,String rawSegment,String warning) {
+            this(lineNo,personName,goodsName,quantity,unit,rawSegment,warning,quantity==null?null:java.math.BigDecimal.valueOf(quantity));
+        }
+    }
 
 	/** 数量标记：在段内的位置 + 数字原文 + 单位 */
 	private record Token(int start, int end, String numberText, String unit) {
@@ -284,7 +287,7 @@ public final class ChainOrderTextParser {
 		mergeRunOn(rawItems);
 		for (RawItem rawItem : rawItems) {
 			items.add(new ParsedItem(lineNo, person, polishName(rawItem), rawItem.quantity,
-					rawItem.token == null ? null : rawItem.token.unit(), segment, rawItem.warning));
+					rawItem.token == null ? null : rawItem.token.unit(), segment, rawItem.warning, rawItem.token == null ? null : parseRawQuantity(rawItem.token.numberText())));
 		}
 	}
 
@@ -393,6 +396,11 @@ public final class ChainOrderTextParser {
 	}
 
 	/** 数量文本转整数：阿拉伯数字（小数拒绝）、中文数字（一~九十九） */
+	private static java.math.BigDecimal parseRawQuantity(String text) {
+        try { if(text.matches("[0-9]+(?:\\.[0-9]+)?")) return new java.math.BigDecimal(text);Integer cn=chineseQuantity(text);return cn==null?null:java.math.BigDecimal.valueOf(cn); }
+        catch(NumberFormatException ex) { return null; }
+    }
+
 	private static Integer parseQuantity(String numberText) {
 		String text = numberText.strip();
 		if (text.matches("[0-9]+")) {

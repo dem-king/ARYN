@@ -22,6 +22,15 @@ const SHEET = 'src/components/goods-detail-sheet/index.vue'
 const SHIP_CARD_PATH = 'src/sub-pages/product/goods-detail/components/ShipProfileCard.vue'
 
 describe('goods detail purchase contract', () => {
+  it('does not fetch public coupons or render a claim entry', () => {
+    const page = source(DETAIL_PAGE)
+    const info = source(GOODS_INFO)
+
+    expect(page.match(/@\/api\/promotion\/couponInfo|\/app\/couponinfo\/page/g) ?? []).toEqual([])
+    expect(page.match(/<CouponCard\b/g) ?? []).toEqual([])
+    expect(info.match(/\bshowCoupon\b/g) ?? []).toEqual([])
+  })
+
   it('detail page branches on resolvePurchaseDecision instead of ad-hoc enableSpecs checks', () => {
     const page = source(DETAIL_PAGE)
     expect(page).toContain('resolvePurchaseDecision(response)')
@@ -74,7 +83,8 @@ describe('goods detail purchase contract', () => {
     expect(info).toContain('resolveDeliveryRow({')
     expect(info).toContain('hasVesselContext: shipContextStore.hasVesselContext')
     // 行可见性由共享层判定（普通场景仅收费商品展示），模板挂 visible 而非自行判运费
-    expect(info).toContain('v-if="deliveryRow.visible"')
+    expect(info).toContain('v-if="showDeliveryRow"')
+    expect(info).toContain('deliveryRow.value.visible && !props.showShipArrangementSeparately')
     // 「包邮」不再上商详（小象/盒马口径，与商品卡删「包邮」chip 对齐）
     expect(info).not.toContain('product.freeShipping')
     // 与结算页同判据，不允许回退成 freightType 三元链直连

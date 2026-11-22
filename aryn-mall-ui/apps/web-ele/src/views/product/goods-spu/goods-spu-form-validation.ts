@@ -1,4 +1,54 @@
-export interface GoodsSkuFormValue {
+import type { SkuMeasurementForm } from './measurement-form';
+
+import { validateMeasurement } from './measurement-form';
+
+export interface GoodsParamFormRow {
+  label: string;
+  value: string;
+}
+
+export const MAX_GOODS_PARAMS = 12;
+
+/** 食品/生鲜类目常用参数：一键铺好空行，运营只填值，避免每款从零敲标签 */
+export const GOODS_PARAM_TEMPLATES: GoodsParamFormRow[] = [
+  { label: '产地', value: '' },
+  { label: '储存', value: '' },
+  { label: '保质期', value: '' },
+  { label: '包装', value: '' },
+];
+
+/** 追加常用参数：跳过已有标签，最多铺到 12 项；已存在的行不动 */
+export function appendGoodsParamTemplates(params: GoodsParamFormRow[]) {
+  const labels = new Set(params.map((row) => row.label.trim().toLowerCase()));
+  const additions = GOODS_PARAM_TEMPLATES.filter(
+    (row) => !labels.has(row.label.toLowerCase()),
+  );
+  return [...params, ...additions].slice(0, MAX_GOODS_PARAMS);
+}
+
+export function validateGoodsParams(params: GoodsParamFormRow[]) {
+  if (params.length > MAX_GOODS_PARAMS) return '商品参数最多填写 12 项';
+  const labels = new Set<string>();
+  for (const { label, value } of params) {
+    const name = label.trim();
+    const content = value.trim();
+    if (!name || !content) return '请填写商品参数名称和内容';
+    if (name.length > 24 || content.length > 200) {
+      return '商品参数名称最多 24 字，内容最多 200 字';
+    }
+    // 商详真实踩过的坑：把「冷链发货，签收后 7 天内」填进保质期，
+    // 用户会以为是保质期只有 7 天；这类售后时效要单独放到「售后」参数。
+    if (name.startsWith('保质期') && /签收|发货|配送/.test(content)) {
+      return '「保质期」请填商品可存放时长（如 7 天）；签收/发货属于售后时效，请另设「售后」参数';
+    }
+    const key = name.toLowerCase();
+    if (labels.has(key)) return '商品参数名称不能重复';
+    labels.add(key);
+  }
+  return null;
+}
+
+export interface GoodsSkuFormValue extends SkuMeasurementForm {
   costPrice?: null | number;
   id?: string;
   originalPrice?: null | number;
@@ -103,7 +153,9 @@ export function validateGoodsSkus(
   }
 
   const specsKeys = new Set<string>();
-  for (const sku of goodsSkus) {
+  for (const [index, sku] of goodsSkus.entries()) {
+    const measurementError = validateMeasurement(sku);
+    if (measurementError) return `SKU第${index + 1}行：${measurementError}`;
     if (
       !isNonNegativeNumber(sku.salesPrice) ||
       !isNonNegativeNumber(sku.originalPrice) ||

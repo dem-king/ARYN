@@ -158,8 +158,9 @@ public class RemoteCardMarketingServiceImpl implements RemoteCardMarketingServic
 	/**
 	 * 进行中档期特供价批量查询（价格快照 Job 用，2026-11-14 B2B）。
 	 *
-	 * <p>复用 {@code PromoCalendarService#specials}（活动窗+档期窗+剩余限量口径与 C 端
-	 * 楼层/成交试算同源）；DTO 复用秒杀形态（seckillPrice 字段名承载特供价，注释即口径）。
+	 * <p>复用 {@code PromoCalendarService#specialsForSnapshot}（活动窗+档期窗+剩余限量口径与 C 端
+	 * 楼层/成交试算同源，不做场景圈定过滤——快照取全局最低价）；DTO 复用秒杀形态
+	 * （seckillPrice 字段名承载特供价，注释即口径）。
 	 * 同一 SKU 命中多个特供活动取最低；失败降级空列表，快照退化为仅本地价。
 	 */
 	@Override
@@ -170,7 +171,7 @@ public class RemoteCardMarketingServiceImpl implements RemoteCardMarketingServic
 		try {
 			Map<String, GoodsSkuSeckillDTO> bySku = new LinkedHashMap<>();
 			for (com.aryn.cloud.promotion.api.vo.AppCalendarSpecialVO special : promoCalendarService
-					.specials(tenantId, null)) {
+					.specialsForSnapshot(tenantId)) {
 				if (special == null || special.getItems() == null) {
 					continue;
 				}

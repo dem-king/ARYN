@@ -66,4 +66,16 @@ public class OrderRefundSuccessEvent {
 
 	private OrderItemRefundSuccessEvent orderItem;
 
+	@Schema(description = "购买场景：1海员个人 2船供采购 3企业采购（企业轨成长值回扣使用；空按个人处理）")
+	private String purchaseScene;
+
+	@Schema(description = "配送船舶ID（scene=2 时企业轨成长值回扣主体）")
+	private String vesselId;
+
+	@Schema(description = "采购主体ID（scene=3 时企业轨成长值回扣主体）")
+	private String buyerOrgId;
+
+	@Schema(description = "原订单完成时间（成长值回扣到原归属月份；空回退退款时刻——未收货即退款等场景）")
+	private LocalDateTime completeTime;
+
 }

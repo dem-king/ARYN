@@ -1,3 +1,5 @@
+import type { UserCenterSettings } from './user-center'
+
 export const DECORATION_SCHEMA_VERSION = 2 as const
 
 export type DecorationLinkType
@@ -51,6 +53,7 @@ export interface NavigationScrollEffect {
 }
 
 export interface PageSettings {
+  userCenter?: UserCenterSettings
   backgroundColor: string
   backgroundImage: string
   enablePullDownRefresh: boolean

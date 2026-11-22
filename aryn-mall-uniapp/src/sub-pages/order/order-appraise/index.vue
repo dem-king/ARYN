@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { getById, orderAppraise } from '@/api/order/orderInfo'

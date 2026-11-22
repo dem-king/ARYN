@@ -176,7 +176,7 @@ GROUP BY sku_id
   - `diy-goods/index.vue`（:154 price-badge / :165 price-original）：badgeKind 样式分支加 `newbie`（描边红「新人首单价」）、`seckill`（实底红「秒杀价」）；
   - `goods-list-panel/index.vue`（:382 goods-price-badge）：同上，`goods-price-badge--newbie/--seckill`；
   - `waterfall-goods/index.vue`（:262 zone-badge）：同上；
-  - 新增两行展示位：划线价上方灰字社证行（`socialProofText`）、主价旁描边小标（`priceTagText`，降价折线图标+「近14天最低价」，照小象样式）；仅 `card-tags` 下发的文本直接渲染，前端不做门槛/取整；
+  - 新增两行展示位：划线价上方灰字社证行（`socialProofText`）、近N天最低价 chip（`priceTagText`，降价折线图标+「近14天最低价」）；仅 `card-tags` 下发的文本直接渲染，前端不做门槛/取整。**2026-11-15 视觉收敛**：最低价不再做主价旁的浅红描边小标，改为与社证同族的浅桃底暖橙字胶囊（同字号/内边距/圆角），并移入 `socialProofText` 所在的营销标签行——与「月N+人已下单 / X%人回购」同款同位置；标签行由 `nowrap` 改为整枚换行，双 chip 放不下时不裁字、也不掉进价格行。四张主卡同步（令牌见 `src/styles/goods-tag.scss` 的 `goods-tag-hot` / `goods-tag-hot-icon`）；**同轮间距收边**：有营销标签行时，价格区统一 `13rpx` 上间距并把价格列顶对齐（`goods-tabs__meta--tagged` / `goods-bottom--tagged` / `waterfall-price-block--tagged`，diy-goods 走 7px），chip→价格 ≈7.5px；无 chip 的卡保持原间距（14 / 12 / 10rpx、10px），不改「副标题→价格」的节奏；
 - **管理端装修预览同步**：page-designer 预览画布的 diy 卡须按 1rpx=0.5px 逐值镜像新角标（`preview-parity.test.ts` 扩断言），预览端 badgeKind 枚举与文案同源；
 - 契约测试同步：`zone-price-contract.test.ts`（badgeKind 文案映射）、`diy-zone-price.contract.test.ts`、`diy-goods` 角标分支、新增 `card-tags` 管线契约（降级置空时三卡不渲染新元素）；`original-price-contract.test.ts` 划线口径不动（新人/秒杀价 < 原价时现有 strike 机制自然生效）。
 

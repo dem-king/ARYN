@@ -4,22 +4,15 @@
  * 新增文案时先加到这里，再在同级 `en-US.ts` 补英文；两边 key 必须一一对应。
  * 页面里统一用 `t('模块.key')`，禁止在模板里再直接写中文字面量。
  */
-import accountMember from './modules/accountMember.zh-CN'
-import accountSettings from './modules/accountSettings.zh-CN'
-import afterSales from './modules/afterSales.zh-CN'
 import app from './modules/app.zh-CN'
-import buyerOrg from './modules/buyerOrg.zh-CN'
 import cart from './modules/cart.zh-CN'
 import catalog from './modules/catalog.zh-CN'
 import checkout from './modules/checkout.zh-CN'
 import diy from './modules/diy.zh-CN'
 import labels from './modules/labels.zh-CN'
-import loginDevices from './modules/loginDevices.zh-CN'
 import message from './modules/message.zh-CN'
-import order from './modules/order.zh-CN'
 import product from './modules/product.zh-CN'
 import promotion from './modules/promotion.zh-CN'
-import sales from './modules/sales.zh-CN'
 import search from './modules/search.zh-CN'
 import sessionInvalid from './modules/sessionInvalid.zh-CN'
 import shared from './modules/shared.zh-CN'
@@ -119,6 +112,7 @@ export default {
     serviceFootprint: '浏览记录',
     serviceCollect: '我的收藏',
     serviceCoupon: '我的优惠券',
+    serviceSupport: '联系客服',
     serviceDistribution: '分销中心',
     salesWorkbench: '销售工作台',
     salesWorkbenchDesc: '推广码 · 我的客户 · 业绩明细',
@@ -141,6 +135,8 @@ export default {
       invoicing: '支持企业开票',
       dedicatedService: '专属客服/业务员服务',
       reserved: '即将上线',
+      rebate: '返利',
+      creditDays: '账期 {days} 天',
       noBenefits: '当前等级暂未配置专属权益',
       tierHint: '采购额累计提升等级后自动解锁更多权益',
     },
@@ -150,7 +146,7 @@ export default {
     nicknameNotSet: '未设置昵称',
     memberCenter: '会员中心',
     // vue-i18n 里 | 是复数分隔符，字面量竖线必须写成 {'|'}
-    pointsBalance: "积分{points} {'|'} 余额{balance}",
+    pointsBalance: '积分{points} {\'|\'} 余额{balance}',
     phone: '手机号码',
     notBound: '未绑定',
     changePassword: '修改密码',
@@ -165,18 +161,11 @@ export default {
   },
   ...catalog,
   ...product,
-  ...sales,
   ...search,
   ...sessionInvalid,
-  ...loginDevices,
   ...cart,
-  ...buyerOrg,
   ...checkout,
-  ...order,
   ...sharedCart,
-  ...afterSales,
-  ...accountMember,
-  ...accountSettings,
   ...message,
   ...labels,
   ...shared,

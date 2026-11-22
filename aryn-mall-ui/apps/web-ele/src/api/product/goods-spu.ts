@@ -79,3 +79,16 @@ export { batchZoneTags } from './goods-zone';
 export async function saveZoneTags(spuId: string, data: any) {
   return requestClient.put(`/product/goodsspu/${spuId}/tags`, data);
 }
+
+export interface SkuMeasurementForm {
+  id?: string;
+  salesUnit?: null | string;
+  baseDimension?: null | string;
+  baseUnit?: null | string;
+  baseQtyPerSalesUnit?: null | number | string;
+  quantityPrecision?: null | string;
+  minOrderQty?: null | number;
+  stepQty?: null | number;
+  unitSpecText?: null | string;
+  measurementRevision?: null | number;
+}

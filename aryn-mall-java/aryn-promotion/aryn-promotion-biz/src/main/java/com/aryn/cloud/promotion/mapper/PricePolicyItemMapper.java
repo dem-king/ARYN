@@ -20,7 +20,7 @@ public interface PricePolicyItemMapper extends BaseMapper<PricePolicyItem> {
 	@Insert("""
 			INSERT INTO `price_policy_item`
 				(`id`, `policy_id`, `spu_id`, `sku_id`, `policy_price`, `policy_rate`, `min_qty`,
-				 `tenant_id`, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
+				 tenant_id, `create_by`, `create_time`, `update_by`, `update_time`, `del_flag`)
 			VALUES (#{item.id}, #{item.policyId}, #{item.spuId}, #{item.skuId}, #{item.policyPrice},
 					#{item.policyRate}, #{item.minQty}, #{item.tenantId}, #{item.createBy}, NOW(),
 					#{item.updateBy}, NOW(), '0')

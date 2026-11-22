@@ -1,7 +1,7 @@
 <script setup lang="ts" name="orderOperation">
 import type { MessageResult } from 'wot-design-uni/components/wd-message-box/types'
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { orderCancel, orderDel, orderReceiver } from '@/api/order/orderInfo'
 
 const props = defineProps({

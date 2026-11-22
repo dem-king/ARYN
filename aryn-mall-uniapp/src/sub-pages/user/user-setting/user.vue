@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { onLoad, onPageScroll } from '@dcloudio/uni-app'
-import { useI18n } from 'vue-i18n'
+import { useI18n } from '@/sub-pages/locales'
 import { editObj } from '@/sub-pages/api/user/user'
 import { uploadFile, uploadImg } from '@/api/upms/file'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
